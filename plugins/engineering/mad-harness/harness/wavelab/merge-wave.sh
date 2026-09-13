@@ -17,7 +17,11 @@ ROOT="${WAVELAB_ROOT:-$HOME/harness-wavelab}"
 while [ "${1:-}" = "--root" ]; do ROOT="${2:?}"; shift 2; done
 NAME="${1:?usage: merge-wave.sh [--root DIR] <beads|mdfiles>}"
 REPO="$ROOT/$NAME"
-HARNESS="$(cd "$(dirname "$0")/.." && pwd)"
+HARNESS="$(# Record where we were invoked from BEFORE moving: the cd below lands in the
+# harness, which carries its own harness.yaml, and the resolver would read that
+# as the project. Already-set wins, so a caller may state it explicitly.
+export MAD_HARNESS_CALLER_PWD="${MAD_HARNESS_CALLER_PWD:-$PWD}"
+cd "$(dirname "$0")/.." && pwd)"
 export MAD_HARNESS_REPO="$REPO"
 
 cd "$REPO" || exit 2

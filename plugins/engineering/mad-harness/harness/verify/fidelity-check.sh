@@ -12,6 +12,12 @@
 # BOTH the source excerpt and the (re-run) composite as evidence.
 set -euo pipefail
 
+# Record where we were invoked from. This script reaches into the harness via a
+# subshell or a computed path, so Python still runs with the harness as its cwd —
+# and the harness carries its own harness.yaml, which the resolver would read as
+# the project. Exported here so every subshell inherits it.
+export MAD_HARNESS_CALLER_PWD="${MAD_HARNESS_CALLER_PWD:-$PWD}"
+
 name="${1:?usage: fidelity-check.sh <name> <HandoverComponent> <ourPath> [width]}"
 comp="${2:?missing handover component}"
 ourPath="${3:?missing our route path}"

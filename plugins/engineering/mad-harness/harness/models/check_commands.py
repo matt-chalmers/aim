@@ -437,6 +437,13 @@ def main(argv: list[str] | None = None) -> int:
         print("no stacks declared — nothing to probe.")
         return 0
 
+    # NAME THE PROJECT. A check that answers about the wrong repository is the failure
+    # this guards: it does not error, it reports a clean pass about somebody else. The
+    # resolution is three fallbacks deep and invisible, so every check says whose
+    # answer this is.
+    from .project import load as _load
+
+    print(f"project: {_load().name}")
     print("stack commands:")
     for f in findings:
         print(f.line())

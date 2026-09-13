@@ -20,6 +20,12 @@
 # deliberate choice rather than an oversight.
 
 set -uo pipefail
+
+# Record where we were invoked from. This script reaches into the harness via a
+# subshell or a computed path, so Python still runs with the harness as its cwd —
+# and the harness carries its own harness.yaml, which the resolver would read as
+# the project. Exported here so every subshell inherits it.
+export MAD_HARNESS_CALLER_PWD="${MAD_HARNESS_CALLER_PWD:-$PWD}"
 BASE="${1:?usage: check-doc-drift.sh <base-ref> [head-ref]}"
 HEAD_REF="${2:-HEAD}"
 PWD_REPO="${MAD_HARNESS_REPO:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"

@@ -69,9 +69,20 @@ def _find_repo() -> Path:
     if override:
         return Path(override).resolve()
 
-    # Walk up from the working directory to the nearest ancestor carrying a
-    # project config. `parents` excludes the directory itself, so check it first.
-    cwd = Path.cwd().resolve()
+    # WALK UP FROM THE CALLER'S DIRECTORY, NOT OURS. Every shell wrapper does
+    # `cd "$(dirname "$0")/.."` before exec'ing Python, so by the time this runs the
+    # working directory is the HARNESS — which carries its own `harness.yaml`,
+    # describing the harness as a project. The walk below then finds that config and
+    # stops, and the check answers about the wrong repository without erroring.
+    #
+    # Measured: `check-stack-commands.sh` run by hand from a consuming project reported
+    # the plugin's own `python-uv-selftest` stack. It looks like a pass.
+    #
+    # So the wrappers record where they were invoked from before they move. When the
+    # harness is being developed the caller's directory IS the harness, which resolves
+    # to the harness — still correct.
+    caller = os.environ.get("MAD_HARNESS_CALLER_PWD")
+    cwd = Path(caller).resolve() if caller else Path.cwd().resolve()
     for candidate in (cwd, *cwd.parents):
         if (candidate / "harness.yaml").is_file():
             return candidate
