@@ -1,0 +1,20 @@
+direction: right
+
+w1: "worker 1"
+w2: "worker 2"
+hot: {
+  label: "hot store\ngitignored · absolute path\nevery worker writes"
+  shape: cylinder
+}
+orch: { label: "orchestrator\nexport() once per wave"; style: { fill: "#eef2ff"; stroke: "#4f46e5" } }
+tracked: {
+  label: "tracked export\nreviewable in a diff"
+  style: { fill: "#eef2ff"; stroke: "#4f46e5" }
+}
+
+w1 -> hot
+w2 -> hot
+hot -> orch
+orch -> tracked
+w1 -> tracked: "never" { style: { stroke: "#dc2626"; stroke-dash: 4 } }
+w2 -> tracked: "never" { style: { stroke: "#dc2626"; stroke-dash: 4 } }

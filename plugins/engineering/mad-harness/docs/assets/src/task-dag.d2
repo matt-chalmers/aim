@@ -1,0 +1,25 @@
+direction: down
+
+epic: { label: "epic\nstaging folder + fold-in"; style: { fill: "#eef2ff"; stroke: "#4f46e5" } }
+
+wave1: "wave 1 — ready(): no open blockers" {
+  style.stroke-dash: 4
+  t1: "task: add normalise_email"
+  t2: "task: add normalise_phone"
+}
+
+wave2: "wave 2 — after wave 1 closes" {
+  style.stroke-dash: 4
+  t3: "task: wire both into clean_contact"
+}
+
+d: { label: "decision\nowner answers"; style: { fill: "#fffbeb"; stroke: "#d97706" } }
+p: { label: "Permission:\noperator answers"; style: { fill: "#fffbeb"; stroke: "#d97706" } }
+
+epic -> wave1.t1
+epic -> wave1.t2
+epic -> wave2.t3
+wave1.t1 -> wave2.t3: "depends_on"
+wave1.t2 -> wave2.t3: "depends_on"
+d -> wave2.t3: "blocks" { style: { stroke-dash: 4; stroke: "#d97706" } }
+p -> wave1.t2: "blocks" { style: { stroke-dash: 4; stroke: "#d97706" } }

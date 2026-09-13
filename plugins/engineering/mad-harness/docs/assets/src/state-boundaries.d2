@@ -1,0 +1,36 @@
+direction: right
+
+primary: "PRIMARY CHECKOUT — shared state" {
+  style: { stroke-dash: 4; fill: "#fafbfc" }
+  hot: { label: ".beads/embeddeddolt  ·  .harness/tasks/\nhot store — every worker writes, absolute path"; shape: cylinder }
+  run: { label: ".harness/run/\nclaims · merge-slot lease · telemetry" }
+  cache: { label: ".harness/cache/uv/\ntoolchain cache — inside the sandbox boundary" }
+  export: { label: "docs/tasks/  ·  .beads/issues.jsonl\nTRACKED export"; style: { fill: "#eef2ff"; stroke: "#4f46e5" } }
+  deps: { label: ".venv  ·  node_modules" }
+}
+
+w1: "worktree harness-w1-<task> — isolated" {
+  style.stroke-dash: 4
+  src1: "source tree · git index · branch"
+  env1: "swarm-env\nTRACKER_ACTOR=swarm-w1\nDB_NAME=acme_w1"
+}
+
+w2: "worktree harness-w2-<task> — isolated" {
+  style.stroke-dash: 4
+  src2: "source tree · git index · branch"
+  env2: "swarm-env\nDB_NAME=acme_w2"
+}
+
+orch: orchestrator { style: { fill: "#eef2ff"; stroke: "#4f46e5" } }
+
+w1.env1 -> primary.hot: "read + write"
+w2.env2 -> primary.hot: "read + write"
+w1.env1 -> primary.run
+w2.env2 -> primary.run
+w1.env1 -> primary.cache
+w2.env2 -> primary.cache
+primary.deps -> w1.src1: "hardlink / symlink" { style.stroke-dash: 3 }
+primary.deps -> w2.src2: "hardlink / symlink" { style.stroke-dash: 3 }
+orch -> primary.export: "writes ONCE per wave"
+w1.src1 -> primary.export: "never" { style: { stroke: "#dc2626"; stroke-dash: 4 } }
+w2.src2 -> primary.export: "never" { style: { stroke: "#dc2626"; stroke-dash: 4 } }

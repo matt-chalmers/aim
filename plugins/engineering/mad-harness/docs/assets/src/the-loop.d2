@@ -1,0 +1,36 @@
+direction: right
+
+requirement: { label: "requirement\nanalyst-survey" }
+spec: { label: "spec\nspec-editor" }
+design: { label: "design\narchitect" }
+tasks: { label: "task DAG\nplanner" }
+wave: { label: "wave\nN × fullstack-engineer"; style: { fill: "#eef2ff"; stroke: "#4f46e5" } }
+verify: { label: "verify\n4 lenses"; style: { fill: "#eef2ff"; stroke: "#4f46e5" } }
+foldin: { label: "fold-in\nspec-editor" }
+
+requirement -> spec -> design -> tasks -> wave -> verify
+verify -> foldin: "all lenses pass"
+foldin -> requirement: "next epic" { style.stroke-dash: 4 }
+
+remediate: {
+  label: "remediate\nL1·L3·L4 → fullstack-engineer\nL2 → quality-engineer, own worktree"
+  style: { fill: "#fef2f2"; stroke: "#dc2626" }
+}
+verify -> remediate: "blocking finding" { style.stroke: "#dc2626" }
+remediate -> verify: "task stays open until remediation\npasses every lens that ran" { style.stroke: "#dc2626" }
+
+filed: {
+  label: "non-blocking findings\nfiled as tasks before the push"
+  style: { stroke-dash: 4; fill: transparent }
+}
+verify -> filed: { style.stroke-dash: 4 }
+
+decision: {
+  label: "decision\nowner answers · gates the epic"
+  style: { fill: "#fffbeb"; stroke: "#d97706" }
+}
+requirement -> decision: "ABSENT" { style: { stroke-dash: 4; stroke: "#d97706" } }
+design -> decision: { style: { stroke-dash: 4; stroke: "#d97706" } }
+tasks -> decision: { style: { stroke-dash: 4; stroke: "#d97706" } }
+wave -> decision: "a worker hits a\nproduct question" { style: { stroke-dash: 4; stroke: "#d97706" } }
+decision -> tasks: "answered — epic unblocked" { style: { stroke-dash: 4; stroke: "#d97706" } }

@@ -1,0 +1,49 @@
+name: validate
+
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  # The marketplace index itself. Cheap, and it fails in the one way no plugin's own
+  # suite can see: the manifest and the tree disagreeing, which ships a marketplace
+  # that resolves nothing while every plugin inside it is green.
+  marketplace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Manifest agrees with the tree
+        run: scripts/validate-marketplace.sh
+
+  # Each plugin's own checks, DISCOVERED rather than listed. A plugin added to the tree
+  # is tested without editing this file — and `validate-marketplace.sh` above is what
+  # guarantees the tree and the manifest agree about which plugins exist.
+  plugins:
+    runs-on: ubuntu-latest
+    needs: marketplace
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Every plugin that declares a Makefile
+        run: |
+          set -euo pipefail
+          found=0
+          for mk in plugins/*/*/Makefile; do
+            [ -f "$mk" ] || continue
+            dir=$(dirname "$mk")
+            found=$((found + 1))
+            echo "::group::$dir — check"
+            make -C "$dir" check
+            echo "::endgroup::"
+            # The tracker contract against real binaries. Separate from `check` because
+            # bd's per-call startup makes it ~40s, so it is relocated rather than optional.
+            if make -C "$dir" -n conformance >/dev/null 2>&1; then
+              echo "::group::$dir — conformance"
+              make -C "$dir" conformance
+              echo "::endgroup::"
+            fi
+          done
+          # An empty loop reports success having tested nothing, which is the failure
+          # this whole file exists to prevent one level up.
+          [ "$found" -gt 0 ] || { echo "no plugin Makefile found — wrong layout" >&2; exit 1; }
+          echo "$found plugin(s) checked."

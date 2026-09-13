@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+.venv/
+# Worker-writable hot state, shared via the primary checkout and NEVER committed: the
+# claim files, the merge-slot lease, telemetry, and the markdown backend's live records.
+# The tracked artefacts are written by the orchestrator once per wave, not by whoever
+# happens to hold a claim — a tracked file written mid-wave leaves the primary checkout
+# dirty and fails the next wave's pre-flight.
+#
+# `.harness/stacks/` and `.harness/frameworks/` are NOT ignored: those are project config
+# a repository writes on purpose, and they must travel with it.
+**/.harness/run/
+**/.harness/tasks/
+
+# The independence reviews: valuable history for this repository, and noise for
+# anyone installing the plugin. Kept locally, never shipped.
+independence_check.md

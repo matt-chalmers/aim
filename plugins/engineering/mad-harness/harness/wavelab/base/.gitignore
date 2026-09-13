@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+# Worker-writable hot state, shared through the primary checkout and never committed.
+# The harness puts worker worktrees here. Without this, any `git add -A` in the
+# primary checkout commits them as embedded git repositories.
+.claude/worktrees/
+**/.harness/cache/
+**/.harness/run/
+**/.harness/tasks/

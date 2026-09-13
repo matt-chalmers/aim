@@ -1,0 +1,46 @@
+# The harness's own dependency set.
+#
+# WHY THIS EXISTS. The harness is a plugin: it runs inside repositories it knows
+# nothing about, so it cannot borrow an interpreter from the project it is working
+# on. It used to try — every wrapper ran `uv run --project ../backend`, naming a
+# directory from the repository the harness was extracted from, which exists in no
+# consuming repo and, after the extraction, not here either.
+#
+# Declaring its own tiny dependency set is what makes `uv run` work from anywhere:
+# the wrappers cd to this directory first, so uv resolves against this file.
+#
+# KEEP THIS SET SMALL. It is installed wherever the plugin is installed. PyYAML is
+# here because config is YAML and hand-rolling a parser would reject valid files a
+# project may reasonably write; everything else is a development tool.
+
+[project]
+name = "mad-harness"
+version = "0.1.0"
+description = "Machinery for the MAD harness: model routing, config, and the verification primitives."
+requires-python = ">=3.11"
+dependencies = [
+    "claude-agent-sdk>=0.2.152",
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[tool.uv]
+# Not an installable package. `models/` and `verify/` are imported via this
+# directory being on the path (see pytest.ini `pythonpath = .`), not via a build.
+# Without this uv would try to build a wheel and fail on a layout that was never
+# meant to produce one.
+package = false
+
+[tool.ruff]
+target-version = "py311"
+exclude = [".venv", "__pycache__"]
+
+[tool.ruff.lint]
+# PINNED, NOT INHERITED. Ruff's default rule set grows with each release: 0.16
+# enables whole families (FURB, PLW, DTZ, ...) that 0.15 did not, and this code was
+# written against the older set. An unpinned selection means the harness's own CI
+# turns red whenever ruff ships — for a plugin installed into many repositories,
+# that is a failure mode with no upside. Widen this deliberately, never by upgrade.
+select = ["E4", "E7", "E9", "F", "I"]

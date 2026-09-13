@@ -1,0 +1,19 @@
+{
+  "name": "aim",
+  "owner": {
+    "name": "Matt Chalmers"
+  },
+  "description": "A collection of Claude Code plugins, grouped by what they are for.",
+  "plugins": [
+    {
+      "name": "mad-harness",
+      "source": "./plugins/engineering/mad-harness",
+      "description": "A multi-agent development harness: model tiering and dispatch, parallel worker worktrees, decorrelated verification lenses, a pluggable task tracker, and the doctrine those agents run on.",
+      "author": {
+        "name": "Matt Chalmers"
+      },
+      "category": "engineering",
+      "keywords": ["agents", "orchestration", "verification", "swarm", "harness"]
+    }
+  ]
+}

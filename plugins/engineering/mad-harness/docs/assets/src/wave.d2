@@ -1,0 +1,28 @@
+shape: sequence_diagram
+
+orch: orchestrator
+tracker: tracker
+w1: worker 1
+w2: worker 2
+
+orch -> tracker: "autosync off (pre-flight)"
+orch -> tracker: "ready(lane)"
+tracker -> orch: "[task-a, task-b]"
+
+parallel: {
+  orch -> w1: "dispatch(task-a) in worktree"
+  w1 -> tracker: "claim(task-a) — O_EXCL"
+  w1 -> w1: "implement · scoped tests · one commit"
+  w1 -> tracker: "close(task-a, reason)"
+
+  orch -> w2: "dispatch(task-b) in worktree"
+  w2 -> tracker: "claim(task-b) — O_EXCL"
+  w2 -> w2: "implement · scoped tests · one commit"
+  w2 -> tracker: "close(task-b, reason)"
+}
+
+orch -> orch: "merge branches serially"
+orch -> orch: "whole-repo gate ONCE on the merged tree"
+orch -> tracker: "export() — tracked artefact"
+orch -> tracker: "autosync on"
+orch -> orch: "push"

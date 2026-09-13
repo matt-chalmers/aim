@@ -1,0 +1,96 @@
+# Model tiers — the one authoritative map from a logical tier to a concrete model.
+#
+# A tier is REQUIRED MODEL CAPABILITY, not seniority and not a job title. The same
+# agent runs at different tiers for different work; that is the whole point of the
+# split, and it is why there are no junior/senior agent variants.
+#
+# This file owns provider, model, effort and budget. It does NOT own which agent
+# uses which tier — that is declared by each agent, in its own frontmatter
+# (`model_tier:`), so an agent definition stays authoritative for its own defaults
+# and there is no second source of truth to drift.
+#
+# NAME CONCRETE MODEL IDS, NEVER ALIASES. An alias resolves differently per
+# dispatch path, silently. Measured, and it invalidated a whole parity experiment:
+# with `model: opus`, the Agent tool resolved `claude-opus-5[1m]` while the CLI's
+# `--model opus` resolved `claude-opus-4-7` — a model generation and 5x the context
+# window apart, for the same word. A concrete id resolves identically everywhere,
+# which is the only way the tier can mean one thing.
+#
+# Keep the taxonomy small. Add a tier only when telemetry shows a distinction that
+# these three cannot express.
+#
+# max_budget_usd IS A CIRCUIT BREAKER, NOT A GUARANTEE. It is passed to
+# `claude -p --max-budget-usd`, which Claude Code checks BETWEEN API calls — so a
+# single expensive call can carry a dispatch well past the ceiling before anything
+# notices. Measured: a $0.005 budget produced a $0.1118 dispatch, a 22x overshoot.
+# It reliably stops a runaway LOOP (many calls); it does not bound a single large
+# one. Set these to "obviously too much for this tier's work", not to a figure you
+# intend to hold anyone to.
+
+default_tier: strong
+
+# The escalation ladder, weakest first. Stated explicitly rather than inferred
+# from cost or model name: inference would silently reorder the moment a tier's
+# model changed, and escalation is the one path where going the wrong direction
+# is both expensive and invisible.
+ladder: [worker, strong, strategic]
+
+tiers:
+
+  # Routine, well-specified work with a cheap recovery path: the acceptance
+  # criteria are explicit, the blast radius is one task, and a mistake is caught
+  # by the lens gate rather than shipped.
+  worker:
+    provider: anthropic
+    model: claude-sonnet-5
+    effort: high
+    max_budget_usd: 1.50
+
+  # Real reasoning over a codebase, where being wrong is expensive to detect.
+  # On the [1m] variant because the context window is the binding constraint for
+  # whole-corpus reads and it carries NO price premium — Opus 5 is one rate,
+  # $5/$25 per MTok, for both variants. Measured: the bare id resolves to a
+  # 200k window here, the [1m] suffix to 1M, so the suffix is a real capability
+  # selector on this account rather than a cosmetic tag.
+  strong:
+    provider: anthropic
+    model: claude-opus-5[1m]
+    effort: xhigh
+    max_budget_usd: 4.00
+
+  # Architecture and irreversible calls. Also the forced tier for high-risk work,
+  # whatever an agent's own default says — see resolve.py, POLICY_FORCED_TIER.
+  # The [1m] variant is the real step up from `strong`: same model, 5x the context,
+  # which is what a whole-corpus read actually needs.
+  strategic:
+    provider: anthropic
+    model: claude-opus-5[1m]
+    effort: max
+    max_budget_usd: 8.00
+
+# Providers. `env` carries ONLY what is provider-specific and cannot be said
+# per-tier: the endpoint and the credential. It must never name a model — the
+# tier above already declares `model:` and the dispatcher passes it as `--model`,
+# so a model here would be a second source of truth for one value, able to
+# disagree with the tier and looking live while being dead. Pinned by
+# test_no_provider_declares_a_model.
+#
+# A ${VAR} reference is read from the orchestrator's environment (or harness/.env)
+# at dispatch time, and NEVER written to this file, to a task, or to telemetry.
+providers:
+
+  anthropic:
+    # Native. Claude Code's own auth (subscription or API key) is used as-is;
+    # deliberately nothing here, so the default path stays exactly as it is today.
+    env: {}
+
+  # Reachable because Claude Code honours ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN
+  # and DeepSeek publishes an Anthropic-compatible endpoint. Compatibility is a
+  # CLAIM TO TEST, not to assume — harness/models/probe-compat.sh gates its use.
+  #
+  # To move the worker tier onto it, edit the tier — not this block:
+  #     worker: { provider: deepseek, model: deepseek-chat, ... }
+  deepseek:
+    env:
+      ANTHROPIC_BASE_URL: ${DEEPSEEK_BASE_URL}
+      ANTHROPIC_AUTH_TOKEN: ${DEEPSEEK_API_KEY}

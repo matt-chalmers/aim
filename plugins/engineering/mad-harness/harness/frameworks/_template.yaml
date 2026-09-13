@@ -1,0 +1,31 @@
+# Framework module template — copy, rename to <framework>.yaml, fill in.
+#
+# A framework module answers "how do I WRITE good code here". If the fact is about
+# how to RUN things (install, test, lint, isolate a worker), it belongs in a stack
+# module under harness/stacks/ instead. The two axes are independent: one toolchain
+# serves many frameworks, and one framework runs on many toolchains.
+
+# Frameworks are activated by NAME — listing one under `frameworks:` in harness.yaml
+# is what turns it on. There is deliberately no `detect` key: an earlier version had
+# one, nothing read it, and a field that looks load-bearing while being inert is worse
+# than its absence.
+name: <framework>              # MUST equal the filename, minus .yaml
+description: <one line — what this framework is, and the layout it implies>
+
+
+# Injected into a worker's prompt when this framework is active. Budgeted, because
+# every fact here is paid for on EVERY dispatch in this lane. Include a rule only if
+# getting it wrong is both likely and expensive; everything else goes in the skill.
+#
+# Good card entries are prohibitions and non-obvious defaults. Bad card entries are
+# things a competent engineer would do anyway.
+card: |
+  <Framework>:
+  - <rule that is wrong often enough to be worth carrying>
+  - <NEVER ... — the prohibitions earn their place fastest>
+
+# Optional. A skills/<name>/SKILL.md holding the deep doctrine, loaded ONLY when an
+# agent asks for it. Never add this to any agent's `skills:` frontmatter — that
+# would turn a free module into a permanent tax on every dispatch, which is the
+# exact failure this layering exists to prevent.
+doctrine_skill: framework-<framework>

@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+
+# Worker-writable runtime state. Never committed: claim files, the merge-slot
+# lease, telemetry, and a markdown tracker's live records. `.harness/stacks/`
+# and `.harness/frameworks/` are project config and ARE tracked, which is why
+# this ignores the run/task directories rather than the whole tree.
+**/.harness/run/
+**/.harness/tasks/
+**/.harness/cache/
+
+# Agent worktrees. Without this, `git add -A` commits them as embedded repos.
+**/.claude/worktrees/
+
+.DS_Store

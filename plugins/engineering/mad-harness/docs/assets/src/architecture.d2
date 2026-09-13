@@ -1,0 +1,31 @@
+direction: down
+
+prompts: "PROMPTS — markdown, read by a model" {
+  style: { stroke-dash: 4; fill: "#eef2ff"; stroke: "#4f46e5" }
+  agents: "agents/\nwho does the work"
+  commands: "commands/\nwhat to do now"
+  skills: "skills/\nhow that work is done well"
+}
+
+code: "CODE — shell and Python, executed by a machine" {
+  style.stroke-dash: 4
+  models: "models/\nrouting · dispatch · permissions · telemetry"
+  tracker: "tracker/\nfour ports · two backends · graph · locks"
+  verify: "verify/\nbriefs · scoped runs · mutation · fidelity"
+  swarm: "swarm/\nworktree lifecycle"
+  checks: "checks/\nmechanical gates"
+  modules: "stacks/ + frameworks/\nthe two module axes"
+}
+
+config: {
+  label: "harness.yaml\nEVERY project-specific fact"
+  style: { fill: "#fffbeb"; stroke: "#d97706" }
+}
+
+prompts.commands -> code.models: "dispatch"
+code.models -> prompts.agents: "loads definition"
+code.models -> prompts.skills: "preloads declared skills"
+code.modules -> prompts.agents: "technology reaches an agent\nONLY through the lane card"
+config -> code.modules: "root · commands · overrides" { style.stroke: "#d97706" }
+config -> code.models: "tiers · grants · lanes" { style.stroke: "#d97706" }
+config -> code.checks: "paths · security · testing" { style.stroke: "#d97706" }

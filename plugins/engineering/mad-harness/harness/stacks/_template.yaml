@@ -1,0 +1,80 @@
+# Stack module template — copy, rename to <toolchain>.yaml, fill in.
+#
+# A stack module answers "how do I RUN things with this toolchain": how a fresh
+# worktree is made usable, what a parallel worker must export to stay isolated, and
+# how to invoke the suite. If the fact is about how to WRITE good code, it belongs in
+# a framework module under harness/frameworks/ instead. The two axes are independent —
+# one toolchain serves many frameworks, and one framework runs on many toolchains.
+
+name: <toolchain>              # MUST equal the filename, minus .yaml
+description: <one line>
+
+# WHERE this toolchain lives, relative to the repository root. EVERYTHING BELOW IS
+# RELATIVE TO THIS. Ship "." — a root layout is the common case, and a module must
+# not name a location, because where a toolchain lives is a fact about the PROJECT.
+# A consuming repo relocates it in its own harness.yaml:
+#     stacks: [{name: <toolchain>, root: services/api}]
+root: "."
+
+# The marker for THIS TOOLCHAIN. Any one is enough — these are alternatives.
+# Prefer a LOCKFILE: it is what distinguishes one tool from its neighbours.
+detect_any:
+  - <lockfile>
+
+# Markers that identify only the LANGUAGE, shared with competing toolchains.
+# Matching one of these and none of detect_any is reported AMBIGUOUS: a warning
+# naming the doubt, not a pass and not a failure. A false positive here is the
+# expensive direction — it survives config validation and fails inside a worker's
+# worktree mid-wave, where it reads as the worker's fault rather than the config's.
+detect_language:
+  - <manifest>
+
+# The directory a fresh git worktree lacks, because it is gitignored.
+dependency_dir: <dir>
+
+bootstrap:
+  # install  — when restoring is cheap (a package manager that hardlinks or caches)
+  # symlink  — when it is expensive AND concurrent readers are safe
+  # Getting this backwards costs minutes per worker, every wave.
+  strategy: install
+  command: <restore command>
+  # Optional, relative to root, when the command must run below it.
+  # cwd: <subdir>
+  # Optional: explain a variable this stack exports, printed into .swarm-env.
+  # env_notes: {VAR: "why it matters"}
+
+# Per-worker isolation. {slug} and {worker} are substituted. EVERY STACK THAT NEEDS
+# ISOLATION MUST DECLARE IT — a worker without its own database or build directory
+# silently shares one with its siblings, and the suite still passes, which is why
+# nobody notices until an unrelated flake days later.
+env:
+  SOME_VAR: "{slug}_w{worker}"
+
+commands:
+  test: <whole suite>
+  test_scoped: <suite for one path> {path}
+  # The cheapest command that proves the others still work — a collection pass, a
+  # dry run, a --version. It must load the runner and its config WITHOUT doing the
+  # work. check-stack-commands.sh runs it at pre-flight and repairs what it finds
+  # broken; a module without one is reported UNPROVEN rather than assumed good.
+  verify: <cheap proof the runner works>
+  # test_first_run: <flag a fresh database needs>
+  # lint / typecheck / format_check as your toolchain provides
+  # cwd: <subdir>            # relative to root
+
+# Injected into a worker's prompt when this stack is active. Budgeted — every line
+# is paid on every dispatch. A rule earns a slot only if getting it wrong is both
+# likely and expensive; depth goes in the doctrine skill, which costs nothing until
+# an agent asks for it.
+card: |
+  <Toolchain>:
+  - <a rule that is wrong often enough to be worth carrying>
+
+# doctrine_skill: stack-<toolchain>
+
+# Command shapes that must never appear, with the reason. THE SUITE READS THIS FIELD —
+# it is swept across every tracked file, so a pattern declared here is enforced and a
+# stack that isolates workers through `env` must declare one.
+# banned_forms:
+#   - pattern: '<regex>'
+#     why: <what goes wrong, and how it was found out>

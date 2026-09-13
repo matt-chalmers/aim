@@ -1,0 +1,31 @@
+# Framework module: Django.
+#
+# A FRAMEWORK module answers "how do I write good code here". It is orthogonal to
+# the toolchain: Python + uv could be Django or FastAPI, and `uv sync` has nothing
+# to say about the N+1 query. Toolchain facts belong in harness/stacks/.
+#
+# Everything below was lifted verbatim out of agent prose, where it had no business
+# being — an agent that names Django cannot serve a Go project.
+
+name: django
+description: Django with an app-per-bounded-context layout and a services layer.
+
+
+# THE CARD. Injected into a worker's prompt when this framework is active, and
+# never otherwise. Keep it to the handful of rules that are wrong often enough to
+# be worth ~250 tokens on every dispatch in this lane; everything else belongs in
+# the depth skill, which costs nothing until someone asks for it.
+card: |
+  Django:
+  - Views handle HTTP, services handle logic. ORM access from a view goes through
+    the services layer or a repository function, never inline.
+  - Apps never import another app's models. Cross-app traffic goes through services.
+  - `select_related`/`prefetch_related` aggressively — the N+1 is the most common
+    Django bug in review.
+  - Migrations are forward-only once deployed. NEVER edit a landed migration.
+  - Schema changes are always migrations. Model -> migration -> service -> endpoint.
+  - Raw SQL only where the ORM cannot express the query, and always with a comment
+    saying why.
+
+# Deep doctrine, loaded on demand and never preloaded.
+doctrine_skill: framework-django

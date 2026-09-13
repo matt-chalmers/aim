@@ -1,0 +1,20 @@
+[project]
+name = "wavelab"
+version = "0.1.0"
+description = "A small project for exercising the harness under real dispatched agents."
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# `package = false` means nothing is installed, so the suite needs the source on the
+# path. Without this every test fails to collect — which both wavelab workers
+# correctly diagnosed and fixed as a CORE-CHANGE before starting their real task.
+# A base that starts broken makes every later failure ambiguous.
+pythonpath = ["src"]

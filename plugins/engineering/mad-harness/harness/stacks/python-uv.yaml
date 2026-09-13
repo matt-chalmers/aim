@@ -1,0 +1,106 @@
+# Stack module: Python managed by uv.
+#
+# A stack module answers "what does using this toolchain mean" — how a fresh
+# worktree is made usable, what environment a parallel worker needs, and how to
+# run the suite. Adding support for a new toolchain is a new file here; nothing
+# in harness/ changes.
+
+name: python-uv
+description: Python with uv for dependency management and pytest for tests.
+
+# WHERE this toolchain lives, relative to the repository root. Everything below is
+# relative to this. The default is a root layout, which is the common Python shape;
+# a project keeping it in a subdirectory overrides it in its own harness.yaml —
+#     stacks: [{name: python-uv, root: backend}]
+# — because where a toolchain lives is a fact about the project, not the toolchain.
+root: "."
+
+# The marker for THIS TOOLCHAIN. Any one is enough. `uv.lock` is what actually means
+# uv; `pyproject.toml` is shared with Poetry, PDM, Hatch and plain pip, so it cannot
+# distinguish them.
+detect_any:
+  - uv.lock
+
+# Markers that identify only the LANGUAGE. Matching one of these and none of the
+# above is reported as AMBIGUOUS — the repo is Python, but perhaps not uv's. A
+# warning rather than a failure, because a project may gitignore its lockfile.
+detect_language:
+  - pyproject.toml
+
+# The directory a fresh git worktree lacks, because it is gitignored.
+dependency_dir: .venv
+
+bootstrap:
+  # `uv sync` hardlinks from the global cache, so restoring is seconds, not
+  # minutes — cheap enough to do per worktree rather than share.
+  strategy: install
+  command: uv sync --quiet
+
+# Exported into the worker's .swarm-env. `{slug}` and `{worker}` are substituted.
+env:
+  DB_NAME: "{slug}_w{worker}"
+
+# THE CARD — see harness/frameworks/_template.yaml for what earns a place here.
+card: |
+  Python (uv):
+  - Run scoped, not whole-repo: use the scoped test command below.
+  - Run tests through the harness runner, which loads this worker's isolated resources
+    — DB_NAME, the merge slot, the tracker actor. Substitute the absolute path given
+    under **Harness scripts** below for <harness>:
+
+        <harness>/verify/run.sh --lane <lane> test              # the whole suite
+        <harness>/verify/run.sh --lane <lane> test_scoped <path>  # one file
+
+    Never `source .swarm-env`: every Bash call is a fresh shell, so the exports would
+    not reach your next command, and `source` matches no permission rule anyway.
+  - NEVER prefix a command with an inline env assignment (`VAR=x uv run ...`). The
+    string then starts with VAR=, matches no permission rule, and blocks forever on
+    a prompt nobody is watching.
+
+doctrine_skill: stack-python-uv
+
+# How this runner reports. `mutate.sh` reads these rather than assuming a format —
+# it must distinguish "the suite ran and nothing failed" from "the suite never ran",
+# and a runner whose summary it cannot parse would report confident false survivals.
+test_output:
+  summary: '^(=+ )?[0-9]+ (passed|failed)[^|]* in [0-9]'
+  failure_line: '^FAILED [^ ]+'
+  failure_strip: '^FAILED '
+
+# Where this toolchain keeps its cache, as ENV_VAR: repo-relative path. Resolved
+# against the primary checkout, exported to every worker, and granted to the
+# sandbox — so the cache lives INSIDE the boundary instead of needing a hole cut
+# to ~/.cache. Granting ~/.cache/uv was measured and does not work: uv fails with
+# EPERM on a file inside the granted directory.
+cache_env:
+  UV_CACHE_DIR: .harness/cache/uv
+
+commands:
+  test: uv run pytest
+  test_scoped: uv run pytest {path}
+  test_first_run: uv run pytest --create-db
+  lint: uv run ruff check .
+  format_check: uv run ruff format --check .
+  # The cheap proof that `test` is still right. Collection loads the runner, its
+  # config and every test module WITHOUT running anything — measured at ~3.4s
+  # against a suite that takes 130-187s to execute. check-stack-commands.sh runs
+  # this at pre-flight and repairs `test`/`test_scoped` if it fails.
+  #
+  # `pytest` is a PROJECT choice, not a property of uv: a uv repo may use
+  # unittest, nose2 or tox. That is exactly why this is probed rather than
+  # trusted, and why a repair is written to harness.yaml rather than to here.
+  verify: uv run pytest --collect-only -q
+
+# Command shapes that must never appear, with the reason. The harness's own suite
+# reads THIS field and sweeps every tracked file for it.
+banned_forms:
+  - pattern: '^\s*DB_NAME=\S+\s+uv\s'
+    why: >-
+      The command string starts with DB_NAME=, not uv, so no `Bash(uv:*)` prefix
+      permission rule can match it. The call stops on a permission prompt that
+      surfaces in the orchestrator's session; unattended, it hangs indefinitely.
+      That is a recorded 8.5-hour stall which recurred three times.
+      Use the harness runner — `verify/run.sh test` or `test_scoped <path>` — which
+      loads DB_NAME for you. NOT `source .swarm-env && uv run pytest`: a compound
+      command is denied even when every part of it is granted, so that remedy
+      carries the very defect it was written to cure.

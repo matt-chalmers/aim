@@ -1,0 +1,22 @@
+shape: sequence_diagram
+
+w: worker
+b: broker
+t: tracker
+o: operator
+
+w -> b: "Bash(curl https://…)"
+b -> b: "explain() — no known remedy"
+b -> t: "create Permission: record\n(command VERBATIM)"
+b -> t: "dep_add(task, request)"
+b -> w: "DENY + an operator has been asked"
+w -> w: "does not wait — reports BLOCKED"
+t -> t: "task excluded from ready()"
+
+o -> t: "/decision — reads the raw command"
+o -> o: "add narrowest rule to permissions.allow"
+o -> t: "close(request, reason)"
+t -> t: "task returns to ready()"
+
+t -> w: "re-dispatch — a fresh agent"
+b -> w: "prompt carries the operator's ruling"

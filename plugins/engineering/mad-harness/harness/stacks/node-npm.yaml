@@ -1,0 +1,51 @@
+# Stack module: Node managed by npm.
+
+name: node-npm
+description: Node/Next.js with npm, vitest for components and Playwright for E2E.
+
+# WHERE this toolchain lives. See python-uv.yaml for why the module does not name a
+# location: a project keeping its web app in a subdirectory overrides it —
+#     stacks: [{name: node-npm, root: web}]
+root: "."
+
+# `package-lock.json` is what actually means npm; `package.json` is shared with pnpm,
+# yarn and bun, so it identifies the language and not this toolchain.
+detect_any:
+  - package-lock.json
+
+detect_language:
+  - package.json
+
+dependency_dir: node_modules
+
+bootstrap:
+  # Hundreds of megabytes. Reinstalling per worktree is minutes; concurrent readers of
+  # one node_modules are safe, so a symlink to the primary checkout is correct here
+  # where an install would be correct for Python.
+  strategy: symlink
+
+env:
+  # Parallel Next builds must not share a .next directory.
+  NEXT_DIST_DIR: ".next-w{worker}"
+
+card: |
+  Node (npm):
+  - Run scoped, not whole-repo: use the scoped test command below.
+  - The dev servers are already running. NEVER start another, and never run a
+    production build while one is live.
+  - Mock at the API-client boundary, never at `fetch`.
+
+doctrine_skill: stack-node-npm
+
+commands:
+  test: npm test
+  test_scoped: npm test -- {path}
+  lint: npm run lint
+  typecheck: npm run typecheck
+  # `npm test` delegates to package.json, so it is safe — but `lint` and
+  # `typecheck` assume those SCRIPT NAMES exist, and plenty of repos call them
+  # `check` or `tsc --noEmit` or nothing at all. This proves the scripts are
+  # there without running them: `npm run` lists what package.json declares and
+  # exits 0, so a failure here means npm cannot read the manifest at all.
+  # check-stack-commands.sh repairs a missing script from the real script list.
+  verify: npm run

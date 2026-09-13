@@ -1,0 +1,88 @@
+# The harness describing ITSELF.
+#
+# The plugin's own test suite needs a project to run against — the config loader,
+# the worker bootstrap and the area map are all functions of a project, and there
+# is no way to test them without one. Rather than carry a synthetic fixture that
+# could drift from the real schema, the harness is its own first consumer.
+#
+# It is also the worked example: this is what a consuming repository writes.
+
+name: MAD harness
+slug: madharness
+
+stacks:
+  - python-uv-selftest
+
+# Frameworks are the second axis: a stack says how to RUN, a framework says how to
+# WRITE. The harness itself is framework-free — it is plain Python by design.
+frameworks: []
+
+# Domain vocabulary is a PROJECT's, never the harness's. This repository has no product
+# domain, so it declares none — an empty list is the right answer here, not a gap.
+#
+# It briefly held six of a consuming project's nouns, seeded as "regression cover". That
+# is the largest disclosure this repository can carry: a list of another product's
+# vocabulary, in the one file every adopter reads. A consuming project declares its own,
+# where the guard can actually protect something.
+domain:
+  nouns: []
+
+# Which modules are in play per lane. The card injected into a worker's prompt
+# covers only these, so a lane never pays for technology it will not touch.
+# An unmapped lane falls back to everything detected.
+lanes:
+  harness:
+    stacks: [python-uv-selftest]
+
+beads:
+  # Distinct from the plugin's own name, which appears in namespaced agent ids.
+  prefix: SELFTEST
+
+swarm:
+  merge_slot: SELFTEST-merge-slot
+
+paths:
+  docs: skills
+  # Optional, and pointed at by prose rather than hard-coded in it. A path left out
+  # simply means the agent is told that document does not exist here — which is a
+  # real answer, and better than sending it to look for one that never will.
+  index: README.md
+
+areas:
+  - path: harness/models
+    label: routing and dispatch
+    triggers: [security]
+  - path: harness/verify
+    label: evidence tools
+  - path: harness/checks
+    label: mechanical gates
+  - path: harness/stacks
+    label: toolchain modules
+  - path: agents
+    label: agent definitions
+  - path: skills
+    label: doctrine
+  - path: commands
+    label: slash commands
+
+security:
+  paths:
+    - harness/models/
+  tokens:
+    - ANTHROPIC_AUTH_TOKEN
+    - api_key
+    - secret
+  invariants:
+    - A provider credential must never reach a log line, a bead, or telemetry — names only.
+    - A dispatch denied a tool must never be reported as a success.
+
+testing:
+  layout:
+    "Harness (`pytest`, `harness/pytest.ini`)":
+      - "All suites in `harness/tests/`, application-free by construction"
+  gates:
+    - "Every check script must parse (`bash -n`) and every module import cleanly."
+  coverage:
+    - "Every mechanical guard carries a companion test proving it can fail."
+  aggregate_commands:
+    "Whole plugin": "`cd harness && pytest`"

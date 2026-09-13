@@ -1,0 +1,56 @@
+direction: down
+
+preflight: {
+  label: "1. PRE-FLIGHT\nclean tree · slot free · autosync off\nworktree sweep · command repair · memories"
+}
+compute: { label: "2. COMPUTE THE WAVE\nready(lane), clamped to the lane cap" }
+contention: { label: "3. CONTENTION RE-CHECK\nmegafile · shared vocabulary · new-file" ; shape: diamond }
+defer: { label: "deferred to a later wave\nserialised, not dropped"; style: { fill: "#fffbeb"; stroke: "#d97706" } }
+confirm: { label: "4. CONFIRM" }
+dispatch: {
+  label: "5. DISPATCH\nall n in ONE message, each in its own worktree"
+  style: { fill: "#eef2ff"; stroke: "#4f46e5" }
+}
+collect: { label: "6. COLLECT" ; shape: diamond }
+recorded: {
+  label: "BLOCKED · SKIPPED · NEEDS-SERIAL-LANE\nrecorded, NOT retried in-wave"
+  style: { fill: "#fffbeb"; stroke: "#d97706" }
+}
+
+lenses: {
+  label: "7. VERIFICATION GATE — per PASS claim"
+  style: { fill: "#eef2ff"; stroke: "#4f46e5" }
+  l2: "L2 verifier-tests\ndiff + tests, and RUNS them"
+  l1: "L1 verifier\ntask + criteria + diff + L2's suite result"
+  l3: "L3 verifier-spec\ntask + repo at HEAD — not the diff"
+  l4: "L4 verifier-security\ndiff + repo — on trigger or SURFACE:"
+  l2 -> l1: "suite result"
+}
+
+remediate: {
+  label: "REMEDIATE\nL1·L3·L4 blocking → fullstack-engineer\nL4 also raises the task priority"
+  style: { fill: "#fef2f2"; stroke: "#dc2626" }
+}
+integrate: { label: "8. INTEGRATE + WAVE GATE\nmerge passing branches in id order,\nthen gate ONCE on the merged tree" }
+review: {
+  label: "8b. WAVE CODE REVIEW\nquality, once per wave — NON-BLOCKING\nfindings filed as tasks"
+  style: { stroke-dash: 4 }
+}
+qe: { label: "L2 test-shaped → quality-engineer\nafter the merge, own worktree"; style: { stroke-dash: 4 } }
+sync: { label: "9. SYNC + PUSH\nclose · export · commit · pull --rebase · push\nautosync on" }
+report: { label: "10. REPORT, offer the next wave"; shape: oval }
+
+preflight -> compute -> contention
+contention -> defer: "collision" { style: { stroke: "#d97706"; stroke-dash: 4 } }
+contention -> confirm: "disjoint"
+confirm -> dispatch -> collect
+collect -> recorded: "not PASS" { style: { stroke: "#d97706"; stroke-dash: 4 } }
+collect -> lenses: "PASS claim"
+lenses -> remediate: "blocking finding" { style.stroke: "#dc2626" }
+remediate -> lenses: "task stays OPEN until remediation\npasses every lens that ran" { style.stroke: "#dc2626" }
+lenses -> integrate: "all lenses pass"
+integrate -> review
+review -> qe: { style.stroke-dash: 4 }
+integrate -> sync -> report
+recorded -> compute: "next wave" { style: { stroke: "#d97706"; stroke-dash: 4 } }
+defer -> compute: "next wave" { style: { stroke: "#d97706"; stroke-dash: 4 } }

@@ -1,0 +1,50 @@
+# The harness's own toolchain. `bootstrap` is a no-op because uv resolves the
+# dependency set from harness/pyproject.toml on demand — there is nothing for a
+# worktree to restore.
+name: python-uv-selftest
+description: The harness's own test suite, resolved from its own pyproject.
+root: harness
+detect_any: [pytest.ini]
+dependency_dir: .venv-none
+bootstrap:
+  strategy: symlink
+env:
+  HARNESS_TEST_SLOT: "{slug}_w{worker}"
+card: |
+  Harness self-test:
+  - Dependencies come from harness/pyproject.toml; there is nothing to restore.
+  - Tests are application-free by construction — nothing here may import the
+    project being worked on.
+
+# How this runner reports; `mutate.sh` reads these rather than assuming pytest's.
+test_output:
+  summary: '^(=+ )?[0-9]+ (passed|failed)[^|]* in [0-9]'
+  failure_line: '^FAILED [^ ]+'
+  failure_strip: '^FAILED '
+
+# Where this toolchain keeps its cache, as ENV_VAR: repo-relative path. Resolved
+# against the primary checkout, exported to every worker, and granted to the
+# sandbox — so the cache lives INSIDE the boundary instead of needing a hole cut
+# to ~/.cache. Granting ~/.cache/uv was measured and does not work: uv fails with
+# EPERM on a file inside the granted directory.
+cache_env:
+  UV_CACHE_DIR: .harness/cache/uv
+
+commands:
+  test: pytest
+  test_scoped: pytest {path}
+  # Collection proves the runner, its config and every test module still load,
+  # without running anything. check-stack-commands.sh probes this at pre-flight.
+  verify: pytest --collect-only -q
+
+# Swept across every tracked file by the harness's own suite, which reads THIS field
+# rather than carrying its own copy.
+banned_forms:
+  - pattern: '^\s*HARNESS_TEST_SLOT=\S+\s+\S'
+    why: >-
+      The command string starts with HARNESS_TEST_SLOT=, not the runner, so no
+      prefix-based permission rule can match it. The call stops on a prompt that
+      surfaces in the orchestrator's session; unattended, it hangs indefinitely.
+      Use the harness runner, which loads the slot for you. NOT
+      `source .swarm-env && <runner>`: a compound command is denied even when
+      every part of it is granted.

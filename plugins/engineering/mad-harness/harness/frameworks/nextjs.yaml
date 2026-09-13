@@ -1,0 +1,21 @@
+# Framework module: Next.js (App Router).
+#
+# See harness/frameworks/django.yaml for what a framework module is and why it is
+# separate from the toolchain that runs it.
+
+name: nextjs
+description: Next.js App Router with TypeScript, server components by default.
+
+
+card: |
+  Next.js (App Router):
+  - App Router only. Server components by default; `"use client"` only where the
+    component genuinely needs interactivity.
+  - Fetch directly in server components; use the client data layer on the client.
+  - Strict TypeScript. A type error is a build failure, not a warning.
+  - NEVER run a production build while a dev server is live — it corrupts the build
+    output directory for both.
+  - An API shape change needs its client types regenerated, or the frontend compiles
+    against a contract the backend no longer honours.
+
+doctrine_skill: framework-nextjs

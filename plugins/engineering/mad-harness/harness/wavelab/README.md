@@ -1,0 +1,65 @@
+# `wavelab/` — real waves, two backends, one base
+
+Everything else in this tree tests the harness against itself or against a scratch
+directory. This runs **real dispatched agents** against **two identical repositories** —
+one on `beads`, one on `mdfiles` — and diffs the outcomes.
+
+**The differential is the point.** Either backend can be tested alone, and the 50-test
+conformance contract already does that. What it cannot see is a divergence the contract
+never thought to assert: two backends that both pass every stated rule and still behave
+differently under a real wave. Identical base + identical work + different backend means
+any difference in the outcome is a finding.
+
+**Outside this repository, deliberately.** The harness is a plugin operating on a foreign
+checkout, and both of the path bugs found during the tracker port were the plugin
+resolving something against its own tree instead of the consumer's. A test repo living
+inside this one would not exercise that at all.
+
+## The trap this found before dispatching anything
+
+A dispatched agent is resolved **by name against the installed plugin**, never against
+this checkout. The installed copy here was five days and twenty-five commits stale — it
+predated the whole tracker port — so a live wave would have run the OLD prompts and looked
+like a valid test of the new ones.
+
+`claude plugin update` does not catch it: for a directory-sourced plugin it compares
+**version strings, not content**, and reports "already at the latest version" while the
+cache and the tree differ by any number of commits. **Bump `version` in
+`.claude-plugin/plugin.json`, then update.** `check-plugin-fresh.sh` refuses the run
+otherwise, and `reset.sh` calls it first.
+
+```bash
+harness/wavelab/reset.sh          # build or rebuild both repos from the base
+harness/wavelab/dispatch-wave.sh beads     # dispatch real workers on the ready set
+harness/wavelab/dispatch-wave.sh mdfiles
+harness/wavelab/compare.sh        # diff what the two runs produced
+```
+
+## What it does and does not test
+
+**Does:** that a dispatched agent can reach `tk.sh` through the boundary, that
+`.swarm-env` carries a usable identity, that a worker's claim excludes its sibling in a
+real wave, that both backends produce the same observable outcome from the same work, and
+that the tracked export and the epic view are correct afterwards.
+
+**Does not:** `/swarm`'s full doctrine — the contention matrix, the lens gate's unanimity
+rule, the circuit breakers. Those are the orchestrator's judgement, and an agent reading
+`/swarm` is what exercises them. This tests the tracker under real agents, which is the
+part no other test reaches.
+
+## The base
+
+A small uv/pytest project, because the wave gate has to mean something: a worker must be
+able to run a real suite and a lens must be able to judge it.
+
+One epic, three tasks, shaped to produce a two-wave DAG:
+
+| task | touches | depends on |
+|---|---|---|
+| `normalise_email` | `src/wavelab/email.py` | — |
+| `normalise_phone` | `src/wavelab/phone.py` | — |
+| wire both into `clean_contact` | `src/wavelab/contact.py` | both of the above |
+
+Wave 1 is the two file-disjoint tasks in parallel — which is what tests the claim mutex
+under real concurrency. Wave 2 is the one that depends on them, which tests that closing a
+blocker actually releases its dependent.
