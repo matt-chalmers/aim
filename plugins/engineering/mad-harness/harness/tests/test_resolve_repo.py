@@ -150,3 +150,26 @@ def test_every_wrapper_records_the_caller_before_moving():
         if 'cd "$(dirname "$0")/..' in text and "MAD_HARNESS_CALLER_PWD" not in text:
             offenders.append(str(sh.relative_to(PLUGIN)))
     assert offenders == [], f"wrappers that cd without recording the caller: {offenders}"
+
+
+def test_the_merge_slot_lands_in_the_consuming_repo_not_wherever_the_harness_is(no_override, consumer):
+    """The pre-flight's first tracker calls. `slot-check` used to fail with "…/harness is
+    not inside a git repository" because the lock module resolved from the process cwd on
+    its own. In-tree that same fallback SUCCEEDS — about the harness's own checkout — so
+    the assertion is where the slot file lands, not whether an answer came back."""
+    tk = str(PLUGIN / "harness" / "tracker" / "tk.sh")
+    env = _wrapper_env(consumer)
+    acquired = subprocess.run(
+        [tk, "slot-acquire", "--holder", "resolve-test"],
+        cwd=consumer, env=env, capture_output=True, text=True, timeout=120,
+    )
+    try:
+        assert acquired.returncode == 0, (acquired.stdout, acquired.stderr)
+        run = consumer / ".harness" / "run"
+        assert run.is_dir(), f"no run dir under the consumer: {acquired.stderr}"
+        assert any(run.iterdir()), "the slot file was written somewhere else"
+    finally:
+        subprocess.run(
+            [tk, "slot-release", "--holder", "resolve-test"],
+            cwd=consumer, env=env, capture_output=True, text=True, timeout=120,
+        )

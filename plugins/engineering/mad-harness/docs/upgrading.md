@@ -22,13 +22,19 @@ reports one of:
 | it says | meaning | what happens |
 |---|---|---|
 | `harness: 0.9.1  installed plugin 0.9.1` | current | nothing |
-| `UPGRADE: … written for 0.9.0; 0.9.1 is installed` | the plugin moved on | advisory by hand; `--strict` exits 3, and the `/campaign` and `/swarm` pre-flights run it that way, so a run **stops** until the config is reviewed |
+| `UPGRADE: … written for 0.9.1; 0.10.0 is installed` | a **minor or major** bump | advisory by hand; `--strict` exits 3, and the `/campaign` and `/swarm` pre-flights run it that way, so a run **stops** until the config is reviewed |
+| `WARN: … stamped 0.9.1; 0.9.2 is installed … re-stamp` | a **patch** bump | never blocks; re-stamp when convenient |
 | `UPGRADE: … carries no harness.version` | written before stamping existed | as above — treated as older than every note below |
 | `WARN: … stamped 0.9.2 but the installed plugin is 0.9.1` | the **plugin** is behind | `claude plugin update mad-harness@aim` |
 
 `/harness-setup` is the upgrade path. On a repository that already has a `harness.yaml` it
 reads the notes below, applies every section newer than the stamp — oldest first — and
 re-stamps. It never rewrites a block the owner already settled.
+
+**The version rule.** A patch release (`0.9.1 → 0.9.2`) never changes what `harness.yaml`
+must say, so it never stops a run. Any change that adds, renames or reinterprets a config
+block bumps **minor**. That is a promise the plugin makes, not something the check can
+verify — so a release that breaks it is a bug.
 
 **Discipline on the plugin side**, enforced by the test suite: every version has a section
 here (even if it says "nothing to do"), and the template and the harness's own config are
@@ -59,3 +65,13 @@ The first release. A config written for it is the baseline; nothing to apply.
   workaround are no longer needed. A tracker that cannot find its database now fails
   loudly rather than reporting an empty backlog.
 - **mechanical** — stamp `harness.version`.
+
+### 0.9.2
+
+A code fix, no config change. `tk.sh slot-check` — the first tracker call in a campaign
+pre-flight — resolved the repository on its own, from the process cwd, and failed with
+"…/harness is not inside a git repository" when the plugin runs from the cache. It now
+resolves the way everything else does. `MAD_HARNESS_REPO` is not required; if you set it
+as a workaround, drop it.
+
+- **mechanical** — re-stamp `harness.version`, when convenient.

@@ -99,6 +99,16 @@ def run_dir(start: Path | None = None) -> Path:
 
     `HARNESS_RUN_DIR` still wins: a worker bootstrap points it at the primary checkout
     explicitly, and that is more specific than either.
+
+    NO PRIVATE RESOLUTION. This used to fall back to `git rev-parse` from the process
+    cwd — which, after every wrapper's `cd`, is the harness. In-tree that is inside the
+    repository and it worked; installed as a plugin the cache is not a git checkout at
+    all, so `tk.sh slot-check` — the first thing a campaign pre-flight runs — failed with
+    "…/plugins/cache/…/harness is not inside a git repository" from inside a perfectly
+    good consuming repository. `models.resolve.REPO` already honours the override, the
+    caller's directory and the git fallback FROM THE CALLER, and refuses the harness's own
+    tree; it is the one place resolution happens. The primary-checkout mapping stays, so
+    a call from inside a worktree still lands in the shared run dir, not a per-worktree one.
     """
     override = os.environ.get(RUN_DIR_ENV)
     if override:
@@ -106,6 +116,10 @@ def run_dir(start: Path | None = None) -> Path:
     target = os.environ.get("MAD_HARNESS_REPO")
     if target:
         return Path(target).resolve() / ".harness" / "run"
+    if start is None:
+        from models.resolve import REPO
+
+        start = REPO
     return _primary_checkout(start) / ".harness" / "run"
 
 

@@ -69,6 +69,12 @@ def main(argv: list[str] | None = None) -> int:
                 f"Run /harness-setup — it applies the upgrade notes between the two and "
                 f"re-stamps the config."
             )
+        elif status == "patch-behind":
+            warnings.append(
+                f"harness.yaml is stamped {stamped}; {installed} is installed. A patch "
+                f"release changes nothing the config must say — re-stamp it when "
+                f"convenient (`harness: {{version: {installed}}}`, or /harness-setup)."
+            )
         elif status == "ahead":
             warnings.append(
                 f"harness.yaml is stamped {stamped} but the installed plugin is {installed} "

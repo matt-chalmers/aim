@@ -65,9 +65,12 @@ def test_a_malformed_stamp_fails_at_config_time(raw):
     ("stamped", "installed", "expected"),
     [
         (None, "0.9.1", "unstamped"),
-        ("0.9.0", "0.9.1", "behind"),
+        ("0.9.0", "0.9.1", "patch-behind"),  # patch: advisory, nothing to apply
         ("0.9.1", "0.9.1", "current"),
-        ("0.9.1", "0.10.0", "behind"),  # numeric, not lexical: 10 > 9
+        ("0.9.1", "0.10.0", "behind"),  # minor: the notes must be applied
+        ("0.9.1", "0.10.3", "behind"),
+        ("0.9", "0.9.2", "patch-behind"),  # a two-component stamp is 0.9.0
+        ("0.9.1", "1.0.0", "behind"),
         ("0.10.0", "0.9.1", "ahead"),
         ("1.0", "0.9.1", "ahead"),
         ("0.9.1-rc1", "0.9.1", "current"),  # a suffix is dropped, not compared
@@ -94,13 +97,22 @@ def _run(monkeypatch, raw: dict, argv: list[str]) -> tuple[int, str, str]:
     return rc, out.getvalue(), err.getvalue()
 
 
-def test_a_behind_config_is_advisory_by_hand_and_blocks_a_preflight(monkeypatch):
-    rc, out, err = _run(monkeypatch, {"harness": {"version": "0.9.0"}}, [])
+def test_a_patch_behind_config_warns_and_never_blocks(monkeypatch):
+    """0.9.1 -> 0.9.2 was a code fix. Stopping every consumer's campaign until they
+    re-stamp a number is friction for nothing; the rule is that a patch never changes
+    what the config must say, so it is a warning."""
+    rc, _, err = _run(monkeypatch, {"harness": {"version": "0.9.0"}}, ["--strict"])
     assert rc == 0
-    assert "UPGRADE:" in err and "0.9.0" in err and "/harness-setup" in err
+    assert "UPGRADE" not in err and "re-stamp" in err
+
+
+def test_a_behind_config_is_advisory_by_hand_and_blocks_a_preflight(monkeypatch):
+    rc, out, err = _run(monkeypatch, {"harness": {"version": "0.8.0"}}, [])
+    assert rc == 0
+    assert "UPGRADE:" in err and "0.8.0" in err and "/harness-setup" in err
     assert "UPGRADE PENDING" in out, "the summary must not say OK under an UPGRADE line"
 
-    rc, out, _ = _run(monkeypatch, {"harness": {"version": "0.9.0"}}, ["--strict"])
+    rc, out, _ = _run(monkeypatch, {"harness": {"version": "0.8.0"}}, ["--strict"])
     assert rc == check_project.EXIT_UPGRADE
     assert "BLOCKED" in out
 

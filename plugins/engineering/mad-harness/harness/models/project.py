@@ -67,19 +67,22 @@ def _version_key(v: str) -> tuple[int, ...]:
 def upgrade_status(stamped: str | None, installed: str) -> str:
     """How a project's stamped version relates to the installed plugin.
 
-    `unstamped` — written before versions were stamped, so never reviewed against ANY
-                  version; treated as behind
-    `behind`    — the plugin moved on; the upgrade notes between the two have not been
-                  applied
-    `ahead`     — the config was written for a newer plugin than the one installed;
-                  the PLUGIN needs updating, not the config
-    `current`   — nothing to do
+    `unstamped`    — written before versions were stamped, so never reviewed against ANY
+                     version; treated as behind
+    `behind`       — the plugin moved on by a MINOR or MAJOR version; the upgrade notes
+                     between the two have not been applied, and a pre-flight stops
+    `patch-behind` — only the PATCH component moved. A patch release never changes what
+                     the config must say — that is the rule a bump has to honour — so this
+                     is advisory: re-stamp when convenient, nothing to apply
+    `ahead`        — the config was written for a newer plugin than the one installed;
+                     the PLUGIN needs updating, not the config
+    `current`      — nothing to do
     """
     if stamped is None:
         return "unstamped"
     a, b = _version_key(stamped), _version_key(installed)
     if a < b:
-        return "behind"
+        return "patch-behind" if (a + (0, 0))[:2] == (b + (0, 0))[:2] else "behind"
     if a > b:
         return "ahead"
     return "current"

@@ -824,3 +824,23 @@ def test_a_clean_empty_list_is_still_empty(monkeypatch):
 
     _fake_bd(monkeypatch, returncode=0, stdout="[]")
     assert BeadsTaskStore(cwd="/x").list() == []
+
+
+def test_run_dir_resolves_through_the_shared_resolver_not_the_process_cwd(monkeypatch, tmp_path):
+    """`run_dir()` had a private fallback: `git rev-parse` from the process cwd — which,
+    after every wrapper's `cd`, is the harness. Installed as a plugin the cache is not a
+    git checkout, so `tk.sh slot-check` — the first line of a campaign pre-flight — failed
+    from inside a valid consuming repository. Every resolution goes through REPO."""
+    import subprocess
+
+    from models.resolve import HARNESS
+    from tracker import locks
+
+    consumer = tmp_path / "consumer"
+    consumer.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=consumer, check=True)
+    monkeypatch.delenv("MAD_HARNESS_REPO", raising=False)
+    monkeypatch.delenv(locks.RUN_DIR_ENV, raising=False)
+    monkeypatch.chdir(HARNESS)  # what the wrapper leaves behind
+    monkeypatch.setattr("models.resolve.REPO", consumer)
+    assert locks.run_dir() == consumer.resolve() / ".harness" / "run"
