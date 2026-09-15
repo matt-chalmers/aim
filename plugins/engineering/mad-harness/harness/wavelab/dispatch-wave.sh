@@ -74,7 +74,7 @@ TASK {t['id']} — {t['title']}
 {t['description']}
 
 HOW THIS REPOSITORY WORKS
-- Python, managed by uv. Run tests with: uv run pytest
+- Python, managed by uv. Run tests with: env -u VIRTUAL_ENV uv run pytest
 - Source lives under src/wavelab/, tests under tests/.
 - The suite is green right now. Leave it green.
 

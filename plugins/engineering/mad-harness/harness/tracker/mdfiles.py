@@ -60,6 +60,7 @@ TASKS_DIR_ENV = "TASKS_DIR"
 
 _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n?(.*)\Z", re.DOTALL)
 _NOTES_HEADING = "## Notes"
+_ACCEPTANCE_HEADING = "## Acceptance criteria"
 
 
 def _now() -> str:
@@ -178,6 +179,8 @@ class MdTaskStore:
             f"{k}: {_dump_scalar(v)}" for k, v in fields.items() if v not in (None, "", ())
         )
         body = task.description.rstrip()
+        if task.acceptance.strip():
+            body += f"\n\n{_ACCEPTANCE_HEADING}\n\n{task.acceptance.strip()}"
         if task.notes.strip():
             body += f"\n\n{_NOTES_HEADING}\n\n{task.notes.strip()}"
         text = f"---\n{head}\n---\n\n{body.strip()}\n"
@@ -202,15 +205,18 @@ class MdTaskStore:
             key, _, raw = line.partition(":")
             fields[key.strip()] = _load_scalar(raw)
         body = m.group(2)
-        notes = ""
-        if _NOTES_HEADING in body:
+        notes = acceptance = ""
+        if _NOTES_HEADING in body:  # last section first, so its text cannot shadow the others
             body, _, notes = body.partition(_NOTES_HEADING)
+        if _ACCEPTANCE_HEADING in body:
+            body, _, acceptance = body.partition(_ACCEPTANCE_HEADING)
         return Task(
             id=str(fields.get("id") or path.stem),
             type=str(fields.get("type") or TASK),
             status=str(fields.get("status") or OPEN),
             title=str(fields.get("title") or ""),
             description=body.strip(),
+            acceptance=acceptance.strip(),
             notes=notes.strip(),
             priority=fields.get("priority") if isinstance(fields.get("priority"), int) else None,
             parent=str(fields["parent"]) if fields.get("parent") else None,
@@ -374,7 +380,8 @@ class MdTaskStore:
         t = self._require(task_id)
         raw = dict(t.raw)
         allowed = {
-            "status", "title", "description", "priority", "parent", "assignee", "labels",
+            "status", "title", "description", "acceptance", "priority", "parent",
+            "assignee", "labels",
         }
         changes = {k: v for k, v in fields.items() if k in allowed}
         for k, v in fields.items():

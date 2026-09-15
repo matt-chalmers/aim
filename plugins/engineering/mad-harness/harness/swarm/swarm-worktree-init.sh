@@ -23,4 +23,4 @@ export MAD_HARNESS_CALLER_PWD="${MAD_HARNESS_CALLER_PWD:-$PWD}"
 # and writes .swarm-env one directory deep, where nothing looks for it.
 WT="$(pwd)"
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-exec uv run python -m models.worker --worktree "$WT" "$@"
+exec env -u VIRTUAL_ENV uv run python -m models.worker --worktree "$WT" "$@"

@@ -58,10 +58,10 @@ TEST_ARGS=("$@")
 # `commands.cwd` directly (as this script used to) drops that prefix silently.
 _stack_cmd() {  # $1 = command key
   ( cd "$(dirname "${BASH_SOURCE[0]}")/.." \
-      && uv run python -m models.commands --print ${MUTATE_STACK:+--stack "$MUTATE_STACK"} "$@" 2>/dev/null )
+      && env -u VIRTUAL_ENV uv run python -m models.commands --print ${MUTATE_STACK:+--stack "$MUTATE_STACK"} "$@" 2>/dev/null )
 }
 _stack_cfg() {  # $1 = a python snippet printing to stdout
-  ( cd "$(dirname "${BASH_SOURCE[0]}")/.." && uv run python -c "$1" 2>/dev/null )
+  ( cd "$(dirname "${BASH_SOURCE[0]}")/.." && env -u VIRTUAL_ENV uv run python -c "$1" 2>/dev/null )
 }
 _cmd_lines="$(_stack_cmd test_scoped)"
 
@@ -188,7 +188,7 @@ rebuild_tree() {
   while read -r _dep; do
     [ -n "$_dep" ] && [ -e "$MAIN/$_dep" ] && mkdir -p "$(dirname "$TREE/$_dep")" \
       && ln -sfn "$MAIN/$_dep" "$TREE/$_dep"
-  done < <(cd "$(dirname "${BASH_SOURCE[0]}")/.." && uv run python -c \
+  done < <(cd "$(dirname "${BASH_SOURCE[0]}")/.." && env -u VIRTUAL_ENV uv run python -c \
     "from models.project import load; [print(s.dependency_dir) for s in load().stacks]" 2>/dev/null)
   # Belt and braces: archive cannot produce these, but assert it.
   if find "$TREE" -name '__pycache__' -type d | grep -q .; then

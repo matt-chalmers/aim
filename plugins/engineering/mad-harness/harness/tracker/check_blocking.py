@@ -36,6 +36,16 @@ BLOCKED_BY = (
 #: THIRD record. Crediting the containing record there is a false positive, and a lint that
 #: cries wolf gets ignored. Matched first, then masked out before the generic pass.
 SUBJECTED = (r"({id})\s*(?:\([^)]*\)\s*)?is\s+blocked\s+(?:on|behind)\s+({id})",)
+#: The same shape with a NOUN PHRASE as the subject — "a separate sibling bead is blocked on
+#: <id>". The subject is some other, unnamed record, so there is nothing to credit to
+#: anyone: the sentence is masked out and produces no finding. Found live on a record that
+#: said, two sentences earlier, that it was shippable now; the suggested edge would have
+#: blocked a dispatchable P1 on a decision that did not bind it.
+OTHER_SUBJECT = (
+    r"\b(?:an?\s+|the\s+)?(?:separate|sibling|another|different|follow-?up|later|new)\s+"
+    r"(?:sibling\s+)?(?:bead|task|record|issue|ticket|epic)\b[^.\n]*?"
+    r"\b(?:is\s+)?blocked\s+(?:on|behind)\s+({id})",  # "…bead blocked on X" as well as "…bead is blocked on X"
+)
 
 
 def _id_pattern(tasks: list[Task]) -> str | None:
@@ -87,6 +97,8 @@ def findings(store=None) -> list[tuple[str, str, str, str, str, str]]:
                     ctx = re.sub(r"\s+", " ", text[max(0, m.start() - 90) : m.end() + 70]).strip()
                     out.append((t.id, "blocked_by", blocker, dependent, blocker, ctx))
             text = re.sub(rx, " ", text)
+        for pat in OTHER_SUBJECT:
+            text = re.sub(pat.format(id=idpat), " ", text)
 
         for pats, direction in ((BLOCKS, "blocks"), (BLOCKED_BY, "blocked_by")):
             for pat in pats:

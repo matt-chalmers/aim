@@ -857,7 +857,8 @@ def test_show_prints_the_whole_record_not_the_list_row(monkeypatch, capsys):
 
     full = Task(
         id="T-77", type="task", status="open", title="Wire the thing",
-        description="Acceptance criteria:\n- it wires\n- it is tested",
+        description="Wire the thing into the scoring path",
+        acceptance="- it wires\n- it is tested adversarially",
         notes="2026-09-16: owner said use the alias table",
         priority=2, parent="E-9", depends_on=("T-70", "T-71"),
         labels=("backend", "security"), assignee="w3",

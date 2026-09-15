@@ -104,6 +104,12 @@ class Task:
     status: str
     title: str = ""
     description: str = ""
+    #: What the verifier checks against. A FIRST-CLASS FIELD for the same reason as
+    #: `close_reason`: campaign-loop §3c tells the planner to "write the missing criteria"
+    #: and §3d judges the plan by them, and the port offered no way to write them — the
+    #: documented workflow had to reach around to `bd update --acceptance`, which
+    #: defeats --readonly and does not exist under mdfiles at all.
+    acceptance: str = ""
     notes: str = ""
     priority: int | None = None
     parent: str | None = None

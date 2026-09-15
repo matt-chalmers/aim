@@ -12,4 +12,4 @@ set -euo pipefail
 # as the project. Already-set wins, so a caller may state it explicitly.
 export MAD_HARNESS_CALLER_PWD="${MAD_HARNESS_CALLER_PWD:-$PWD}"
 cd "$(dirname "$0")/.."
-exec uv run python -m tracker.check_size "$@"
+exec env -u VIRTUAL_ENV uv run python -m tracker.check_size "$@"

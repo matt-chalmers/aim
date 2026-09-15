@@ -10,4 +10,4 @@ set -euo pipefail
 # orientation as check-analyst-mirror.sh. Recorded anyway so subshells stay consistent.
 export MAD_HARNESS_CALLER_PWD="${MAD_HARNESS_CALLER_PWD:-$PWD}"
 cd "$(dirname "$0")/.."
-exec uv run python -m models.check_refs "$@"
+exec env -u VIRTUAL_ENV uv run python -m models.check_refs "$@"

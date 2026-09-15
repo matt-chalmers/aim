@@ -173,3 +173,18 @@ def test_the_merge_slot_lands_in_the_consuming_repo_not_wherever_the_harness_is(
             [tk, "slot-release", "--holder", "resolve-test"],
             cwd=consumer, env=env, capture_output=True, text=True, timeout=120,
         )
+
+
+def test_a_projects_activated_venv_does_not_make_every_call_warn(no_override, consumer, tmp_path):
+    """A consuming project has its own .venv active; uv then warned on EVERY wrapper call
+    that VIRTUAL_ENV did not match the harness's environment — two lines of noise in each
+    agent's tool output, dozens of times a wave, burying real warnings. The wrappers scrub
+    it: the harness venv is the project environment for everything they run."""
+    env = _wrapper_env(consumer)
+    env["VIRTUAL_ENV"] = str(tmp_path / "someone-elses-venv")
+    proc = subprocess.run(
+        [str(PLUGIN / "harness" / "tracker" / "tk.sh"), "backend"],
+        cwd=consumer, env=env, capture_output=True, text=True, timeout=120,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "does not match the project environment" not in proc.stderr, proc.stderr

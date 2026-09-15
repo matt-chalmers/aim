@@ -87,7 +87,7 @@ stacks:
   - python-uv
 testing:
   aggregate_commands:
-    "Whole repo": "`uv run pytest`"
+    "Whole repo": "`env -u VIRTUAL_ENV uv run pytest`"
 security:
   paths: []
   tokens: []

@@ -109,3 +109,31 @@ Work verified under 0.9.0–0.9.3 was verified against titles. Re-verify anythin
 matters before trusting its PASS.
 
 - **mechanical** — re-stamp `harness.version`, when convenient.
+
+### 0.9.5
+
+Four field bugs from one `/campaign-auto` run, and a noise fix. No config change.
+
+- **The sweep now sees orphaned refs.** `worktree-sweep.sh` classified worktree
+  *directories* only, so a worker branch whose directory was gone — including by the sweep's
+  own "remove the worktree, keep the ref" path — was invisible, and every later sweep reported
+  clean while the ref held real work. A second pass walks every `harness-w*` and
+  `worktree-agent-*` ref with no worktree and classifies it by the task ids in its commits:
+  merged (deleted under `--apply`), **IN FLIGHT** (a task still open — kept, reported loudly,
+  adopt it before re-dispatching), STALE (all closed — kept unless `--apply --prune-orphans`),
+  UNKNOWN (kept). **Run the sweep once now; an IN FLIGHT count above zero is work nobody is
+  holding.**
+- **`tk.sh update --acceptance`.** The field the verifier judges against was not writable
+  through the port; the planner had to reach around to `bd`, which defeats `--readonly` and
+  does not exist under mdfiles. It is a first-class `Task` field now, on both backends, and
+  `show` renders it under its own rule.
+- **Telemetry records an outcome.** `campaign-telemetry.sh record … --outcome parked|stopped`
+  files under its own category; the reader prints every row with its outcome and draws the
+  trend through closed epics only. Rows recorded as closed for epics that parked before this
+  release are mislabelled — discount them when reading the series.
+- **`check-blocking-prose.sh`** no longer credits a record for "a separate sibling bead
+  blocked on X".
+- **No more `VIRTUAL_ENV … does not match` warnings.** Every wrapper scrubs the variable before
+  `uv run`; a project's own activated venv no longer produces two lines of noise per call.
+
+- **mechanical** — re-stamp `harness.version`, when convenient.

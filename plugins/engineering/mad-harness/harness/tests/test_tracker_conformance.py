@@ -284,6 +284,20 @@ def test_update_sets_a_field(store):
     assert store.show(tid).status == "blocked"
 
 
+def test_acceptance_criteria_round_trip_through_the_port(store):
+    """The field the verifier judges against. The port had no way to write it, so the
+    planner — told to "write the missing criteria" — had to reach around to the backend
+    binary, which defeats --readonly and does not exist under mdfiles."""
+    tid = store.create("needs criteria", description="the what")
+    criteria = "- returns 403 for another tenant's id\n- covered by an adversarial test"
+    store.update(tid, acceptance=criteria)
+    got = store.show(tid)
+    assert got.acceptance == criteria
+    assert got.description == "the what", "writing criteria must not disturb the description"
+    store.note(tid, "a later note")
+    assert store.show(tid).acceptance == criteria, "nor must a later note"
+
+
 def test_label_adds_and_removes(store):
     tid = store.create("labelled")
     store.label(tid, "awaiting-approval")

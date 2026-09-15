@@ -29,6 +29,7 @@ class Task:
     labels: tuple[str, ...] = ()
     assignee: str | None = None
     created_at: str = ""; updated_at: str = ""
+    acceptance: str = ""              # first-class: what the verifier checks against; writable via update()
     close_reason: str = ""            # first-class: callers need it, `raw` is off limits
     raw: dict[str, Any] = field(default_factory=dict)   # DIAGNOSTICS ONLY
 

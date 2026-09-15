@@ -18,7 +18,14 @@ import sys
 
 import tracker
 
-CATEGORY = "campaign.epic_closed"
+#: One category per OUTCOME. There was one constant for every record, so an epic parked
+#: before a single wave ran was filed as `epic_closed` with `beads_closed: 0` — and read
+#: back as a catastrophically bad completed epic rather than a normal parked one. The
+#: trend line was then drawn straight through closed and parked alike, which is exactly
+#: the reading ("decision-blocked, not slow") §6 asks the report to be able to make.
+OUTCOMES = ("closed", "parked", "stopped")
+CATEGORIES = {o: f"campaign.epic_{o}" for o in OUTCOMES}
+CATEGORY = CATEGORIES["closed"]  # the default, so rows recorded before outcomes existed keep their meaning
 
 #: Straight from campaign-loop §6 — the bad values it already documents. Kept as data so
 #: the thresholds and the prose cannot drift apart silently.
@@ -44,17 +51,24 @@ def _bad(expr: str, v) -> bool:
         return False
 
 
-def record(epic: str, payload: dict) -> bool:
-    return tracker.telemetry().record(CATEGORY, epic, payload)
+def record(epic: str, payload: dict, outcome: str = "closed") -> bool:
+    if outcome not in CATEGORIES:
+        raise ValueError(f"outcome must be one of {', '.join(OUTCOMES)}, not {outcome!r}")
+    return tracker.telemetry().record(CATEGORIES[outcome], epic, payload)
 
 
 def rows() -> list[dict]:
+    """Every outcome, each row tagged with its own, in recording order."""
     out = []
-    for e in tracker.telemetry().read(CATEGORY):
-        row = dict(e.payload)
-        row["_epic"] = e.target
-        row["_when"] = (e.at or "")[:10]
-        out.append(row)
+    for outcome, category in CATEGORIES.items():
+        for e in tracker.telemetry().read(category):
+            row = dict(e.payload)
+            row["_epic"] = e.target
+            row["_when"] = (e.at or "")[:10]
+            row["_outcome"] = outcome
+            row["_at"] = e.at or ""
+            out.append(row)
+    out.sort(key=lambda r: r["_at"])
     return out
 
 
@@ -62,9 +76,15 @@ def main(argv: list[str] | None = None) -> int:
     args = argv if argv is not None else sys.argv[1:]
 
     if args and args[0] == "record":
-        if len(args) < 3:
+        outcome = "closed"
+        if "--outcome" in args:
+            i = args.index("--outcome")
+            outcome = args[i + 1] if i + 1 < len(args) else ""
+            args = args[:i] + args[i + 2 :]
+        if len(args) < 3 or outcome not in CATEGORIES:
             print(
-                "usage: campaign-telemetry.sh record <epic-id> '<json payload>'",
+                "usage: campaign-telemetry.sh record <epic-id> '<json payload>' "
+                f"[--outcome {'|'.join(OUTCOMES)}]",
                 file=sys.stderr,
             )
             return 2
@@ -73,10 +93,10 @@ def main(argv: list[str] | None = None) -> int:
         except json.JSONDecodeError as exc:
             print(f"payload is not valid JSON: {exc}", file=sys.stderr)
             return 1
-        if not record(args[1], payload):
+        if not record(args[1], payload, outcome):
             print("could not record the event", file=sys.stderr)
             return 1
-        print(f"recorded {CATEGORY} for {args[1]}")
+        print(f"recorded {CATEGORIES[outcome]} for {args[1]}")
         return 0
 
     data = rows()
@@ -89,12 +109,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     width = max(len(str(r["_epic"])) for r in data) + 2
-    header = f"{'epic':<{width}}{'date':<12}" + "".join(
+    header = f"{'epic':<{width}}{'date':<12}{'outcome':<9}" + "".join(
         f"{label[:20]:>22}" for _, label, _, _ in CHECKS
     )
     print(header)
     for r in data:
-        line = f"{str(r['_epic']):<{width}}{r['_when']:<12}"
+        line = f"{str(r['_epic']):<{width}}{r['_when']:<12}{r['_outcome']:<9}"
         for key, _, expr, _ in CHECKS:
             v = r.get(key)
             shown = "—" if v is None else (f"{v}!" if _bad(expr, v) else str(v))
@@ -102,10 +122,18 @@ def main(argv: list[str] | None = None) -> int:
         print(line)
     print("\n! = outside the band campaign-loop §6 documents")
 
-    if len(data) >= 3:
-        print("\nTrend over the last 3 epics (a single bad epic is noise; a drift is not):")
+    closed = [r for r in data if r["_outcome"] == "closed"]
+    parked = [r for r in data if r["_outcome"] != "closed"]
+    if parked:
+        print(
+            f"\n{len(parked)} epic(s) parked or stopped — their planning cost was paid and "
+            f"no task landed. dispatchable-on-entry is the number to read for those; they "
+            f"are excluded from the trend below, which is about epics that ran."
+        )
+    if len(closed) >= 3:
+        print("\nTrend over the last 3 closed epics (a single bad epic is noise; a drift is not):")
         for key, label, expr, why in CHECKS:
-            vs = [r.get(key) for r in data[-3:] if r.get(key) is not None]
+            vs = [r.get(key) for r in closed[-3:] if r.get(key) is not None]
             if len(vs) < 3:
                 continue
             direction = (
@@ -114,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
             flag = "  ← " + why if _bad(expr, vs[-1]) else ""
             print(f"  {label:<26} {vs[0]} → {vs[-1]}  ({direction}){flag}")
     else:
-        print(f"\n{len(data)} epic(s) recorded — a trend needs at least 3.")
+        print(f"\n{len(closed)} closed epic(s) recorded — a trend needs at least 3.")
     return 0
 
 

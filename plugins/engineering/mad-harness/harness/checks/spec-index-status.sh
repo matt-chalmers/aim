@@ -27,7 +27,7 @@ cd "$PWD_REPO"
 # the module path, which would otherwise resolve the config of the PLUGIN rather
 # than of the repository being checked.
 HARNESS_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/.." && pwd)"
-PROPOSED="$(cd "$HARNESS_DIR" && MAD_HARNESS_REPO="$PWD_REPO" uv run python -c \
+PROPOSED="$(cd "$HARNESS_DIR" && MAD_HARNESS_REPO="$PWD_REPO" env -u VIRTUAL_ENV uv run python -c \
   "from models.project import load; print(load().paths.get('proposed',''))" 2>/dev/null)"
 export PROPOSED
 # ONE INTERPRETER. The body needs PyYAML for the index's frontmatter, and the lookup above
@@ -35,7 +35,7 @@ export PROPOSED
 # which on macOS does not, and every epic answered "PyYAML required". `--project` runs the
 # harness's environment WITHOUT changing the working directory, which the glob and the
 # `git diff` below need to be the repository being checked.
-exec uv run --project "$HARNESS_DIR" python - "${1:?usage: spec-index-status.sh <epic-id>}" <<'PY'
+exec env -u VIRTUAL_ENV uv run --project "$HARNESS_DIR" python - "${1:?usage: spec-index-status.sh <epic-id>}" <<'PY'
 import sys, glob, os, re, subprocess
 
 

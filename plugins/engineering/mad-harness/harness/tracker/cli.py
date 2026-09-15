@@ -87,6 +87,8 @@ def _record(t: Task) -> str:
         out.append(f"created: {t.created_at or '?'}  updated: {t.updated_at or '?'}")
     out.append("")
     out.append(t.description.rstrip() if t.description.strip() else "(no description)")
+    if t.acceptance.strip():
+        out += ["", "--- acceptance criteria ---", t.acceptance.rstrip()]
     if t.notes.strip():
         out += ["", "--- notes ---", t.notes.rstrip()]
     return "\n".join(out)
@@ -191,6 +193,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--status")
     p.add_argument("--title")
     p.add_argument("--description")
+    p.add_argument("--acceptance", help="the acceptance criteria — what the verifier checks against")
     p.add_argument("--priority", type=int)
     p.add_argument("--parent")
     p.add_argument("--assignee")
@@ -480,7 +483,7 @@ def main(argv: list[str] | None = None) -> int:
         elif v == "update":
             fields = {
                 k: getattr(args, k)
-                for k in ("status", "title", "description", "priority", "parent", "assignee")
+                for k in ("status", "title", "description", "acceptance", "priority", "parent", "assignee")
                 if getattr(args, k) is not None
             }
             if args.append_notes:

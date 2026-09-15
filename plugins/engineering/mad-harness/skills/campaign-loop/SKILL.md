@@ -982,6 +982,18 @@ what a narrated report cannot show you — this is the only instrument for notic
 degrading, and until now it had no memory. Record even a partial payload: a missing key prints as
 `—` and still anchors the trend either side of it.
 
+**An epic that did not close records its outcome.** Parking (§3, §4) and stopping are outcomes
+too, and their payloads are the ones where `dispatchable_on_entry` matters most — that is where
+planning cost was paid and nothing landed. File them as what they are:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/harness/campaign/campaign-telemetry.sh record <epic-id> '{"dispatchable_on_entry":2,"waves":0,"mode":"auto"}' --outcome parked    # or stopped
+```
+
+The reader prints every row with its outcome and draws the trend through **closed** epics
+only. Without the flag a parked epic is filed as closed with `beads_closed: 0` — which reads
+as a catastrophically bad completed epic, and bends the trend line through it.
+
 **Being stopped by a human.** `Esc` interrupts you; `/tasks` stops individual in-flight
 workers. Neither cleans up — claims stay held, the merge slot may be stuck, and `export.auto`
 stays disabled. **`/halt` is the cleanup**, in `pause` mode (keep the claims, gate the epic,

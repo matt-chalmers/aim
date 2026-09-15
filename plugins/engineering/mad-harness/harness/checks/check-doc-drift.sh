@@ -38,7 +38,7 @@ cd "$PWD_REPO"
 # result is the failure three sibling scripts already guard against; this was the one
 # the earlier pass missed.
 _cfg() { ( cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/.." \
-           && MAD_HARNESS_REPO="$PWD_REPO" uv run python -c "$1" 2>/dev/null ); }
+           && MAD_HARNESS_REPO="$PWD_REPO" env -u VIRTUAL_ENV uv run python -c "$1" 2>/dev/null ); }
 DOCS_DIR="$(_cfg "from models.project import load; print(load().paths.get('docs') or 'docs')")"
 ADRS_DIR="$(_cfg "from models.project import load; print(load().paths.get('adrs') or '')")"
 AREA_SPECS="$(_cfg "from models.project import load; print(' '.join(a.path for a in load().areas))")"

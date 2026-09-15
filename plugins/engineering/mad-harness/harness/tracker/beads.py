@@ -144,6 +144,7 @@ def _task(d: dict) -> Task:
         status=str(d.get("status") or ""),
         title=str(d.get("title") or ""),
         description=str(d.get("description") or ""),
+        acceptance=str(d.get("acceptance_criteria") or ""),
         notes=str(d.get("notes") or ""),
         priority=d.get("priority") if isinstance(d.get("priority"), int) else None,
         parent=str(d["parent"]) if d.get("parent") else None,
