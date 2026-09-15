@@ -63,7 +63,9 @@ The first release. A config written for it is the baseline; nothing to apply.
 - **mechanical** — nothing to change for it, but say so: every script now finds the
   project from the directory it is called in, so `MAD_HARNESS_REPO=…` prefixes added as a
   workaround are no longer needed. A tracker that cannot find its database now fails
-  loudly rather than reporting an empty backlog.
+  loudly rather than reporting an empty backlog. *(Correction: 0.9.1 missed `tk.sh
+  slot-check`, which still needed the variable. 0.9.2 fixed it — on 0.9.1, keep the
+  export until you are past it.)*
 - **mechanical** — stamp `harness.version`.
 
 ### 0.9.2
@@ -74,4 +76,22 @@ pre-flight — resolved the repository on its own, from the process cwd, and fai
 resolves the way everything else does. `MAD_HARNESS_REPO` is not required; if you set it
 as a workaround, drop it.
 
+- **mechanical** — re-stamp `harness.version`, when convenient.
+
+### 0.9.3
+
+Two field bugs, no config change.
+
+- `worktree-sweep.sh` treated any untracked file it did not recognise by name as work, so
+  a worktree holding scratch an earlier harness version wrote (`.swarm-pytest.env`,
+  `.swarm/`) read as DIRTY and could never be reclaimed. Everything the harness writes into
+  a worktree starts `.swarm`; the sweep now treats that as a namespace. Stranded worktrees
+  held only by such files are reclaimed by the next `--apply`.
+- `spec-index-status.sh` ran its body under the system `python3`, which has no PyYAML, and
+  answered "PyYAML required" for every epic. It runs under the harness venv now, so the
+  §3a REUSE / DELTA / REBUILD decision is mechanical again.
+
+- **mechanical** — add `.swarm*` to the project's `.gitignore`, beside the `.harness/`
+  lines from setup. Worker scratch then never shows in a worktree's status at all, which
+  does not depend on the sweep's pattern staying current.
 - **mechanical** — re-stamp `harness.version`, when convenient.

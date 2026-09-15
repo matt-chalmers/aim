@@ -65,7 +65,14 @@ PRIMARY="$(git rev-parse --show-toplevel)"
 MERGED_SET="$(git branch --merged "$MAIN" --format='%(refname:short)')"
 
 # Harness residue that does not constitute work. Everything else untracked counts as DIRTY.
-is_residue() { case "$1" in .swarm-env|*.pyc|__pycache__/*|.venv/*|node_modules/*) return 0;; *) return 1;; esac; }
+# HARNESS RESIDUE IS A NAMESPACE, NOT A LIST. This was `.swarm-env` alone, and a worktree
+# holding `.swarm-pytest.env` or `.swarm/commitmsg.txt` — worker scratch an EARLIER harness
+# version wrote — read as DIRTY, which this script refuses to remove, correctly and forever.
+# Two of the three stranded worktrees behind the 35-worktree incident were held by nothing
+# else. Worktrees outlive upgrades, so the pattern has to cover every artefact the harness
+# has ever written, which an enumerated list cannot. Everything the harness writes into a
+# worktree starts `.swarm`; no source file does. A TRACKED change is still dirt regardless.
+is_residue() { case "$1" in .swarm|.swarm/|.swarm/*|.swarm-*|*.pyc|__pycache__/*|.venv/*|node_modules/*) return 0;; *) return 1;; esac; }
 
 n_merged=0; n_clean=0; n_dirty=0; n_detached=0; n_live=0
 DIRTY_REPORT=(); DETACHED_REPORT=(); LIVE_REPORT=()

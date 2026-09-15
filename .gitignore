@@ -16,4 +16,8 @@ __pycache__/
 # Agent worktrees. Without this, `git add -A` commits them as embedded repos.
 **/.claude/worktrees/
 
+# Per-worker scratch, written at a worktree's root by the worker bootstrap. Ignored so a
+# worktree never reads as dirty for it and the sweep can reclaim it.
+**/.swarm*
+
 .DS_Store

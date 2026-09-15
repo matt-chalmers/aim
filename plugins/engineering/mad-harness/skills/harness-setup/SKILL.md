@@ -92,6 +92,9 @@ wave commits every worker's live claim files and half-written records:
 .harness/cache/    # toolchain caches, kept inside the sandbox boundary
 .harness/run/      # claims, the merge-slot lease, telemetry
 .harness/tasks/    # mdfiles only: the live records
+.swarm*            # per-worker scratch a worker writes at ITS worktree root (.swarm-env
+                   # and whatever a version adds); ignored, it never makes a worktree
+                   # read as dirty, so the sweep can always reclaim it
 ```
 
 **If they choose `mdfiles`, `export` is not optional.** The hot store is gitignored — it

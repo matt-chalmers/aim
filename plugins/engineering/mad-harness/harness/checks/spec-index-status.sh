@@ -26,11 +26,16 @@ cd "$PWD_REPO"
 # MAD_HARNESS_REPO must cross into the subshell: it cd's into the harness to reach
 # the module path, which would otherwise resolve the config of the PLUGIN rather
 # than of the repository being checked.
-PROPOSED="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/.." && \
-  MAD_HARNESS_REPO="$PWD_REPO" uv run python -c \
+HARNESS_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/.." && pwd)"
+PROPOSED="$(cd "$HARNESS_DIR" && MAD_HARNESS_REPO="$PWD_REPO" uv run python -c \
   "from models.project import load; print(load().paths.get('proposed',''))" 2>/dev/null)"
 export PROPOSED
-exec python3 - "${1:?usage: spec-index-status.sh <epic-id>}" <<'PY'
+# ONE INTERPRETER. The body needs PyYAML for the index's frontmatter, and the lookup above
+# just ran under the harness venv that has it — then this line exec'd the SYSTEM python3,
+# which on macOS does not, and every epic answered "PyYAML required". `--project` runs the
+# harness's environment WITHOUT changing the working directory, which the glob and the
+# `git diff` below need to be the repository being checked.
+exec uv run --project "$HARNESS_DIR" python - "${1:?usage: spec-index-status.sh <epic-id>}" <<'PY'
 import sys, glob, os, re, subprocess
 
 
@@ -45,7 +50,7 @@ def _proposed():
         sys.exit("harness.yaml declares no paths.proposed — cannot locate staged files")
     return d
 try: import yaml
-except ImportError: sys.exit("PyYAML required")
+except ImportError: sys.exit("PyYAML missing from the harness venv — run `uv sync` in harness/")
 epic = sys.argv[1]
 hits = glob.glob(f"{_proposed()}/{epic}*/spec-index.md")
 if not hits:
