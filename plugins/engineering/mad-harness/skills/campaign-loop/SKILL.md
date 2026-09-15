@@ -55,7 +55,7 @@ git status --porcelain                    # must be clean
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-check                       # must exist and be free
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh autosync off           # stop beads staging issues.jsonl into a sibling commit
                                           # §5 restores it; if the run dies first, /halt does
-lsof -ti $(${CLAUDE_PLUGIN_ROOT}/harness/checks/stack-card.sh | grep -oE '\b[0-9]{4}\b' | tr '\n' ' ') 2>/dev/null | head
+${CLAUDE_PLUGIN_ROOT}/harness/checks/check-ports.sh   # declared `ports:` already bound — a server left over from a killed run
 df -h . | tail -1                          # disk headroom — worktrees consume it (informational)
 git worktree list && git worktree prune   # worktrees stranded by a previous killed run
 ${CLAUDE_PLUGIN_ROOT}/harness/swarm/worktree-sweep.sh                # then the real sweep — see below, prune alone is a no-op
@@ -63,7 +63,7 @@ git log --oneline -200 | grep -ciE '^[0-9a-f]+ (fix|revert)'   # escape-rate bas
 
 # Tasks approaching the ~64KB record ceiling, past which `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh note` HARD-FAILS with no warning.
 # A 38-character append fails exactly as a 3KB one does, and it fails CLOSED.
-${CLAUDE_PLUGIN_ROOT}/harness/checks/check-task-size.sh          # NOT an inline loop — see below
+${CLAUDE_PLUGIN_ROOT}/harness/checks/check-record-size.sh          # NOT an inline loop — see below
 
 # Do each stack's declared commands still work? A wrong test command fails LOUDLY but
 # LATE — once per worker per wave — and a worker that gives up returns BLOCKED, which
@@ -85,7 +85,7 @@ off the lens about to judge it.
 **Use the script, not a hand-rolled loop.** This step used to be an inline `for` over
 `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh --readonly show` for every open task. It does not work: at ~200 open tasks it **times out
 before finishing**, so the check silently does not happen and you proceed believing it passed.
-`${CLAUDE_PLUGIN_ROOT}/harness/checks/check-task-size.sh` answers the same question in seconds and prints the headroom left
+`${CLAUDE_PLUGIN_ROOT}/harness/checks/check-record-size.sh` answers the same question in seconds and prints the headroom left
 on each task it flags. The script was always there — it was just referenced 800 lines below the
 step that needed it.
 
@@ -935,7 +935,7 @@ One epic reached 64,244 characters — 99% notes, six wave entries and three cam
 entries among them — and is write-locked permanently. This loop writes to epic notes on every run, so a
 write-locked epic means the next run believes it recorded state it did not, and the run after
 reads a stale note as current. **Check the exit status of every epic-note write** and report a
-failure rather than continuing. `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-task-size.sh` warns before a task gets there.
+failure rather than continuing. `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-record-size.sh` warns before a task gets there.
 
 Owner decisions are the exception and must NOT move: they outlive the epic and
 the staging folder does not survive close. They stay on the `decision` task verbatim, and fold

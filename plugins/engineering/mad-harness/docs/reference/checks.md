@@ -1,6 +1,6 @@
 # Checks
 
-Sixteen mechanical gates in [`harness/checks/`](../../harness/checks/). Each enforces a rule
+Twenty mechanical gates in [`harness/checks/`](../../harness/checks/). Each enforces a rule
 that would otherwise be a convention people drift from.
 
 **Every guard carries a companion test proving it can fail.** A check that cannot fail is
@@ -19,9 +19,11 @@ not a guard, it is decoration — and this corpus has caught itself shipping thr
 | `check-docs.sh` | Verify the documentation's generated parts against the code they describe. |
 | `check-line-pins.sh` | Which records cite code by line number, and which of those pins have drifted. |
 | `check-model-config.sh` | Verify the model routing config against every agent definition. |
+| `check-ports.sh` | Which of the project's declared ports are already bound, and by what. |
 | `check-project-config.sh` | Verify harness.yaml + harness/stacks/, and that the places still |
 | `check-prose.sh` | Catch prose an edit broke: a sentence whose subject was deleted, a rule stated twice, |
 | `check-record-size.sh` | Warn before a tracker record hits the ceiling that write-locks it. |
+| `check-script-refs.sh` | Every `${CLAUDE_PLUGIN_ROOT}/...` path named in a skill, command or agent must exist. |
 | `check-skills.sh` | Verify the skill layer: declarations resolve, names match, and no agent's |
 | `check-stack-commands.sh` | Probe each stack's declared commands, and repair the ones that have rotted. |
 | `domain-report.sh` | Where the harness's prose uses a consuming project's domain vocabulary. |

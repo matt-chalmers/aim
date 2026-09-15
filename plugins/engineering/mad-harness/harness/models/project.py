@@ -232,6 +232,34 @@ class Project:
     #: mid-flight that its tracker does not exist.
     TRACKER_BACKENDS = ("beads", "mdfiles")
 
+    def ports(self) -> dict[str, int]:
+        """The `ports:` block — every TCP port this project's servers bind, by name.
+
+        DECLARED, NOT SCRAPED. `campaign-loop` §0 used to recover ports by grepping the
+        stack card for four-digit numbers; the card is prose about conventions and names
+        no port, so the regex matched nothing and `lsof` ran with no arguments — the
+        pre-flight examined nothing and looked as if it had passed. Ports are a project
+        fact, and they live here with the other project facts. Absent means none.
+        """
+        raw = self.raw.get("ports")
+        if raw is None:
+            return {}
+        if not isinstance(raw, dict):
+            raise ProjectError(
+                f"ports must be a map of name -> port number, got {type(raw).__name__}. "
+                f"For example: ports: {{frontend: 3000, backend: 8000}}"
+            )
+        out: dict[str, int] = {}
+        for name, value in raw.items():
+            try:
+                port = int(value)
+            except (TypeError, ValueError) as exc:
+                raise ProjectError(f"ports.{name} must be a port number, got {value!r}") from exc
+            if not 1 <= port <= 65535:
+                raise ProjectError(f"ports.{name} is {port}; a TCP port is 1-65535")
+            out[str(name)] = port
+        return out
+
     def tracker(self) -> dict[str, Any]:
         """The `tracker:` block, validated. Absent means tasks, exactly as before.
 

@@ -60,6 +60,24 @@ def main() -> int:
         failures.append(str(exc))
 
     try:
+        ports = p.ports()
+        if ports:
+            print(f"ports:   {', '.join(f'{k}={v}' for k, v in sorted(ports.items()))}")
+        elif p.stacks and "ports" not in p.raw:
+            # A project with a toolchain almost always has a server; a config written
+            # before `ports:` existed has no way of knowing it is now expected. This is
+            # the signal /harness-setup's "repair" trigger listens for — without it the
+            # pre-flight would say "none declared" forever and nobody would be sent here.
+            # An explicit `ports: {}` is an answer — nothing listens — and is not warned.
+            warnings.append(
+                "no ports declared. If this project's servers bind any, declare them "
+                "under `ports:` so the pre-flight can catch one left running — see "
+                "templates/harness.yaml.example."
+            )
+    except ProjectError as exc:
+        failures.append(str(exc))
+
+    try:
         archive = p.archive_dir()
         if archive:
             print(f"archive: {archive}  (spent epic folders are moved here, not deleted)")

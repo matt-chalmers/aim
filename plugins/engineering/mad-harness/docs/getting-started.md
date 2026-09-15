@@ -18,6 +18,12 @@ The installed copy serves the interactive commands you type. Dispatched agents l
 plugin **by path**, so if you are developing the harness itself your changes take effect
 without reinstalling — see [CLAUDE.md](../CLAUDE.md).
 
+Run everything from inside your repository. The plugin lives in `~/.claude/plugins/cache/`,
+so each script finds the project from the directory you call it in; from anywhere else, set
+`MAD_HARNESS_REPO=/path/to/repo`. Every check prints `project: <name>` first — if that is
+not your project, it resolved the wrong one
+([troubleshooting](guides/troubleshooting.md#the-backlog-reads-as-empty-or-a-check-answers-about-the-wrong-project)).
+
 ## 2. Describe the repository
 
 ```

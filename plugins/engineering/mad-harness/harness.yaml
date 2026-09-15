@@ -27,6 +27,10 @@ frameworks: []
 domain:
   nouns: []
 
+# Nothing here listens: the harness is scripts and prompts, not a server. Declared
+# empty rather than omitted, so the config check knows it was considered.
+ports: {}
+
 # Which modules are in play per lane. The card injected into a worker's prompt
 # covers only these, so a lane never pays for technology it will not touch.
 # An unmapped lane falls back to everything detected.

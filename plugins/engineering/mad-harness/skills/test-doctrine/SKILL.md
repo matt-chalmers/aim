@@ -261,6 +261,16 @@ stale data unless the browser context blocks service workers.
 **Always point a negative test at a fixture that SHOULD trip it and watch it fail.** A
 negative assertion you have never seen go red is not evidence of anything.
 
+**A tool that finds its target by convention must be tested from where the convention
+breaks.** The harness resolves the repository it works on from the caller's directory;
+its own suite pinned that with an environment override, so every test ran under correct
+resolution and the installed-plugin layout — a different directory, a `cd` in every
+wrapper — was never exercised. Four defects shipped, each invisible in-tree and each a
+clean pass about the wrong repository. **If a change touches a wrapper, a resolver, a
+`cwd` argument or the wiring between a module and its CLI, drive the real entry point
+from a foreign directory with the override removed.** The module's own tests, called
+with the right arguments, prove nothing about the caller that omits them.
+
 ## 9. Running tests
 
 The commands come from the stack modules your project declares. One call prints them:

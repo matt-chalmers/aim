@@ -40,7 +40,7 @@ git status --porcelain          # must be clean
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-check             # must exist and be free
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh autosync off # stop beads staging issues.jsonl into a sibling's commit
                                 # (step 9 restores it — if a run dies before then, /halt does)
-lsof -ti $(${CLAUDE_PLUGIN_ROOT}/harness/checks/stack-card.sh | grep -oE '\b[0-9]{4}\b' | tr '\n' ' ') 2>/dev/null | head   # ports your stacks bind
+${CLAUDE_PLUGIN_ROOT}/harness/checks/check-ports.sh   # declared `ports:` already bound — a server left over from a killed run
 df -h . | tail -1                          # disk headroom — worktrees consume it (informational)
 git worktree list && git worktree prune   # worktrees stranded by a previous killed run
 ${CLAUDE_PLUGIN_ROOT}/harness/swarm/worktree-sweep.sh                # then the real sweep — see below, prune alone is a no-op

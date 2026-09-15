@@ -11,8 +11,9 @@ The one file that makes the harness fit your repository. Written by
 | `stacks` | which toolchains, and where each lives | yes |
 | `frameworks` | how to write good code here — independent of the toolchain | no |
 | `tracker` | which backend, and where its records live | no (defaults to `beads`) |
-| `tasks` | record conventions | no |
+| `beads` | the id prefix the task-hygiene checks build their patterns from | yes, on the beads backend |
 | `swarm` | wave sizing and worker resources | no |
+| `ports` | every TCP port your servers bind, by name — the pre-flight probes them | no |
 | `paths` | docs, staging, archive — **omit any your project lacks** | yes |
 | `domain` | your domain vocabulary — prompts are guarded against naming it | no |
 | `lanes` | concurrency per lane, measured on your hardware | no |

@@ -105,3 +105,56 @@ def test_a_lease_is_never_pushed_without_an_object(tmp_path):
     lonely.mkdir()
     with pytest.raises(L.LeaseError):
         L.acquire("epic-1", cwd=str(lonely))
+
+
+@pytest.mark.parametrize("bad", ["", "   ", None, "a/b", "..", "epic-1 "])
+def test_no_verb_builds_a_refspec_from_a_bad_epic_name(bad, monkeypatch):
+    """`release` pushes `:refs/harness/epic-lease/<epic>` — a delete. With an empty
+    epic that is a delete of the namespace root. `acquire` guarded its OBJECT; nothing
+    guarded the NAME, for any verb. Now every refspec goes through one gate, and git is
+    never reached: the fake below would fail the test if it were."""
+    monkeypatch.setattr(L, "_git", lambda *a, **k: pytest.fail("git was invoked"))
+    for verb in (L.acquire, L.release, L.steal):
+        with pytest.raises(L.LeaseError):
+            verb(bad)  # type: ignore[arg-type]
+
+
+def test_a_good_epic_name_passes_the_gate():
+    assert L._ref("TD-m7j7") == f"{L.NAMESPACE}/TD-m7j7"
+
+
+def test_the_cli_runs_every_lease_verb_in_the_project_not_the_plugin(monkeypatch, tmp_path):
+    """The wrapper `cd`s into the harness before Python starts, so git without a cwd ran
+    in the plugin's own checkout — no `origin`, every verb threw "cannot reach the
+    remote", and installed as a plugin NO EPIC WAS EVER LEASED. A second machine saw a
+    clear field. The CLI must pass the resolved project to every call."""
+    from tracker import cli
+
+    monkeypatch.setattr("models.resolve.REPO", tmp_path)
+    seen: list[tuple[str, str | None]] = []
+
+    def spy(name, result):
+        def f(*args, cwd=None, **kw):
+            seen.append((name, cwd))
+            return result
+        return f
+
+    monkeypatch.setattr(L, "held", spy("held", {}))
+    monkeypatch.setattr(L, "inspect", spy("inspect", None))
+    monkeypatch.setattr(L, "acquire", spy("acquire", L.Lease("e", "h", "host", 1, 0.0)))
+    monkeypatch.setattr(L, "steal", spy("steal", L.Lease("e", "h", "host", 1, 0.0)))
+    monkeypatch.setattr(L, "release", spy("release", True))
+
+    for argv in (
+        ["lease", "list"],
+        ["lease", "show", "e"],
+        ["lease", "acquire", "e"],
+        ["lease", "steal", "e"],
+        ["lease", "release", "e"],
+    ):
+        cli.main(argv)
+
+    assert seen, "nothing was called"
+    wrong = [(n, c) for n, c in seen if c != str(tmp_path)]
+    assert wrong == [], f"lease verbs that did not run in the project: {wrong}"
+    assert {n for n, _ in seen} == {"held", "inspect", "acquire", "steal", "release"}

@@ -54,6 +54,30 @@ def _run(args: list[str], *, cwd: str | None = None, timeout: int = TIMEOUT):
         raise TrackerError(f"bd {' '.join(args)} failed: {exc}") from exc
 
 
+def _ok(args: list[str], cwd: str | None) -> subprocess.CompletedProcess:
+    """Run `bd`, and REFUSE TO TREAT A FAILURE AS AN EMPTY RESULT.
+
+    `bd` invoked outside a workspace exits 1 with "no beads database found" on stderr
+    and nothing on stdout. Read as JSON that is `[]`, exit 0 — the same answer as a
+    genuinely empty backlog. An unattended campaign took that answer from a
+    mis-resolved repository, concluded the epic queue was exhausted, and reported a
+    clean zero-work run against 17 open epics. The empty list and the missing database
+    must never be the same value.
+    """
+    proc = _run(args, cwd=cwd)
+    if proc.returncode != 0:
+        raise _failure(args, proc, cwd)
+    return proc
+
+
+def _failure(args: list[str], proc: subprocess.CompletedProcess, cwd: str | None) -> TrackerError:
+    detail = (proc.stderr or proc.stdout).strip().splitlines()
+    return TrackerError(
+        f"bd {' '.join(args)} failed (exit {proc.returncode}) in "
+        f"{cwd or 'the current directory'}: {detail[0] if detail else 'no output'}"
+    )
+
+
 def _issues(raw: str) -> list[dict]:
     """THE normalisation, in one place.
 
@@ -166,10 +190,15 @@ class BeadsTaskStore:
     # --- reads ---------------------------------------------------------------
 
     def _json(self, args: list[str]) -> list[dict]:
-        return _issues(_run(args, cwd=self.cwd).stdout)
+        return _issues(_ok(args, self.cwd).stdout)
 
     def show(self, task_id: str) -> Task | None:
         proc = _run(["show", task_id, "--json"], cwd=self.cwd)
+        # An unknown id exits non-zero WITH an error payload on stdout, and that is
+        # None. Non-zero with nothing on stdout is bd itself failing — no workspace,
+        # most likely — and "not found" would be a lie about a database never opened.
+        if proc.returncode != 0 and not proc.stdout.strip():
+            raise _failure(["show", task_id, "--json"], proc, self.cwd)
         rows = _issues(proc.stdout) if proc.returncode == 0 else []
         return _task(rows[0]) if rows and rows[0].get("id") else None
 
@@ -344,7 +373,7 @@ class BeadsTaskStore:
         self._must(["config", "set", "export.auto", "true" if enabled else "false"])
 
     def prime(self) -> str:
-        return _run(["prime"], cwd=self.cwd).stdout
+        return _ok(["prime"], self.cwd).stdout
 
     def label(self, task_id: str, name: str, *, remove: bool = False) -> None:
         self._must(["label", "remove" if remove else "add", task_id, name])
@@ -365,14 +394,10 @@ class BeadsMemoryStore:
             raise TrackerError(f"bd remember failed: {proc.stderr.strip()[:200]}")
 
     def recall(self, query: str) -> list[str]:
-        return [
-            ln for ln in _run(["recall", query], cwd=self.cwd).stdout.splitlines() if ln.strip()
-        ]
+        return [ln for ln in _ok(["recall", query], self.cwd).stdout.splitlines() if ln.strip()]
 
     def memories(self) -> list[str]:
-        return [
-            ln for ln in _run(["memories"], cwd=self.cwd).stdout.splitlines() if ln.strip()
-        ]
+        return [ln for ln in _ok(["memories"], self.cwd).stdout.splitlines() if ln.strip()]
 
 
 def legacy_events(cwd: str | None = None) -> list[Event]:

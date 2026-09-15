@@ -42,6 +42,10 @@ import yaml
 HARNESS = Path(__file__).resolve().parent.parent
 
 
+class RepoError(RuntimeError):
+    """The harness could not tell which repository it is operating on."""
+
+
 def _find_repo() -> Path:
     """The repository the harness is operating ON, which is not where it lives.
 
@@ -87,19 +91,33 @@ def _find_repo() -> Path:
         if (candidate / "harness.yaml").is_file():
             return candidate
 
+    # The git fallback runs FROM THE CALLER'S DIRECTORY too. Run from the process's
+    # cwd it answered about the harness's own checkout — the marketplace repository
+    # in-tree, the plugin cache when installed — which is never the project.
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
             timeout=15,
+            cwd=str(cwd),
         )
         if out.returncode == 0 and out.stdout.strip():
             return Path(out.stdout.strip()).resolve()
     except (OSError, subprocess.SubprocessError):
         pass
-    # Last resort: the in-tree layout, where the harness sits inside the repo.
-    return HARNESS.parent
+
+    # THE HARNESS'S OWN TREE IS NEVER THE ANSWER FOR A CALLER OUTSIDE IT. Installed as a
+    # plugin, `HARNESS.parent` is the plugin cache: it carries a `harness.yaml`, so every
+    # tracker call would run against a directory with no records and return an empty
+    # result with exit 0 — an unattended campaign read that as "the backlog is
+    # exhausted" and reported a clean, zero-work run against 17 open epics. Refusing is
+    # the only safe answer: nothing above found a project, so say so, with the path tried.
+    raise RepoError(
+        f"no project found from {cwd}: no harness.yaml in it or any parent, and it is "
+        f"not inside a git checkout. Run from the consuming repository, or set "
+        f"MAD_HARNESS_REPO to its root."
+    )
 
 
 REPO = _find_repo()

@@ -759,3 +759,68 @@ def test_an_explicit_run_dir_still_wins_over_the_repo(tmp_path, monkeypatch):
     monkeypatch.setenv("MAD_HARNESS_REPO", str(tmp_path / "ignored"))
     monkeypatch.setenv("HARNESS_RUN_DIR", str(tmp_path / "explicit"))
     assert run_dir() == tmp_path / "explicit"
+
+
+# --- a failing bd is never an empty result ------------------------------------------
+
+
+def _fake_bd(monkeypatch, *, returncode: int, stdout: str = "", stderr: str = ""):
+    import subprocess
+
+    from tracker import beads as mod
+
+    calls: list[list[str]] = []
+
+    def run(args, *, cwd=None, timeout=None):
+        calls.append(list(args))
+        return subprocess.CompletedProcess(["bd", *args], returncode, stdout, stderr)
+
+    monkeypatch.setattr(mod, "_run", run)
+    return calls
+
+
+@pytest.mark.parametrize("read", ["list", "ready", "memories", "recall", "prime"])
+def test_a_bd_that_cannot_find_its_workspace_raises_rather_than_returning_nothing(
+    monkeypatch, read
+):
+    """`bd` outside a workspace exits 1 with nothing on stdout. Read as JSON that is `[]`
+    — the same value as a genuinely empty backlog, with exit 0. An unattended campaign
+    took that from a mis-resolved repository, concluded the queue was exhausted, and
+    reported a clean zero-work run against 17 open epics."""
+    from tracker.beads import BeadsMemoryStore, BeadsTaskStore, TrackerError
+
+    _fake_bd(monkeypatch, returncode=1, stderr="Error: no beads database found\nHint: run 'bd init'")
+    task_store, memory_store = BeadsTaskStore(cwd="/nowhere"), BeadsMemoryStore(cwd="/nowhere")
+    call = {
+        "list": task_store.list,
+        "ready": task_store.ready,
+        "memories": memory_store.memories,
+        "recall": lambda: memory_store.recall("x"),
+        "prime": task_store.prime,
+    }[read]
+    with pytest.raises(TrackerError) as exc:
+        call()
+    msg = str(exc.value)
+    assert "no beads database found" in msg, "the real reason must reach the operator"
+    assert "/nowhere" in msg, "and where bd was asked"
+
+
+def test_show_still_distinguishes_an_unknown_id_from_a_broken_bd(monkeypatch):
+    """`bd show <unknown>` ALSO exits non-zero — with an error payload on stdout. That is
+    "not found", and must stay None. Non-zero with NOTHING on stdout is bd failing."""
+    from tracker.beads import BeadsTaskStore, TrackerError
+
+    _fake_bd(monkeypatch, returncode=1, stdout='{"error": "not found", "schema_version": 1}')
+    assert BeadsTaskStore(cwd="/x").show("T-404") is None
+
+    _fake_bd(monkeypatch, returncode=1, stderr="Error: no beads database found")
+    with pytest.raises(TrackerError):
+        BeadsTaskStore(cwd="/x").show("T-1")
+
+
+def test_a_clean_empty_list_is_still_empty(monkeypatch):
+    """The fix must not turn a genuinely empty backlog into an error."""
+    from tracker.beads import BeadsTaskStore
+
+    _fake_bd(monkeypatch, returncode=0, stdout="[]")
+    assert BeadsTaskStore(cwd="/x").list() == []

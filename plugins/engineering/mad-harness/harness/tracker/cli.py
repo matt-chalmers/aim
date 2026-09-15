@@ -321,31 +321,40 @@ def main(argv: list[str] | None = None) -> int:
 
         store = tracker.task_store(getattr(args, 'backend', None))
         if v == "lease":
+            from models.resolve import REPO
+
             from . import lease as L
 
+            # EVERY LEASE CALL RUNS GIT IN THE PROJECT. The wrapper cd's into the
+            # harness before Python starts, so git without a cwd runs in the plugin's
+            # own checkout — which has no `origin` — and every verb threw "cannot reach
+            # the remote". Installed as a plugin, no epic was ever actually leased, and a
+            # second machine saw a clear field. `REPO` honours MAD_HARNESS_REPO and the
+            # caller's directory the same way every other tracker path does.
+            repo = str(REPO)
             act = args.action
             if act == "list":
-                current = L.held()
+                current = L.held(cwd=repo)
                 if not current:
                     print("no epics leased")
                     return 0
                 for epic in sorted(current):
-                    info = L.inspect(epic)
+                    info = L.inspect(epic, cwd=repo)
                     print(f"  {info.describe()}" if info else f"  {epic}")
                 return 0
             if not args.epic:
                 print(f"{act} needs an epic id", file=sys.stderr)
                 return 2
             if act == "show":
-                info = L.inspect(args.epic)
+                info = L.inspect(args.epic, cwd=repo)
                 print(info.describe() if info else f"{args.epic} is not leased")
                 return 0
             if act == "acquire":
-                got = L.acquire(args.epic, holder=args.holder)
+                got = L.acquire(args.epic, holder=args.holder, cwd=repo)
                 if got:
                     print(f"acquired {args.epic}")
                     return 0
-                other = L.inspect(args.epic)
+                other = L.inspect(args.epic, cwd=repo)
                 print(
                     f"{args.epic} is already leased — {other.describe() if other else 'by another machine'}",
                     file=sys.stderr,
@@ -353,18 +362,18 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             if act == "steal":
                 ttl = args.ttl if args.ttl is not None else L.DEFAULT_TTL_SECONDS
-                got = L.steal(args.epic, ttl=ttl, holder=args.holder)
+                got = L.steal(args.epic, ttl=ttl, holder=args.holder, cwd=repo)
                 if got:
                     print(f"reclaimed {args.epic} — the steal is recorded on the remote")
                     return 0
-                other = L.inspect(args.epic)
+                other = L.inspect(args.epic, cwd=repo)
                 print(
                     f"refusing to steal {args.epic}: {other.describe() if other else 'not leased'}"
                     f" — not stale yet",
                     file=sys.stderr,
                 )
                 return 1
-            print(f"released {args.epic}" if L.release(args.epic) else f"could not release {args.epic}")
+            print(f"released {args.epic}" if L.release(args.epic, cwd=repo) else f"could not release {args.epic}")
             return 0
 
         if v == "migrate":

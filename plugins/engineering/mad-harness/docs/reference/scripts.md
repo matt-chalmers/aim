@@ -55,19 +55,40 @@ every worktree behind, which is the state it exists to prevent.
 
 ## Checks
 
-Sixteen, listed in [checks.md](checks.md).
+Twenty, listed in [checks.md](checks.md).
 
 ## Where a script resolves the repository from
 
-The difference matters, and it is deliberate.
+Installed as a plugin, the harness lives in `~/.claude/plugins/cache/…`, nowhere near
+the repository it works on — so every script has to *find* that repository, and finding
+the wrong one is not an error. It is a clean pass about somebody else's project, or a
+tracker returning an empty backlog with exit 0.
 
-**From their own location** (`dirname "$0"/../..`) — `check-record-size.sh`,
-`check-blocking-prose.sh`, `check-decision-register.sh`, `spec-index-status.sh`,
-`campaign-telemetry.sh`, `swarm-worktree-init.sh`, and both fidelity `.mjs`. These run from
-**any** working directory, including outside the repo.
+**Every wrapper records the caller's directory before it moves.** Each one does
+`cd "$(dirname "$0")/.."` to reach the harness, which carries its own `harness.yaml`
+describing the harness as a project; a walk-up from *that* directory finds it and stops.
+So the wrappers export `MAD_HARNESS_CALLER_PWD` first, and the resolver looks from there.
+Resolution order, in [`harness/models/resolve.py`](../../harness/models/resolve.py):
 
-**From the current directory** (`git rev-parse --show-toplevel`) — `check-analyst-mirror.sh`,
-`check-doc-drift.sh`, `check-line-pins.sh`, `worktree-sweep.sh`, `mutate.sh`. These must be
-run from **inside a checkout**, and they act on *that* tree. That is deliberate for the
-worktree-aware ones: running them from `/tmp` fails with `fatal: not a git repository`
-rather than silently acting on the wrong tree.
+1. **`MAD_HARNESS_REPO`**, if set — an explicit override, for tools run from outside a
+   checkout, for CI, and for the test suite (which sets it to the plugin itself).
+2. **Walk up from the caller's directory** for a `harness.yaml`. A project is defined by
+   its config, not by where `git init` happened, so a plugin nested inside a monorepo
+   still resolves to the plugin.
+3. **`git rev-parse --show-toplevel`, from the caller's directory** — for a repository
+   that has no `harness.yaml` yet, which is where `/harness-setup` writes one.
+4. Otherwise it **fails, naming the directory it tried.** The harness's own tree is never
+   the answer for a caller outside it.
+
+In practice: run any script from inside the consuming repository and nothing needs
+setting. From anywhere else, set `MAD_HARNESS_REPO=/path/to/repo`. Every check prints
+`project: <name>` so a wrong resolution is visible in the first line.
+
+**The exceptions resolve from their own location** — `check-analyst-mirror.sh`,
+`check-conventions-mirror.sh`, `check-script-refs.sh`, `check-skills.sh`,
+`check-model-config.sh`. They validate files that ship *with the plugin* (agents,
+skills, the tier table), which a consuming repository has no copy of.
+
+**Worktree-aware scripts act on the checkout they run in** — `worktree-sweep.sh`,
+`mutate.sh`. Running them from `/tmp` fails with `fatal: not a git repository` rather
+than acting on the wrong tree, which is deliberate.

@@ -9,7 +9,7 @@
 
 PY ?= uv run python
 
-.PHONY: help test conformance lint fmt project skills models commands docs check harness-test harness-lint models-sync models-cost
+.PHONY: help test conformance lint fmt project skills refs models commands docs check harness-test harness-lint models-sync models-cost
 
 help:
 	@echo "test     the harness's own suite (self-hosted against harness.yaml)"
@@ -18,6 +18,7 @@ help:
 	@echo "fmt      ruff format"
 	@echo "project  config valid, stacks present, hard-coded sites agree"
 	@echo "skills   skill declarations resolve, preload bills within budget"
+	@echo "refs     every plugin path a skill, command or agent names exists"
 	@echo "models   every agent's tier resolves, no frontmatter drift"
 	@echo "commands each stack's declared commands still work (--repair to self-heal)"
 	@echo "check    all of the above — what CI runs"
@@ -41,6 +42,9 @@ project:
 
 skills:
 	./harness/checks/check-skills.sh
+
+refs:
+	./harness/checks/check-script-refs.sh
 
 models:
 	./harness/checks/check-model-config.sh
@@ -74,5 +78,5 @@ conventions:
 domain:
 	./harness/checks/domain-report.sh
 
-check: lint test project skills models prose commands docs
+check: lint test project skills refs models prose commands docs
 	@echo "OK — harness green."

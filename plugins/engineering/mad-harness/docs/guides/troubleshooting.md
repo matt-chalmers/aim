@@ -101,6 +101,29 @@ the steal is recorded on the remote rather than applied silently.
 Disjoint epics still share one tracked export, so conflicts there become rare rather than
 impossible.
 
+## The backlog reads as empty, or a check answers about the wrong project
+
+Symptoms: `tk.sh list` or `tk.sh memories` print nothing with exit 0 against a repository
+you know has records; a check reports `project: MAD harness` when you meant yours; a
+campaign reports a clean, zero-work run and stops at §1.
+
+The harness has resolved the wrong repository. Every script has to *find* the project it
+works on, because as a plugin it lives nowhere near it — and the harness's own directory
+carries a `harness.yaml`, so a mis-resolution looks like a valid, empty project rather
+than an error. The tracker now refuses that case: `bd` failing to find a workspace is a
+`TrackerError`, never an empty list. The first line of every check names the project it
+answered about; read it.
+
+```bash
+tk.sh backend                    # from inside your repo — should name YOUR backend
+MAD_HARNESS_REPO=$PWD tk.sh list # the explicit override, if running from elsewhere
+```
+
+Run scripts from inside the consuming repository and nothing needs setting. From
+anywhere else — a scheduler, CI, another checkout — set `MAD_HARNESS_REPO` to the
+repository root. The full resolution order is in
+[scripts → where a script resolves the repository from](../reference/scripts.md#where-a-script-resolves-the-repository-from).
+
 ## `tk.sh ready` is empty after switching backend
 
 The backend changed; the records did not move.

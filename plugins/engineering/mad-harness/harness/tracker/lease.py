@@ -76,6 +76,20 @@ def _git(args: list[str], cwd: str | None = None) -> subprocess.CompletedProcess
     )
 
 
+def _ref(epic: str) -> str:
+    """The lease ref for `epic` — and the ONE place an epic name becomes a refspec.
+
+    `release` pushes an empty source (`:refs/.../<epic>`), which is a delete. With an
+    empty or whitespace epic that is `:refs/harness/epic-lease/` — a delete of the
+    namespace root, or of whatever the remote resolves that to. `acquire` guards its
+    object; this guards the name, for every verb.
+    """
+    name = (epic or "").strip()
+    if not name or "/" in name or ".." in name or name != epic:
+        raise LeaseError(f"invalid epic name for a lease: {epic!r}")
+    return f"{NAMESPACE}/{name}"
+
+
 def _identity(holder: str | None) -> dict:
     return {
         "holder": holder or os.environ.get("TRACKER_ACTOR") or os.environ.get("USER") or "unknown",
@@ -91,6 +105,7 @@ def acquire(epic: str, *, holder: str | None = None, cwd: str | None = None) -> 
     The payload is a commit whose message carries the identity, so `ls-remote` plus one
     `cat-file` tells another machine who holds what without cloning anything.
     """
+    ref = _ref(epic)  # validate the name before any git runs
     ident = _identity(holder)
     tree = _git(["rev-parse", "HEAD^{tree}"], cwd)
     if tree.returncode != 0 or not tree.stdout.strip():
@@ -107,7 +122,7 @@ def acquire(epic: str, *, holder: str | None = None, cwd: str | None = None) -> 
     if made.returncode != 0 or not obj:
         raise LeaseError(f"could not build the lease object: {made.stderr.strip()[:160]}")
 
-    pushed = _git(["push", "origin", f"{obj}:{NAMESPACE}/{epic}"], cwd)
+    pushed = _git(["push", "origin", f"{obj}:{ref}"], cwd)
     if pushed.returncode == 0:
         return Lease(epic=epic, sha=obj, **ident)
     return None
@@ -115,7 +130,7 @@ def acquire(epic: str, *, holder: str | None = None, cwd: str | None = None) -> 
 
 def release(epic: str, *, cwd: str | None = None) -> bool:
     """Give up the lease. Idempotent: releasing one nobody holds is success."""
-    return _git(["push", "origin", f":{NAMESPACE}/{epic}"], cwd).returncode == 0
+    return _git(["push", "origin", f":{_ref(epic)}"], cwd).returncode == 0
 
 
 def held(cwd: str | None = None) -> dict[str, str]:
@@ -133,10 +148,11 @@ def held(cwd: str | None = None) -> dict[str, str]:
 
 def inspect(epic: str, *, cwd: str | None = None) -> Lease | None:
     """Who holds `epic`, by reading the lease object. None if unleased."""
+    ref = _ref(epic)
     sha = held(cwd).get(epic)
     if not sha:
         return None
-    _git(["fetch", "-q", "origin", f"{NAMESPACE}/{epic}"], cwd)
+    _git(["fetch", "-q", "origin", ref], cwd)
     body = _git(["cat-file", "-p", sha], cwd)
     ident: dict = {}
     for line in body.stdout.splitlines():
@@ -164,6 +180,7 @@ def steal(epic: str, *, ttl: int = DEFAULT_TTL_SECONDS, holder: str | None = Non
     remote shows what displaced what, which is the property the local merge-slot steal
     also has and for the same reason.
     """
+    _ref(epic)  # validate before the first network call
     current = inspect(epic, cwd=cwd)
     if current is None:
         return acquire(epic, holder=holder, cwd=cwd)

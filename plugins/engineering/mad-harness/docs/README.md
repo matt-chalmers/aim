@@ -33,7 +33,7 @@ Running it: [Getting started](getting-started.md). Evaluating it first:
 | [Agents](reference/agents.md) | the twelve agents |
 | [Skills](reference/skills.md) | the thirteen skills |
 | [Stacks](reference/stacks.md) | the toolchain module schema |
-| [Checks](reference/checks.md) | the sixteen mechanical gates |
+| [Checks](reference/checks.md) | the twenty mechanical gates |
 | [Scripts](reference/scripts.md) | shell entry points |
 | [Tracker ports](reference/tracker-ports.md) | the four ports and the conformance contract |
 | [Dispatch](reference/dispatch.md) | `Resolved`/`Outcome`, tier resolution, injected context, telemetry |
