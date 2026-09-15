@@ -15,6 +15,16 @@ checkout, and both of the path bugs found during the tracker port were the plugi
 resolving something against its own tree instead of the consumer's. A test repo living
 inside this one would not exercise that at all.
 
+**And pointed at by standing in it, never by telling it.** The lab scripts `cd` into the
+target repository and call the harness from there; nothing here sets `MAD_HARNESS_REPO`
+or `MAD_HARNESS_CALLER_PWD`. They used to export `MAD_HARNESS_REPO`, and every wrapper —
+and every agent `dispatch.py` spawned, since it inherits the environment — honoured that
+ahead of resolving anything. The lab was outside the tree, shaped like a real project,
+and still could not see a resolver that returned the plugin's own directory, because it
+had answered the resolver's one question for it. 0.9.0 passed every wave here while a
+real project got an empty backlog with exit 0. The only way to test that a tool finds its
+target is to not tell it where the target is.
+
 ## The trap this found before dispatching anything
 
 A dispatched agent is resolved **by name against the installed plugin**, never against

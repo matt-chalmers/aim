@@ -12,11 +12,6 @@
 # artefact split verify/brief.py exists to produce.
 set -euo pipefail
 
-# Record where we were invoked from. This script reaches into the harness via a
-# subshell or a computed path, so Python still runs with the harness as its cwd —
-# and the harness carries its own harness.yaml, which the resolver would read as
-# the project. Exported here so every subshell inherits it.
-export MAD_HARNESS_CALLER_PWD="${MAD_HARNESS_CALLER_PWD:-$PWD}"
 
 ROOT="${WAVELAB_ROOT:-$HOME/harness-wavelab}"
 ARGS=()
@@ -34,7 +29,14 @@ REPO="$ROOT/$NAME"
 [ -d "$REPO" ] || { echo "no such repo: $REPO — run reset.sh first" >&2; exit 2; }
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HARNESS="$(cd "$HERE/.." && pwd)"
-export MAD_HARNESS_REPO="$REPO"
+# THE LAB POINTS AT ITS TARGET BY STANDING IN IT. It used to export MAD_HARNESS_REPO,
+# which every wrapper — and every agent dispatch.py spawned, since it inherits the
+# environment — then honoured ahead of resolving anything. So the one question a real
+# project needs answered ("which repository?") was answered for it, and a resolver that
+# returned the plugin's own directory passed every wave here while a real project got
+# an empty backlog with exit 0. Nothing in this lab sets MAD_HARNESS_REPO or
+# MAD_HARNESS_CALLER_PWD: the wrappers record the caller's directory themselves.
+cd "$REPO" || exit 2
 SCRATCH="${SCRATCHPAD:-${TMPDIR:-/tmp}}/wavelab-$NAME"
 mkdir -p "$SCRATCH"
 

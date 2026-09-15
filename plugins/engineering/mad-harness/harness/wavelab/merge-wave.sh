@@ -17,13 +17,15 @@ ROOT="${WAVELAB_ROOT:-$HOME/harness-wavelab}"
 while [ "${1:-}" = "--root" ]; do ROOT="${2:?}"; shift 2; done
 NAME="${1:?usage: merge-wave.sh [--root DIR] <beads|mdfiles>}"
 REPO="$ROOT/$NAME"
-HARNESS="$(# Record where we were invoked from BEFORE moving: the cd below lands in the
-# harness, which carries its own harness.yaml, and the resolver would read that
-# as the project. Already-set wins, so a caller may state it explicitly.
-export MAD_HARNESS_CALLER_PWD="${MAD_HARNESS_CALLER_PWD:-$PWD}"
-cd "$(dirname "$0")/.." && pwd)"
-export MAD_HARNESS_REPO="$REPO"
+HARNESS="$(cd "$(dirname "$0")/.." && pwd)"
 
+# THE LAB POINTS AT ITS TARGET BY STANDING IN IT. It used to export MAD_HARNESS_REPO,
+# which every wrapper — and every agent dispatch.py spawned, since it inherits the
+# environment — then honoured ahead of resolving anything. So the one question a real
+# project needs answered ("which repository?") was answered for it, and a resolver that
+# returned the plugin's own directory passed every wave here while a real project got
+# an empty backlog with exit 0. Nothing in this lab sets MAD_HARNESS_REPO or
+# MAD_HARNESS_CALLER_PWD: the wrappers record the caller's directory themselves.
 cd "$REPO" || exit 2
 echo "== integrating the wave: $NAME =="
 

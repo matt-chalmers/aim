@@ -12,17 +12,21 @@
 set -uo pipefail
 ROOT="${WAVELAB_ROOT:-$HOME/harness-wavelab}"
 while [ "${1:-}" = "--root" ]; do ROOT="${2:?}"; shift 2; done
-HARNESS="$(# Record where we were invoked from BEFORE moving: the cd below lands in the
-# harness, which carries its own harness.yaml, and the resolver would read that
-# as the project. Already-set wins, so a caller may state it explicitly.
-export MAD_HARNESS_CALLER_PWD="${MAD_HARNESS_CALLER_PWD:-$PWD}"
-cd "$(dirname "$0")/.." && pwd)"
+HARNESS="$(cd "$(dirname "$0")/.." && pwd)"
+# THE LAB POINTS AT ITS TARGET BY STANDING IN IT. It used to export MAD_HARNESS_REPO,
+# which every wrapper — and every agent dispatch.py spawned, since it inherits the
+# environment — then honoured ahead of resolving anything. So the one question a real
+# project needs answered ("which repository?") was answered for it, and a resolver that
+# returned the plugin's own directory passed every wave here while a real project got
+# an empty backlog with exit 0. Nothing in this lab sets MAD_HARNESS_REPO or
+# MAD_HARNESS_CALLER_PWD: the wrappers record the caller's directory themselves.
+tk() { ( cd "$1" && shift && "$HARNESS/tracker/tk.sh" "$@" ); }   # $1 = repo, then verbs
 
 facts() {  # $1 = repo name -> normalised, id-free facts about the outcome
   local repo="$ROOT/$1"
   # Keyed by TITLE, never by id: the two backends generate different id schemes by
   # construction, and comparing those would report a difference on every line.
-  MAD_HARNESS_REPO="$repo" "$HARNESS/tracker/tk.sh" list --json | python3 -c '
+  tk "$repo" list --json | python3 -c '
 import json, sys
 rows = json.load(sys.stdin)
 # PERMISSION REQUESTS ARE NOT AN OUTCOME. One backend filing one and the other not is
@@ -45,11 +49,11 @@ for r in sorted(rows, key=lambda x: x["title"]):
   # differential that can never say IDENTICAL teaches its reader to ignore it. What the two
   # backends owe is the same PRODUCT, not the same bookkeeping.
   local owned ids
-  owned=$(MAD_HARNESS_REPO="$repo" "$HARNESS/tracker/tk.sh" backend --json \
+  owned=$(tk "$repo" backend --json \
           | python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin)["owned_paths"]))')
   # Ids appear inside paths too — `docs/proposed/<epic-id>-normalise/tasks.md` — and the
   # two backends generate different id schemes by construction.
-  ids=$(MAD_HARNESS_REPO="$repo" "$HARNESS/tracker/tk.sh" list --json \
+  ids=$(tk "$repo" list --json \
         | python3 -c 'import json,sys; print("\n".join(t["id"] for t in json.load(sys.stdin)))')
   ( cd "$repo" && for b in $(git branch --format='%(refname:short)' | grep harness-w); do
         git diff --name-only master "$b"
@@ -77,7 +81,7 @@ for line in sys.stdin.read().splitlines():
   # SUBJECTS ONLY, AND TASKS ONLY. `--grep` searches the whole commit message, so a body
   # reading "depends on <sibling>" was counted as that sibling's own commit.
   local task_ids
-  task_ids=$(MAD_HARNESS_REPO="$repo" "$HARNESS/tracker/tk.sh" list --json \
+  task_ids=$(tk "$repo" list --json \
         | python3 -c 'import json,sys; print("\n".join(t["id"] for t in json.load(sys.stdin) if t["type"] != "epic" and not t["title"].startswith("Permission:")))')
   ( cd "$repo" && git log --all --no-merges --format=%s ) \
     | TASK_IDS="$task_ids" python3 -c '
