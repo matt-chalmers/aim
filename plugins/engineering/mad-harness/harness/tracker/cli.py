@@ -63,6 +63,35 @@ def _rows(tasks: list[Task], as_json: bool) -> None:
         print(f"{t.id:<20} {t.status:<12} {t.type:<9} {t.title}")
 
 
+def _record(t: Task) -> str:
+    """ONE record, WHOLE. `show` used to print the same one-line row `list` does — id,
+    status, type, title — and nothing else. Eighteen prompt sites read a task through
+    `tk.sh show <id>` and tell the agent to expect "description, acceptance criteria,
+    dependencies, notes"; every worker built, and every verifier judged, against a title.
+    The row is for scanning a list. A record is for reading.
+    """
+    out = [f"{t.id}  {t.status}  {t.type}  {t.title}".rstrip()]
+    meta = []
+    if t.priority is not None:
+        meta.append(f"priority: {t.priority}")
+    if t.parent:
+        meta.append(f"parent: {t.parent}")
+    if t.assignee:
+        meta.append(f"assignee: {t.assignee}")
+    if t.labels:
+        meta.append(f"labels: {', '.join(t.labels)}")
+    if meta:
+        out.append("  ".join(meta))
+    out.append(f"depends_on: {', '.join(t.depends_on) if t.depends_on else '(none)'}")
+    if t.created_at or t.updated_at:
+        out.append(f"created: {t.created_at or '?'}  updated: {t.updated_at or '?'}")
+    out.append("")
+    out.append(t.description.rstrip() if t.description.strip() else "(no description)")
+    if t.notes.strip():
+        out += ["", "--- notes ---", t.notes.rstrip()]
+    return "\n".join(out)
+
+
 def build_parser() -> argparse.ArgumentParser:
     # `--json` and `--backend` are declared on a PARENT parser so they are accepted
     # AFTER the verb: prompts write `tk.sh ready --json`, mirroring `bd ready --json`,
@@ -410,7 +439,10 @@ def main(argv: list[str] | None = None) -> int:
             if t is None:
                 print(f"no such task: {args.id}", file=sys.stderr)
                 return 1
-            _rows([t], getattr(args, 'json', False))
+            if getattr(args, "json", False):
+                _rows([t], True)
+            else:
+                print(_record(t))
         elif v == "list":
             _rows(
                 store.list(

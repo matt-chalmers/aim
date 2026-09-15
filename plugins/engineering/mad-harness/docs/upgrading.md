@@ -95,3 +95,17 @@ Two field bugs, no config change.
   lines from setup. Worker scratch then never shows in a worktree's status at all, which
   does not depend on the sweep's pattern staying current.
 - **mechanical** — re-stamp `harness.version`, when convenient.
+
+### 0.9.4
+
+One bug, no config change — and the most consequential so far. `tk.sh show <id>` without
+`--json` printed the same one-line row `list` does: id, status, type, title. Nothing else.
+Eighteen prompt sites — every worker, every verifier, the planner, the architect — read a
+task through it and are told to expect "description, acceptance criteria, dependencies,
+notes". Every worker built, and every verifier judged, against a title. `show` now prints
+the whole record; `list` and `ready` keep the scannable row; `--json` is unchanged.
+
+Work verified under 0.9.0–0.9.3 was verified against titles. Re-verify anything that
+matters before trusting its PASS.
+
+- **mechanical** — re-stamp `harness.version`, when convenient.

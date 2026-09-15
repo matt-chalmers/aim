@@ -844,3 +844,57 @@ def test_run_dir_resolves_through_the_shared_resolver_not_the_process_cwd(monkey
     monkeypatch.chdir(HARNESS)  # what the wrapper leaves behind
     monkeypatch.setattr("models.resolve.REPO", consumer)
     assert locks.run_dir() == consumer.resolve() / ".harness" / "run"
+
+
+def test_show_prints_the_whole_record_not_the_list_row(monkeypatch, capsys):
+    """`show` printed the same one-line row `list` does. Eighteen prompt sites read a task
+    through `tk.sh show <id>` and tell the agent to expect description, acceptance
+    criteria, dependencies and notes — every worker built, and every verifier judged,
+    against a title. Generic over the dataclass: a field added later cannot be dropped."""
+    import dataclasses
+
+    from tracker import cli
+
+    full = Task(
+        id="T-77", type="task", status="open", title="Wire the thing",
+        description="Acceptance criteria:\n- it wires\n- it is tested",
+        notes="2026-09-16: owner said use the alias table",
+        priority=2, parent="E-9", depends_on=("T-70", "T-71"),
+        labels=("backend", "security"), assignee="w3",
+        created_at="2026-09-01T00:00:00Z", updated_at="2026-09-16T00:00:00Z",
+    )
+
+    class Store:
+        def show(self, task_id):
+            return full if task_id == "T-77" else None
+
+    monkeypatch.setattr("tracker.task_store", lambda *a, **k: Store())
+    assert cli.main(["show", "T-77"]) == 0
+    out = capsys.readouterr().out
+    for f in dataclasses.fields(Task):
+        if f.name == "raw":  # the backend's own record, kept for round-trips, not for reading
+            continue
+        value = getattr(full, f.name)
+        for piece in (value if isinstance(value, tuple) else [value]):
+            if piece not in (None, ""):
+                assert str(piece) in out, f"show dropped {f.name}={piece!r}:\n{out}"
+
+    assert cli.main(["show", "T-77", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)[0]["notes"] == full.notes
+
+
+def test_list_keeps_the_scannable_row(monkeypatch, capsys):
+    """The row is for scanning many; only `show` reads one. Widening `list` to whole
+    records would make `ready` on a 400-task backlog unreadable."""
+    from tracker import cli
+
+    t = Task(id="T-1", type="task", status="open", title="A", description="long body", notes="n")
+
+    class Store:
+        def list(self, **kw):
+            return [t]
+
+    monkeypatch.setattr("tracker.task_store", lambda *a, **k: Store())
+    assert cli.main(["list"]) == 0
+    out = capsys.readouterr().out
+    assert out.count("\n") == 1 and "long body" not in out
