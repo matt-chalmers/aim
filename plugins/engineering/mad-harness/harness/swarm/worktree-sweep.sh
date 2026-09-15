@@ -4,6 +4,7 @@
 #   harness/swarm/worktree-sweep.sh                 # dry run: say what would happen
 #   harness/swarm/worktree-sweep.sh --apply         # actually remove
 #   harness/swarm/worktree-sweep.sh --apply --min-age 0   # skip the liveness guard (see below)
+#   harness/swarm/worktree-sweep.sh --apply --prune-orphans   # also delete orphaned refs whose tasks are all closed
 #
 # WHY THIS EXISTS
 # ---------------
@@ -36,10 +37,13 @@
 #   LIVE      touched within --min-age  -> SKIPPED. An agent may still be working in it.
 set -euo pipefail
 
-APPLY=0; MIN_AGE=30
+APPLY=0; MIN_AGE=30; PRUNE_ORPHANS=0
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TK="$HERE/../tracker/tk.sh"
 while [ $# -gt 0 ]; do
   case "$1" in
     --apply) APPLY=1 ;;
+    --prune-orphans) PRUNE_ORPHANS=1 ;;
     --min-age) MIN_AGE="${2:?--min-age needs minutes}"; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -132,12 +136,108 @@ done < <(git worktree list --porcelain | awk '/^worktree /{print substr($0,10)}'
 
 [ "$APPLY" = "1" ] && git worktree prune
 
+# ---------------------------------------------------------------------------------------
+# PASS 2 — REFS WITHOUT A DIRECTORY. Everything above hangs off `git worktree list`, so a
+# worker branch whose directory is gone is invisible to it: removed by hand, lost with
+# /tmp, or — the common case — reclaimed by THIS script's own "committed, unmerged: remove
+# the worktree, keep the ref" path, which is right in isolation and moves the branch
+# outside the only enumeration that could later see it. Every sweep after that reports
+# clean. A campaign pre-flight found 70 such refs, 56 unmerged, holding real tested work
+# for tasks that were then re-dispatched from scratch.
+#
+# Two naming schemes: the harness's own SDK dispatch (`harness-w<n>-<slug>`) and Claude
+# Code's worktree isolation (`worktree-agent-*`), which the Agent tool uses.
+#
+# A ref carries no task id, so its task is read from its commit messages — the worker
+# protocol requires the id there — and the tracker says whether that task is still open.
+# ---------------------------------------------------------------------------------------
+LIVE_BRANCHES="$(git worktree list --porcelain | awk '/^branch /{sub("refs/heads/","",$2); print $2}')"
+# One tracker call for every status. Read-only; an unreachable tracker degrades every
+# unmerged orphan to UNKNOWN rather than to "fine".
+TRACKER_OUT="$("$TK" --readonly list --json 2>/dev/null | python3 -c '
+import json, re, sys
+try:
+    rows = json.load(sys.stdin)
+except Exception:
+    rows = []
+ids = [str(r.get("id", "")) for r in rows if r.get("id")]
+prefixes = sorted({i.rsplit("-", 1)[0] for i in ids if "-" in i})
+print("(" + "|".join(re.escape(p) for p in prefixes) + r")-[A-Za-z0-9]+(\.[0-9]+)*" if prefixes else "")
+for r in rows:
+    print(r.get("id", ""), r.get("status", ""))
+' 2>/dev/null || true)"
+ID_RE="$(printf '%s\n' "$TRACKER_OUT" | head -1)"
+STATUS_MAP="$(printf '%s\n' "$TRACKER_OUT" | tail -n +2)"
+n_orph_merged=0; n_orph_flight=0; n_orph_stale=0; n_orph_unknown=0; n_orph_live=0
+FLIGHT_REPORT=(); STALE_REPORT=(); UNKNOWN_REPORT=()
+now=$(date +%s)
+while IFS=' ' read -r ref cdate; do
+  [ -n "$ref" ] || continue
+  printf '%s\n' "$LIVE_BRANCHES" | grep -Fqx "$ref" && continue
+  if [ "$MIN_AGE" -gt 0 ] && [ $((now - cdate)) -lt $((MIN_AGE * 60)) ]; then
+    n_orph_live=$((n_orph_live+1)); continue
+  fi
+  if git merge-base --is-ancestor "$ref" "$MAIN" 2>/dev/null; then
+    n_orph_merged=$((n_orph_merged+1))
+    if [ "$APPLY" = "1" ]; then git branch -d "$ref" >/dev/null 2>&1 || true
+    else echo "  would delete (merged, no worktree):       $ref"; fi
+    continue
+  fi
+  ids=""
+  if [ -n "$ID_RE" ]; then
+    ids="$(git log --format='%s%n%b' "$MAIN..$ref" 2>/dev/null | grep -oE "$ID_RE" | sort -u || true)"
+  fi
+  open=""; closed=""
+  for id in $ids; do
+    st="$(printf '%s\n' "$STATUS_MAP" | awk -v id="$id" '$1==id{print $2; exit}')"
+    case "$st" in closed) closed="$closed $id";; "") ;; *) open="$open $id";; esac
+  done
+  if [ -z "$open" ] && [ -z "$closed" ]; then
+    n_orph_unknown=$((n_orph_unknown+1)); UNKNOWN_REPORT+=("$ref"); continue
+  fi
+  if [ -n "$open" ]; then
+    n_orph_flight=$((n_orph_flight+1)); FLIGHT_REPORT+=("$ref|${open# }"); continue
+  fi
+  n_orph_stale=$((n_orph_stale+1))
+  if [ "$APPLY" = "1" ] && [ "$PRUNE_ORPHANS" = "1" ]; then
+    git branch -D "$ref" >/dev/null 2>&1 || true
+  else
+    STALE_REPORT+=("$ref|${closed# }")
+  fi
+done < <(git for-each-ref --format='%(refname:short) %(committerdate:unix)' 'refs/heads/harness-w*' 'refs/heads/worktree-agent-*')
+
 echo
 echo "  merged worktrees + branches removed : $n_merged"
 echo "  clean worktrees removed, refs kept  : $n_clean"
 echo "  DIRTY, left alone                   : $n_dirty"
 echo "  DETACHED, left alone                : $n_detached"
 echo "  LIVE (touched <${MIN_AGE}m), skipped       : $n_live"
+echo
+echo "  ORPHANED REFS — worker branches no worktree points at:"
+echo "    merged, branch deleted            : $n_orph_merged"
+echo "    IN FLIGHT (task still open)       : $n_orph_flight"
+echo "    STALE (every task closed)         : $n_orph_stale"
+echo "    UNKNOWN (no task id in its log)   : $n_orph_unknown"
+echo "    LIVE (committed <${MIN_AGE}m), skipped  : $n_orph_live"
+if [ "$n_orph_flight" -gt 0 ]; then
+  echo
+  echo "  IN FLIGHT — committed work for OPEN tasks that no worktree holds. Nobody is working"
+  echo "  on these; re-dispatching the task starts from scratch. Adopt each one — merge it, or"
+  echo "  dispatch the task FROM this branch — before the task is dispatched again:"
+  for d in "${FLIGHT_REPORT[@]}"; do IFS='|' read -r r i <<< "$d"; echo "    $r  ($i)"; done
+fi
+if [ "$n_orph_stale" -gt 0 ]; then
+  echo
+  echo "  STALE — every task in the log is closed, so the work landed some other way or was"
+  echo "  abandoned. Kept unless you pass --apply --prune-orphans:"
+  for d in "${STALE_REPORT[@]}"; do IFS='|' read -r r i <<< "$d"; echo "    $r  ($i)"; done
+fi
+if [ "$n_orph_unknown" -gt 0 ]; then
+  echo
+  echo "  UNKNOWN — no task id in the commit messages, or the tracker could not be read."
+  echo "  Kept; read the log before deciding:"
+  for r in "${UNKNOWN_REPORT[@]}"; do echo "    $r"; done
+fi
 
 if [ "$n_dirty" -gt 0 ]; then
   echo

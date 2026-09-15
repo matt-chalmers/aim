@@ -66,6 +66,23 @@ directory can go. Uncommitted work is not redundant, and is never touched:
 | detached HEAD | **report only** — no ref holds those commits, so removing them loses them |
 | touched in the last 30 min | **skipped** — an agent may still be working in it |
 
+**And then a second pass over the refs**, because the table above manufactures orphans: "remove
+the worktree, keep the ref" moves a branch outside the only enumeration a directory-driven sweep
+has, and every later sweep reports clean while the ref holds real work. A pre-flight once found
+70 such refs, 56 unmerged, for tasks that were then re-dispatched from scratch. Every worker
+branch (`harness-w*`, and Claude Code's `worktree-agent-*`) with no worktree is classified by
+the task ids in its commits and the tracker's word on them:
+
+| orphaned ref | action |
+|---|---|
+| merged into `main` | branch deleted under `--apply` |
+| **IN FLIGHT** — a task in its log is still open | **kept, reported loudly.** This is committed work nobody holds. Adopt it — merge it, or dispatch the task *from this branch* — before dispatching that task again |
+| STALE — every task in its log is closed | kept; deleted only under `--apply --prune-orphans` |
+| UNKNOWN — no task id in its log, or no tracker | kept; read the log |
+
+**An IN FLIGHT count above zero at pre-flight is a finding, not noise.** It means a previous run
+halted between a worker's commit and the orchestrator's merge. Resolve it before §1.
+
 **Two incidents on 2026-08-27 are why it is shaped this way, and both are worth knowing:**
 
 - A worktree for a task under remediation held a **staged revert** — 7 insertions, 261
