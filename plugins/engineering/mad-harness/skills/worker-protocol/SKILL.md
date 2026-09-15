@@ -96,6 +96,17 @@ resolves it from your stack's config and runs it where it belongs — including
 the first-run flag a fresh database needs. Your card carries the handful of
 rules that are wrong most often; the commands come from `run.sh`.
 
+## If your prompt begins `RESUMING` — you are continuing, not starting
+
+A previous run of this task was stopped after work began. Your worktree is attached to the
+branch that holds it, and the preamble tells you how many commits are there and whether
+uncommitted changes sit on top. **Before anything else:** `git log --oneline main..HEAD` and
+`git status`, then read what exists. Continue from it. If part of it is wrong, fix it in
+place — do not recreate files that are already there, do not start a parallel
+implementation, and do not reset the branch. Your commit(s) go on this branch, through the
+merge slot as below. If the existing work contradicts the task as written, say so in your
+return rather than silently choosing.
+
 ## One task, one commit, through the merge slot
 
 - **One task is one clean commit.** Not two, not a commit plus a fixup. A lens

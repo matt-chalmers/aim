@@ -164,12 +164,36 @@ touch, and the `SWARM_DB` assigned.
 
 ## 5. Dispatch — through the harness boundary, all `n` in a SINGLE message
 
+**Before dispatching any writer, ask where its task's work already is.** A stoppage after a
+worker started — the environment killed mid-wave, a lens still running, a branch committed but
+not yet merged — leaves a branch, a worktree, or both. Dispatching fresh re-implements the task
+beside the branch that already holds it; one task accumulated five such branches. One command
+per task answers this, and its answer decides what happens next:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/resume-point.sh <id>          # MERGE · VERIFY · REATTACH · MERGED · FRESH
+```
+
+| it says | what you do |
+|---|---|
+| **MERGE** — committed, and a `VERIFIED <sha>` note matches the branch head | **no worker.** Put the branch straight on step 8's merge list |
+| **VERIFY** — committed, no verdict recorded for this head | **no worker yet.** Run step 7's lenses on that branch's diff now; PASS → step 8, FAIL → dispatch with `--resume <branch>` and the finding list |
+| **REATTACH** — a worktree holds uncommitted work | dispatch with `--resume <branch>`; the worker continues *in that worktree* |
+| **MERGED** — the work already landed | nothing to adopt; the task should be closed — close it or say why not |
+| **FRESH** | dispatch as below |
+
+`--resume` attaches the worker to the existing branch (reusing its live worktree if there is
+one) and prefixes its prompt with *RESUMING — do not start over*, the commit count, and whether
+uncommitted changes exist. It also lists any *other* refs holding work for the task; the sweep
+reports those as IN FLIGHT and they are yours to adopt or prune.
+
 **Dispatch every agent with `${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh`, not the Agent tool.** Write each
 prompt to a file, then run all `n` in ONE message as background Bash calls — otherwise they
 run sequentially and you have gained nothing.
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh <agent> --prompt-file <path> --task <id> --worker <n> --lane <lane>
+${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh <agent> --prompt-file <path> --task <id> --worker <n> --lane <lane> --resume <branch>   # REATTACH, or VERIFY that failed
 ```
 
 **Why the boundary rather than the Agent tool.** It is what makes the model tier real:
@@ -392,11 +416,23 @@ and a lens that always fails is a lens you learn to ignore.
 
 Either way the task stays open until the remediation itself passes every lens that ran.
 
+**When every lens passes, record it on the task, pinned to the head it judged:**
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh note <id> "VERIFIED $(git rev-parse --short=12 <branch>): L1 PASS · L2 PASS · L3 PASS · L4 PASS"   # L4 only if it ran
+```
+
+This is what lets a run stopped between here and step 8 resume at **MERGE** instead of
+re-verifying — or re-implementing. The sha matters: a later commit on the branch is a new head
+with no verdict, and `resume-point.sh` will say VERIFY for it.
+
 A near-zero FAIL rate across the lenses is not reassurance — it means the gate has gone soft.
 
 ## 8. Integrate + wave gate — serial, yours alone
 
-**Merge every passing branch first, then gate the result once.** Inside a single
+**Merge every passing branch first, then gate the result once.** That includes every branch
+step 5 found at **MERGE**, and every VERIFY branch that passed in step 7 without a worker being
+dispatched — adopted work merges exactly like this wave's. Inside a single
 `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-acquire` / `release`, merge each passing branch in ascending task-id order,
 recording `git rev-parse HEAD` after each so you have an ordered list `M1…Mn`. **Run no suite
 between merges.**

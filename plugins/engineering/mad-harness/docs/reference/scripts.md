@@ -41,10 +41,17 @@ it.
 | script | does |
 |---|---|
 | `swarm/swarm-worktree-init.sh <n> <lane>` | prepares one worker's isolated checkout |
-| `swarm/worktree-sweep.sh` | reclaims worktrees a wave left behind |
+| `swarm/worktree-sweep.sh [--apply] [--prune-orphans]` | reclaims worktrees a wave left behind, and classifies worker refs that no worktree points at |
+| `swarm/resume-point.sh <task-id> [--json]` | where a task's work already is — MERGE, VERIFY, REATTACH, MERGED or FRESH — so a resumed run adopts it instead of redoing it |
 
 The sweep detects the default branch rather than assuming `main`. A sweep that dies leaves
 every worktree behind, which is the state it exists to prevent.
+
+`resume-point.sh` is asked before every writer dispatch (`/swarm` step 5). It finds the
+worker branches whose commits name the task — the harness's own `harness-w*` and Claude
+Code's `worktree-agent-*` — reads the `VERIFIED <sha>` note the lens step records, and
+checks the branch's worktree for uncommitted work. `dispatch.sh --resume <branch>` then
+attaches a worker to that branch rather than cutting a new one from HEAD.
 
 ## Telemetry
 

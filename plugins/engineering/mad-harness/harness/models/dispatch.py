@@ -101,7 +101,11 @@ def needs_worktree(agent: str) -> bool:
 
 
 def prepare_worktree(
-    agent: str, worker: int, lane: str | None = None, task: str | None = None
+    agent: str,
+    worker: int,
+    lane: str | None = None,
+    task: str | None = None,
+    resume: str | None = None,
 ) -> Path:
     """Create and populate an isolated worktree for one worker.
 
@@ -109,25 +113,59 @@ def prepare_worktree(
     script already hardlinks the venv, symlinks node_modules and writes the
     per-worker .swarm-env with its own DB_NAME — the invariant a whole test file
     exists to protect.
-    """
-    slug = (task or agent).replace("/", "-")
-    name = f"harness-w{worker}-{slug}"
-    path = WORKTREE_ROOT / name
-    if path.exists():
-        raise DispatchError(
-            f"{path} already exists. Reclaim it with "
-            f"`harness/swarm/worktree-sweep.sh --apply` before reusing worker {worker}."
-        )
-    WORKTREE_ROOT.mkdir(parents=True, exist_ok=True)
 
-    add = subprocess.run(
-        ["git", "worktree", "add", "-b", name, str(path), "HEAD"],
-        cwd=str(REPO),
-        capture_output=True,
-        text=True,
-    )
-    if add.returncode != 0:
-        raise DispatchError(f"git worktree add failed: {add.stderr.strip()[:300]}")
+    `resume` names an EXISTING worker branch that already holds this task's work — what
+    `models.resume` / `swarm/resume-point.sh` reports. The worktree is attached to that
+    branch (reusing its live worktree if one still exists, else creating one from the
+    ref) instead of a new branch being cut from HEAD. Without it, every stoppage after a
+    worker started ended with the task re-implemented beside the branch that held it.
+    """
+    if resume:
+        from .resume import _worktrees
+
+        exists = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{resume}"],
+            cwd=str(REPO), capture_output=True, text=True,
+        )
+        if exists.returncode != 0:
+            raise DispatchError(f"--resume {resume}: no such branch in {REPO}")
+        live = _worktrees(REPO).get(resume)
+        if live and live.is_dir():
+            path = live  # REATTACH: its uncommitted work exists nowhere else
+        else:
+            path = WORKTREE_ROOT / resume
+            if path.exists():
+                raise DispatchError(
+                    f"{path} exists but is not the worktree of {resume}. Run "
+                    f"`git worktree prune` and `harness/swarm/worktree-sweep.sh`."
+                )
+            WORKTREE_ROOT.mkdir(parents=True, exist_ok=True)
+            add = subprocess.run(
+                ["git", "worktree", "add", str(path), resume],
+                cwd=str(REPO), capture_output=True, text=True,
+            )
+            if add.returncode != 0:
+                raise DispatchError(f"git worktree add failed: {add.stderr.strip()[:300]}")
+    else:
+        slug = (task or agent).replace("/", "-")
+        name = f"harness-w{worker}-{slug}"
+        path = WORKTREE_ROOT / name
+        if path.exists():
+            raise DispatchError(
+                f"{path} already exists. If it holds this task's work, dispatch with "
+                f"`--resume {name}`; otherwise reclaim it with "
+                f"`harness/swarm/worktree-sweep.sh --apply` before reusing worker {worker}."
+            )
+        WORKTREE_ROOT.mkdir(parents=True, exist_ok=True)
+
+        add = subprocess.run(
+            ["git", "worktree", "add", "-b", name, str(path), "HEAD"],
+            cwd=str(REPO),
+            capture_output=True,
+            text=True,
+        )
+        if add.returncode != 0:
+            raise DispatchError(f"git worktree add failed: {add.stderr.strip()[:300]}")
 
     # The lane is OPTIONAL and the init script defaults it — `worker.default_lane()`
     # takes the first lane the project declares. Passing None through built an argv
@@ -148,6 +186,27 @@ def prepare_worktree(
             f"swarm-worktree-init.sh failed in {path}: {init.stderr.strip()[:300]}"
         )
     return path
+
+
+def resume_preamble(branch: str, worktree: Path) -> str:
+    """What a resumed worker is told before its task. The prompt file is the only
+    parent→child channel, so this is where "do not start over" has to live."""
+    from .resume import is_dirty, main_branch
+
+    main = main_branch(REPO)
+    ahead = subprocess.run(
+        ["git", "rev-list", "--count", f"{main}..{branch}"],
+        cwd=str(REPO), capture_output=True, text=True,
+    ).stdout.strip() or "0"
+    dirty = worktree.is_dir() and is_dirty(worktree)
+    return (
+        f"RESUMING — DO NOT START OVER.\n"
+        f"Branch `{branch}` already holds {ahead} commit(s) for this task"
+        + (", and this worktree has UNCOMMITTED changes on top of them" if dirty else "")
+        + f".\nFirst run `git log --oneline {main}..HEAD` and `git status`, and read what "
+        f"is there. Continue from that work; if part of it is wrong, fix it in place. Your "
+        f"commit(s) go on this branch. Do not re-create anything that already exists here.\n\n"
+    )
 
 
 @dataclass(frozen=True)
@@ -484,6 +543,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--attempt", type=int, default=1)
     ap.add_argument("--cwd", type=Path, default=None, help="worktree to run in")
     ap.add_argument(
+        "--resume",
+        default=None,
+        help="an existing worker branch already holding this task's work (see "
+        "swarm/resume-point.sh); the worker is attached to it and told to continue",
+    )
+    ap.add_argument(
         "--worker",
         type=int,
         default=None,
@@ -522,12 +587,16 @@ def main(argv: list[str] | None = None) -> int:
 
         cwd = args.cwd
         if cwd is None and args.worker is not None and needs_worktree(args.agent):
-            cwd = prepare_worktree(args.agent, args.worker, args.lane, args.task)
+            cwd = prepare_worktree(args.agent, args.worker, args.lane, args.task, resume=args.resume)
             print(f"-- worktree: {cwd}", file=sys.stderr)
+
+        prompt = args.prompt_file.read_text()
+        if args.resume:
+            prompt = resume_preamble(args.resume, Path(cwd) if cwd else REPO) + prompt
 
         outcome = dispatch(
             args.agent,
-            args.prompt_file.read_text(),
+            prompt,
             override_tier=args.tier,
             high_risk=args.high_risk,
             cwd=cwd,

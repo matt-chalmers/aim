@@ -137,3 +137,25 @@ Four field bugs from one `/campaign-auto` run, and a noise fix. No config change
   `uv run`; a project's own activated venv no longer produces two lines of noise per call.
 
 - **mechanical** — re-stamp `harness.version`, when convenient.
+
+### 0.9.6
+
+**A resumed run adopts work instead of redoing it.** No config change, but a change to what
+the loop does after a stoppage — which had been the biggest source of orphaned work.
+
+Until now, a run stopped after a worker started — the environment killed mid-wave, a lens
+still running, a branch committed but not merged — was resumed by dispatching the task
+*fresh*: a new branch from HEAD, beside the branch that already held the work. Now:
+
+- `swarm/resume-point.sh <task-id>` answers, per task: **MERGE** (committed and verified at
+  this head), **VERIFY** (committed, no verdict), **REATTACH** (a worktree holds uncommitted
+  work), **MERGED**, or **FRESH**. `/swarm` step 5 asks it before every writer dispatch.
+- `dispatch.sh … --resume <branch>` attaches the worker to the existing branch — reusing its
+  live worktree if there is one — and prefixes the prompt with *RESUMING — do not start over*.
+- The lens step records `VERIFIED <sha>` on the task when every lens passes, which is what
+  makes MERGE derivable. Until a task carries one, committed work resumes at VERIFY.
+- `/halt` reports each in-flight task's resume point as the handover.
+
+- **mechanical** — nothing in the config. If you have stranded refs from before 0.9.5's
+  sweep, the next `/swarm` will find them per task via `resume-point.sh` and adopt them.
+- **mechanical** — re-stamp `harness.version`, when convenient.

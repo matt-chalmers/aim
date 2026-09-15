@@ -240,7 +240,7 @@ def test_every_documented_dispatch_parses(site):
     parser = argparse.ArgumentParser(prog="dispatch.sh")
     parser.add_argument("agent")
     parser.add_argument("--prompt-file", required=True)
-    for flag in ("--tier", "--task", "--cwd", "--lane", "--attempt", "--worker"):
+    for flag in ("--tier", "--task", "--cwd", "--lane", "--attempt", "--worker", "--resume"):
         parser.add_argument(flag)
     for flag in ("--high-risk", "--dry-run", "--no-record"):
         parser.add_argument(flag, action="store_true")

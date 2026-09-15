@@ -849,3 +849,87 @@ def test_a_resumed_worker_is_told_what_the_operator_decided(tmp_path, monkeypatc
     text = resolved_requests(task)
     assert "refused: unreachable from a worker" in text
     assert "Do not ask again" in text
+
+
+# --- --resume: attach a worker to the branch that already holds its work -----------------
+
+
+def _resume_repo(tmp_path, monkeypatch):
+    """A primary checkout with one worker branch holding a commit; git is REAL, only the
+    worktree-init script is faked (it needs a project's stacks, not this test's concern)."""
+    import subprocess as sp
+
+    import models.dispatch as mod
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    g = lambda *a, cwd=repo: sp.run(  # noqa: E731
+        ["git", "-c", "user.email=t@x", "-c", "user.name=t", *a], cwd=cwd, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    g("init", "-q", "-b", "main")
+    (repo / "a.txt").write_text("a\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "init")
+    g("switch", "-q", "-c", "harness-w1-T-1")
+    (repo / "b.txt").write_text("b\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "feat: half [T-1]")
+    g("switch", "-q", "main")
+
+    real_run = mod.subprocess.run
+
+    def run(argv, **kw):
+        if str(argv[0]).endswith("swarm-worktree-init.sh"):
+            class R:
+                returncode = 0
+                stderr = ""
+            return R()
+        return real_run(argv, **kw)
+
+    monkeypatch.setattr(mod.subprocess, "run", run)
+    monkeypatch.setattr(mod, "REPO", repo)
+    monkeypatch.setattr("models.resolve.REPO", repo)
+    monkeypatch.setattr(mod, "WORKTREE_ROOT", repo / ".claude" / "worktrees")
+    return repo, g
+
+
+def test_resume_attaches_a_worktree_to_the_existing_branch_instead_of_cutting_a_new_one(tmp_path, monkeypatch):
+    import models.dispatch as mod
+
+    repo, g = _resume_repo(tmp_path, monkeypatch)
+    path = mod.prepare_worktree("fullstack-engineer", 1, None, "T-1", resume="harness-w1-T-1")
+    assert path == repo / ".claude" / "worktrees" / "harness-w1-T-1"
+    assert g("rev-parse", "--abbrev-ref", "HEAD", cwd=path) == "harness-w1-T-1"
+    assert (path / "b.txt").exists(), "the worker sees the commit already made"
+    assert "harness-w1-T-1" in g("branch", "--list") and g("branch", "--list").count("harness-w") == 1, "no second branch"
+
+
+def test_resume_reuses_a_live_worktree_and_its_uncommitted_work(tmp_path, monkeypatch):
+    import models.dispatch as mod
+
+    repo, g = _resume_repo(tmp_path, monkeypatch)
+    live = repo / ".claude" / "worktrees" / "wherever"
+    g("worktree", "add", "-q", str(live), "harness-w1-T-1")
+    (live / "half.py").write_text("in progress\n")
+    path = mod.prepare_worktree("fullstack-engineer", 1, None, "T-1", resume="harness-w1-T-1")
+    assert path == live
+    assert (live / "half.py").read_text() == "in progress\n"
+    assert "UNCOMMITTED" in mod.resume_preamble("harness-w1-T-1", path)
+    assert "1 commit(s)" in mod.resume_preamble("harness-w1-T-1", path)
+
+
+def test_resume_refuses_a_branch_that_does_not_exist(tmp_path, monkeypatch):
+    import models.dispatch as mod
+
+    _resume_repo(tmp_path, monkeypatch)
+    with pytest.raises(mod.DispatchError, match="no such branch"):
+        mod.prepare_worktree("fullstack-engineer", 1, None, "T-1", resume="harness-w9-nope")
+
+
+def test_a_fresh_dispatch_onto_an_existing_path_now_names_the_resume_flag(tmp_path, monkeypatch):
+    import models.dispatch as mod
+
+    repo, g = _resume_repo(tmp_path, monkeypatch)
+    g("worktree", "add", "-q", str(repo / ".claude" / "worktrees" / "harness-w1-T-1"), "harness-w1-T-1")
+    with pytest.raises(mod.DispatchError, match="--resume harness-w1-T-1"):
+        mod.prepare_worktree("fullstack-engineer", 1, None, "T-1")

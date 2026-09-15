@@ -783,6 +783,11 @@ Repeat, up to **`MAX_WAVES = 6`** per epic:
    the brief *path* in its prompt, and `verifier-spec` (L3) must be given `brief.md`
    **without** anything under `diff/`.
 
+   **Every writer's task is asked `${CLAUDE_PLUGIN_ROOT}/harness/swarm/resume-point.sh <id>` first** — `/swarm`
+   step 5's table. A run that was stopped mid-wave left branches; MERGE and VERIFY need no
+   worker, REATTACH dispatches with `--resume <branch>`. Only FRESH dispatches from scratch.
+   Skipping this is how one task grew five branches.
+
    **Writers get `--worker <n>` on `${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh`, which creates AND populates
    the worktree (`claude -p` does not honour `isolation: worktree` itself); the read-only lenses
    do not.** A fresh worktree has none of the gitignored dependency directories; `--worker <n>`

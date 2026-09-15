@@ -64,13 +64,20 @@ shows in `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh gate list` and carries the
 removes the epic from the queue. Leave the claims, leave the working
 tree, leave the branches.
 
-**Then park the working tree honestly** — either commit the partial work on a branch, or
-leave it and say so in the report. Do not leave the tree broken; if the partial edit does not
-compile, note that prominently, because the next run's wave gate will fail on it.
+**Then park the working tree honestly** — either commit the partial work on its worker
+branch, or leave it uncommitted in the worktree and say so in the report. Both are resume
+points; a broken tree is not. If the partial edit does not compile, note that prominently.
 
-**To resume:** `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh gate resolve <gate-id>` **and** `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <epic-id> --status open` — both, for the same reason — then re-run `/swarm` or `/campaign`. A worker with
-the same `BEADS_ACTOR` re-claims its own task cleanly — `--claim` is idempotent for the
-existing holder.
+**Say where each in-flight task's work is.** For every task that was claimed, run
+`${CLAUDE_PLUGIN_ROOT}/harness/swarm/resume-point.sh <id>` and put its line in the report: the branch, the commit count,
+whether uncommitted work exists, whether a verdict was recorded. That is the handover.
+
+**To resume:** `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh gate resolve <gate-id>` **and** `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <epic-id> --status open` — both, for the same reason — then re-run `/swarm` or `/campaign`. **The
+resumed run adopts the work rather than redoing it:** `/swarm` step 5 asks `resume-point.sh`
+for every task before dispatching, merges what was already verified, verifies what was only
+committed, and re-attaches a worker (`dispatch.sh … --resume <branch>`) to a worktree holding
+uncommitted changes. A worker with the same `BEADS_ACTOR` re-claims its own task cleanly —
+`--claim` is idempotent for the existing holder.
 
 ## 3. `release` — hand the tasks back to the queue
 
