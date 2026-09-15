@@ -29,11 +29,60 @@ from typing import Any
 
 import yaml
 
-from .resolve import HARNESS, REPO
+from .resolve import HARNESS, PLUGIN_ROOT, REPO
 
 #: The consuming repository's own config. It lives in THAT repo, not beside the
 #: harness code — the harness is shared, the config is not.
 PROJECT_FILE = REPO / "harness.yaml"
+PLUGIN_MANIFEST = PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
+UPGRADE_NOTES = PLUGIN_ROOT / "docs" / "upgrading.md"
+
+
+def plugin_version() -> str:
+    """The installed plugin's version, from its manifest. The ONE source: the cache
+    directory is keyed by this string, `claude plugin update` compares it, and a
+    consuming project's config is stamped with it."""
+    import json
+
+    try:
+        return str(json.loads(PLUGIN_MANIFEST.read_text())["version"])
+    except (OSError, ValueError, KeyError) as exc:
+        raise ProjectError(f"cannot read the plugin version from {PLUGIN_MANIFEST}: {exc}") from exc
+
+
+def _version_key(v: str) -> tuple[int, ...]:
+    """`0.9.1` -> (0, 9, 1). Numeric components only; a suffix like `-rc1` is dropped
+    rather than compared, because ordering pre-releases is not a decision this needs."""
+    import re
+
+    parts = []
+    for piece in str(v).strip().split("."):
+        m = re.match(r"\d+", piece)
+        if not m:
+            raise ProjectError(f"{v!r} is not a version: expected dotted numbers like 0.9.1")
+        parts.append(int(m.group()))
+    return tuple(parts)
+
+
+def upgrade_status(stamped: str | None, installed: str) -> str:
+    """How a project's stamped version relates to the installed plugin.
+
+    `unstamped` — written before versions were stamped, so never reviewed against ANY
+                  version; treated as behind
+    `behind`    — the plugin moved on; the upgrade notes between the two have not been
+                  applied
+    `ahead`     — the config was written for a newer plugin than the one installed;
+                  the PLUGIN needs updating, not the config
+    `current`   — nothing to do
+    """
+    if stamped is None:
+        return "unstamped"
+    a, b = _version_key(stamped), _version_key(installed)
+    if a < b:
+        return "behind"
+    if a > b:
+        return "ahead"
+    return "current"
 
 #: Stack modules ship with the harness. A project may add its own alongside; both
 #: directories are searched, project-local winning, so supporting a new toolchain
@@ -231,6 +280,26 @@ class Project:
     #: a runtime one — the alternative is a wave that dispatches and then discovers
     #: mid-flight that its tracker does not exist.
     TRACKER_BACKENDS = ("beads", "mdfiles")
+
+    def stamped_version(self) -> str | None:
+        """The plugin version this config was last reviewed against — `harness.version`.
+
+        WRITTEN BY /harness-setup, read by check-project-config, and the only way a
+        consuming project learns the plugin has moved: the plugin cache is replaced
+        wholesale on update, carries no hook, and nothing else in the project changes.
+        None means the block is absent — a config older than the stamp itself.
+        """
+        block = self.raw.get("harness")
+        if block is None:
+            return None
+        if not isinstance(block, dict) or not block.get("version"):
+            raise ProjectError(
+                "harness: must be a map with a version, e.g. `harness: {version: 0.9.1}` "
+                "— the plugin version this config was last reviewed against."
+            )
+        version = str(block["version"])
+        _version_key(version)  # validate the shape here, not at first comparison
+        return version
 
     def ports(self) -> dict[str, int]:
         """The `ports:` block — every TCP port this project's servers bind, by name.

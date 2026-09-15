@@ -52,6 +52,7 @@ question. Parking is always better than deciding.
 # tens of thousands of characters in your context for nothing.
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh memories                               # the field-guide index
 git status --porcelain                    # must be clean
+${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --strict   # exit 3 = the plugin moved on since this config was reviewed
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-check                       # must exist and be free
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh autosync off           # stop beads staging issues.jsonl into a sibling commit
                                           # §5 restores it; if the run dies first, /halt does
@@ -70,6 +71,13 @@ ${CLAUDE_PLUGIN_ROOT}/harness/checks/check-record-size.sh          # NOT an inli
 # escalates to a costlier tier that cannot fix a config error. ~3s here instead.
 ${CLAUDE_PLUGIN_ROOT}/harness/checks/check-stack-commands.sh --repair
 ```
+
+**Exit 3 from the config check is a stop, in both modes.** It means `claude plugin update`
+has run since `harness.yaml` was last reviewed — the config is stamped with an older
+version, or none — and the blocks this plugin reads may simply not be there. Nothing
+downstream is trustworthy on an unreviewed config, and there is no safe default to park
+it behind. Say so and stop; the owner runs `/harness-setup`, which applies the upgrade
+notes and re-stamps. A campaign resumed after that starts here again.
 
 **`--repair` is not a gate.** When a declared command has rotted, the check derives a
 replacement from what the repository already declares — a CI step, a package script, a

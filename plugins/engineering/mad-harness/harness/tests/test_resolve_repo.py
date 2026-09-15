@@ -19,10 +19,14 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 from models.resolve import HARNESS, RepoError, _find_repo
 
 PLUGIN = HARNESS.parent
+#: The harness's own project name, read from its config rather than typed: the wrong
+#: answer these tests guard against is "the harness answered about ITSELF".
+OWN_NAME = str(yaml.safe_load((PLUGIN / "harness.yaml").read_text())["name"])
 MINIMAL_CONFIG = """\
 name: Consumer
 slug: consumer
@@ -105,7 +109,7 @@ def test_the_explicit_override_still_wins(no_override, consumer, tmp_path, monke
 
 def test_a_wrapper_run_from_a_consuming_repo_answers_about_that_repo(no_override, consumer):
     """The regression the bug report asked for: a real wrapper, no MAD_HARNESS_REPO, a
-    foreign cwd. It must name the consuming project — not `MAD harness`."""
+    foreign cwd. It must name the consuming project — not the harness itself."""
     proc = subprocess.run(
         [str(PLUGIN / "harness" / "checks" / "check-project-config.sh")],
         cwd=consumer,
@@ -116,7 +120,7 @@ def test_a_wrapper_run_from_a_consuming_repo_answers_about_that_repo(no_override
     )
     first = proc.stdout.splitlines()[0] if proc.stdout else proc.stderr
     assert first == "project: Consumer (consumer)", (proc.stdout, proc.stderr)
-    assert "MAD harness" not in proc.stdout
+    assert OWN_NAME not in proc.stdout
 
 
 def test_a_wrapper_run_from_nowhere_fails_and_names_the_directory(no_override, tmp_path):
@@ -132,7 +136,7 @@ def test_a_wrapper_run_from_nowhere_fails_and_names_the_directory(no_override, t
     )
     assert proc.returncode != 0
     assert str(nowhere) in proc.stderr, proc.stderr
-    assert "MAD harness" not in proc.stdout
+    assert OWN_NAME not in proc.stdout
 
 
 def test_every_wrapper_records_the_caller_before_moving():

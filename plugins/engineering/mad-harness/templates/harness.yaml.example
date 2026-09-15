@@ -11,6 +11,14 @@
 name: Acme Widgets            # display name
 slug: acme                    # lowercase, no hyphens — names per-worker resources
 
+# The plugin version this file was last reviewed against. /harness-setup writes it —
+# read from the plugin's own manifest, never typed — and the config check compares it
+# with the installed plugin. When the plugin is newer, the campaign and swarm pre-flights
+# stop until /harness-setup has applied the upgrade notes (docs/upgrading.md) and
+# re-stamped. Leave it out and every pre-flight treats the config as unreviewed.
+harness:
+  version: 0.9.1
+
 # Toolchains: how to RUN things. See harness/stacks/ for shipped modules, and add
 # your own under .harness/stacks/ to shadow or extend them.
 #

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import sys
 
-from .project import ProjectError, load
+from .project import ProjectError, load, plugin_version, upgrade_status
 from .resolve import HARNESS, REPO, _prompts_dir
 
 INIT_SCRIPT = HARNESS / "swarm" / "swarm-worktree-init.sh"
@@ -28,7 +28,13 @@ def _lane(p) -> str:
     return next(iter(p.raw.get("lanes") or {}), "default")
 
 
-def main() -> int:
+#: `--strict` turns an UPGRADE finding into a failing exit. The pre-flights use it: a
+#: campaign must not start on a config nobody has reviewed against the plugin running it.
+EXIT_UPGRADE = 3
+
+
+def main(argv: list[str] | None = None) -> int:
+    strict = "--strict" in (sys.argv[1:] if argv is None else argv)
     try:
         p = load()
     except ProjectError as exc:
@@ -37,8 +43,39 @@ def main() -> int:
 
     failures: list[str] = []
     warnings: list[str] = []
+    upgrade: str | None = None
 
     print(f"project: {p.name} ({p.slug})")
+
+    # THE STAMP IS HOW A PROJECT LEARNS THE PLUGIN MOVED. The cache is replaced wholesale
+    # on `claude plugin update`, ships no hook, and changes nothing in the project — so
+    # without this line a config written for 0.9.0 runs under 0.9.1 forever, missing every
+    # block the new version reads. Its own category rather than a warning: warnings are
+    # advisory everywhere, and this one blocks a pre-flight.
+    try:
+        installed = plugin_version()
+        stamped = p.stamped_version()
+        status = upgrade_status(stamped, installed)
+        print(f"harness: {stamped or '(unstamped)'}  installed plugin {installed}")
+        if status == "unstamped":
+            upgrade = (
+                f"harness.yaml carries no `harness.version`, so it has never been reviewed "
+                f"against any plugin version (installed: {installed}). Run /harness-setup — "
+                f"it applies every upgrade note and stamps the config."
+            )
+        elif status == "behind":
+            upgrade = (
+                f"harness.yaml was written for plugin {stamped}; {installed} is installed. "
+                f"Run /harness-setup — it applies the upgrade notes between the two and "
+                f"re-stamps the config."
+            )
+        elif status == "ahead":
+            warnings.append(
+                f"harness.yaml is stamped {stamped} but the installed plugin is {installed} "
+                f"— the PLUGIN is behind. `claude plugin update` it."
+            )
+    except ProjectError as exc:
+        failures.append(str(exc))
     print(f"paths:   {', '.join(f'{k}={v}' for k, v in sorted(p.paths.items()))}")
 
     for key, rel in sorted(p.paths.items()):
@@ -159,11 +196,23 @@ def main() -> int:
         print("\nWARN:", file=sys.stderr)
         for w in warnings:
             print(f"  - {w}", file=sys.stderr)
+    if upgrade:
+        print(f"\nUPGRADE: {upgrade}", file=sys.stderr)
     if failures:
         print("\nFAIL:", file=sys.stderr)
         for f in failures:
             print(f"  - {f}", file=sys.stderr)
         return 1
+    if upgrade and strict:
+        print("\nBLOCKED — the config predates the installed plugin; see UPGRADE above.")
+        return EXIT_UPGRADE
+    if upgrade:
+        print(
+            f"\nUPGRADE PENDING — config valid for now, {len(p.stacks)} stacks present, "
+            f"but unreviewed against the installed plugin. Advisory here; a pre-flight "
+            f"runs this with --strict and stops."
+        )
+        return 0
     if warnings:
         print(
             f"\nWARN — config valid, {len(p.stacks)} stacks present, "

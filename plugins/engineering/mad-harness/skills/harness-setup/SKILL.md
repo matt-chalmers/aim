@@ -1,6 +1,6 @@
 ---
 name: harness-setup
-description: Initialise or repair this harness in a repository — write harness.yaml, pick the stack modules, and verify the result end to end. Invoke it when harness.yaml is missing, when a check reports the config disagrees with the repo, or when adding support for a toolchain the harness has no module for.
+description: Initialise, upgrade or repair this harness in a repository — write harness.yaml, pick the stack modules, and verify the result end to end. Invoke it when harness.yaml is missing, when check-project-config reports UPGRADE (the plugin moved on since the config was reviewed), when a check reports the config disagrees with the repo, or when adding support for a toolchain the harness has no module for.
 ---
 
 # Harness setup
@@ -11,6 +11,28 @@ it about *this* repository. This is how to write them.
 **Work through it with the owner, one decision at a time.** Do not generate a
 plausible config and present it as done — a wrong `slug` silently names every
 worker database, and a wrong `security` surface silently stops a lens firing.
+
+## 0. Initialise, or upgrade?
+
+If `harness.yaml` already exists at the repository root, this is an **upgrade**, and most
+of what follows does not apply: never rewrite a block the owner already settled. Start
+from what the check says:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh   # the `harness:` line names the stamped and installed versions
+```
+
+Then read `${CLAUDE_PLUGIN_ROOT}/docs/upgrading.md` and apply every version section newer
+than the stamp, **oldest first**. An unstamped config is older than all of them. Each item is
+tagged: **mechanical** — apply it and say what you did; **ask the owner** — one question,
+carrying whatever the repository already answers, exactly as §1 does for a fresh config.
+
+When the last section is applied, set `harness.version` to the installed plugin's version
+— **read it from `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`, never type it** — and
+re-run the check. It must end `OK` or `WARN`, never `UPGRADE`. Then §7, because an upgrade
+that validates but breaks a worker's worktree has not been tested either.
+
+A fresh repository has no config: continue with §1.
 
 ## 1. Find out what is already true
 
@@ -31,6 +53,7 @@ questionnaire.
 | key | what it is | how to get it wrong |
 |---|---|---|
 | `name`, `slug` | display name; lowercase id for per-worker resources | a slug with a hyphen or space breaks database names |
+| `harness.version` | the plugin version this config was reviewed against | typing a version instead of reading it from the plugin manifest — a wrong stamp hides an upgrade |
 | `stacks` | which modules under `harness/stacks/` apply | naming one whose `detect` files are absent |
 | `tracker` | which task backend this project uses | omitting it is fine — that means `beads`, the default |
 | `beads.prefix` | what this repo's issue ids start with | guessing — read it off `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh list` |
@@ -236,6 +259,9 @@ make models         # every agent's tier resolves
 make commands       # each stack's declared commands actually work
 make harness-test   # the harness's own suite
 ```
+
+`make project` must end `OK` or `WARN`. `UPGRADE` means the stamp is missing or behind: §0
+was skipped, or the version was typed rather than read.
 
 `make commands` is the one that will fail first on a fresh config, and its failure is
 usually a real finding rather than a typo: it means the command you declared is not the

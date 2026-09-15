@@ -37,6 +37,7 @@ decorrelated.
 
 ```bash
 git status --porcelain          # must be clean
+${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --strict   # exit 3 = the plugin moved on since this config was reviewed: stop, run /harness-setup
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-check             # must exist and be free
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh autosync off # stop beads staging issues.jsonl into a sibling's commit
                                 # (step 9 restores it — if a run dies before then, /halt does)

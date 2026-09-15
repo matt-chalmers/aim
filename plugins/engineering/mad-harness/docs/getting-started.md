@@ -18,6 +18,11 @@ The installed copy serves the interactive commands you type. Dispatched agents l
 plugin **by path**, so if you are developing the harness itself your changes take effect
 without reinstalling — see [CLAUDE.md](../CLAUDE.md).
 
+After a `claude plugin update`, run `/harness-setup` once in the repository. It reads the
+[upgrade notes](upgrading.md) for every version since your `harness.yaml` was last
+reviewed, applies them, and re-stamps the file; until then the `/campaign` and `/swarm`
+pre-flights stop with `UPGRADE`.
+
 Run everything from inside your repository. The plugin lives in `~/.claude/plugins/cache/`,
 so each script finds the project from the directory you call it in; from anywhere else, set
 `MAD_HARNESS_REPO=/path/to/repo`. Every check prints `project: <name>` first — if that is

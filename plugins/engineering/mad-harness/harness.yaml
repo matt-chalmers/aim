@@ -10,6 +10,13 @@
 name: MAD harness
 slug: madharness
 
+# The plugin version this config was last reviewed against. /harness-setup writes it;
+# check-project-config compares it with the installed plugin, and a pre-flight stops
+# when the plugin is newer. See docs/upgrading.md. Here it is also a test: a version
+# bump that forgets to restamp this file fails the suite.
+harness:
+  version: 0.9.1
+
 stacks:
   - python-uv-selftest
 

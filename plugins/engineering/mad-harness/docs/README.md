@@ -13,6 +13,7 @@ Running it: [Getting started](getting-started.md). Evaluating it first:
 |---|---|
 | [Getting started](getting-started.md) | install, configure, and land a first wave |
 | [Requirements](requirements.md) | what must be on the machine, why, and how to install it |
+| [Upgrading](upgrading.md) | how a repository learns the plugin moved, and what `/harness-setup` applies |
 | [Troubleshooting](guides/troubleshooting.md) | a symptom, and what actually causes it |
 
 **I want to understand it**

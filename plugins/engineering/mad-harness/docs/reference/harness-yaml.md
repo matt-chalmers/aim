@@ -8,6 +8,7 @@ The one file that makes the harness fit your repository. Written by
 | block | declares | required |
 |---|---|---|
 | `name` / `slug` | display name; lowercase slug that names per-worker resources | yes |
+| `harness` | `version`: the plugin version this config was reviewed against — the pre-flights stop when the plugin is newer; see [Upgrading](../upgrading.md) | no, but unstamped is treated as behind |
 | `stacks` | which toolchains, and where each lives | yes |
 | `frameworks` | how to write good code here — independent of the toolchain | no |
 | `tracker` | which backend, and where its records live | no (defaults to `beads`) |

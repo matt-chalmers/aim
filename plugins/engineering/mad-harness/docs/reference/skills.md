@@ -17,7 +17,7 @@ restate them, because a summary is a second source and it drifts.
 | [`evidence-gathering`](../../skills/evidence-gathering/SKILL.md) | How to find out what is true about this repository without burning the budget doing it — the mea |
 | [`framework-django`](../../skills/framework-django/SKILL.md) | Django doctrine for this repository: the services boundary, migration discipline, query performa |
 | [`framework-nextjs`](../../skills/framework-nextjs/SKILL.md) | Next.js App Router doctrine for this repository: server versus client components, the data bound |
-| [`harness-setup`](../../skills/harness-setup/SKILL.md) | Initialise or repair this harness in a repository — write harness.yaml, pick the stack modules,  |
+| [`harness-setup`](../../skills/harness-setup/SKILL.md) | Initialise, upgrade or repair this harness in a repository — write harness.yaml, pick the stack  |
 | [`spec-lifecycle`](../../skills/spec-lifecycle/SKILL.md) | How a requirement becomes a spec and then code — what the staging directory holds, the two fold- |
 | [`stack-node-npm`](../../skills/stack-node-npm/SKILL.md) | Running things in an npm-managed Node repository: scoped tests, the shared dependency directory, |
 | [`stack-python-uv`](../../skills/stack-python-uv/SKILL.md) | Running things in a uv-managed Python repository: scoped test invocation, per-worker database is |
