@@ -51,8 +51,8 @@ not a test. This is the primary thing `verifier` hunts for.
 
 **When you actually try it, do it as separate tool calls — never as one shell command.**
 Measured in the lab: 22 of 40 worker dispatches were denied for exactly this, every one the
-same shape — `cp impl backup && cat > impl <<'EOF' … EOF; pytest …; cp backup impl` in a
-single Bash call. A compound command matches no permission rule even when every part of it
+same shape — `cp impl backup && cat > impl <<'EOF' … EOF; <run the suite>; cp backup impl`
+in a single Bash call. A compound command matches no permission rule even when every part of it
 is granted, so it is denied, the turn is wasted, and you try again. The granted way:
 
 1. **Edit** the implementation to a stub (`raise NotImplementedError`) — the Edit tool, not a
