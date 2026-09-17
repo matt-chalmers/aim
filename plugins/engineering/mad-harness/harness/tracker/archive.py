@@ -60,11 +60,13 @@ def archive_epic(epic: str, slug: str = "") -> Path:
     if not proposed:
         raise ProjectError("harness.yaml declares no paths.proposed")
 
-    matches = sorted((REPO / proposed).glob(f"{epic}*"))
-    matches = [m for m in matches if m.is_dir()]
-    if not matches:
-        raise ProjectError(f"no staging folder for {epic} under {proposed}")
-    src = matches[0]
+    from .staging import staged_folder
+
+    src, tried = staged_folder(epic, REPO / proposed)
+    if src is None:
+        raise ProjectError(
+            f"no staging folder for {epic} under {proposed} — tried {', '.join(tried)}"
+        )
 
     when = date.today().isoformat()
     dest = REPO / archive / f"{when}-{src.name}"

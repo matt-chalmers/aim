@@ -180,3 +180,27 @@ spent. No config change.
   inputs of a task with a 34KB record and twelve criteria. Revisit from the recorded series.
 
 - **mechanical** — re-stamp `harness.version`, when convenient.
+
+### 0.9.8
+
+The last three open field bugs. No config change.
+
+- **Either id form, everywhere; a miss says what it tried.** Staged folders are named
+  `<bare-id>-<slug>`; `spec-index-status.sh` globbed the id as given, so the prefixed id every
+  other command takes printed a legitimate-looking `REBUILD` and cost a ~120k-token survey for
+  an index already on disk. `render-epic.sh` did the reverse and rendered "not planned yet" for
+  the bare id. `spec-index-status`, `check-decision-register`, `archive-epic` and `render-epic`
+  all accept both forms now, and a lookup that matches nothing is an error that names the
+  patterns it tried — never a plausible verdict.
+- **`render-epic.sh --write <relative>` writes into the project.** It wrote into the installed
+  plugin cache, exit 0 — the documented invocation at every call site. A relative destination is
+  resolved against the repository; one that escapes it is refused. Check
+  `~/.claude/plugins/cache/aim/mad-harness/*/harness/docs/` for views written there by earlier
+  versions and delete them.
+- **A DELTA survey now closes its own loop.** `spec-index-status.sh <epic> --stamp [--cite …]`
+  moves the index's `generated_sha` / `generated_at` to HEAD; campaign-loop §3a runs it after a
+  DELTA survey lands, so the same DELTA no longer re-fires on every run.
+
+- **mechanical** — for any epic that has taken the DELTA path before this release, run
+  `spec-index-status.sh <epic> --stamp` once, if its last survey's findings are current.
+- **mechanical** — re-stamp `harness.version`, when convenient.

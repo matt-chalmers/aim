@@ -77,7 +77,17 @@ def main(argv: list[str] | None = None) -> int:
         return t.status if t else None
 
     fail = False
-    registers = sorted(glob.glob(f"{proposed}/{sel}*/decisions.md"))
+    # IN THE PROJECT, FOR EITHER ID FORM. This globbed relative to the process cwd — the
+    # harness, after the wrapper's cd — and with the id exactly as given, so a prefixed
+    # id found nothing and reported "NO REGISTER" as if the epic predated the flow.
+    from models.resolve import REPO
+
+    from .staging import id_forms, known_prefix
+
+    forms = id_forms(sel, known_prefix()) if sel else ("",)
+    registers = sorted(
+        {r for form in forms for r in glob.glob(str(REPO / proposed / f"{form}*" / "decisions.md"))}
+    )
     if sel and not registers:
         print(f"NO REGISTER for {sel} — this epic predates the decision-register flow.")
         print("  The decision gate did NOT run. Before proceeding, check by hand:")

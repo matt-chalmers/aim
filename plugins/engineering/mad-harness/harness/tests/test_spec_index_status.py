@@ -88,3 +88,54 @@ def test_rebuild_when_there_is_no_index(consumer):
     proc = _run(consumer, "E-9")
     assert proc.returncode == 0, (proc.stdout, proc.stderr)
     assert "REBUILD" in proc.stdout, proc.stdout
+
+
+# --- BUG 9: either id form; a miss names what it tried --------------------------------------
+
+
+def test_the_prefixed_id_finds_a_bare_named_folder(consumer):
+    """The shape on disk: `<bare>-<slug>`. The id every other command takes: prefixed.
+    This used to print a legitimate-looking REBUILD and cost a ~120k-token survey."""
+    (consumer / "docs" / "proposed" / "E-1-thing").rename(consumer / "docs" / "proposed" / "1-thing")
+    _git(consumer, "add", "-A")
+    _git(consumer, "commit", "-qm", "bare-named folder")
+    proc = _run(consumer, "E-1")
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    assert "REUSE" in proc.stdout and "REBUILD" not in proc.stdout, proc.stdout
+
+
+def test_no_folder_says_so_and_names_the_patterns_tried(consumer):
+    proc = _run(consumer, "E-9")
+    assert "no staging folder for E-9" in proc.stdout and "Tried:" in proc.stdout, proc.stdout
+    assert "E-9*" in proc.stdout and "9*" in proc.stdout, "both id forms were looked for"
+
+
+def test_a_folder_without_an_index_is_a_real_rebuild(consumer):
+    (consumer / "docs" / "proposed" / "E-7-bare").mkdir()
+    proc = _run(consumer, "E-7")
+    assert "REBUILD" in proc.stdout and "holds no spec-index.md" in proc.stdout, proc.stdout
+
+
+# --- BUG 10: the DELTA path closes its own loop -----------------------------------------------
+
+
+def test_stamp_moves_the_baseline_so_a_verified_delta_becomes_reuse(consumer):
+    (consumer / "docs" / "cited.md").write_text("v2\n")
+    (consumer / "docs" / "new.md").write_text("found by the survey\n")
+    _git(consumer, "add", "-A")
+    _git(consumer, "commit", "-qm", "cited doc moved; a new doc the survey will cite")
+    assert "DELTA" in _run(consumer, "E-1").stdout
+    stamped = _run_args(consumer, ["E-1", "--stamp", "--cite", "docs/new.md"])
+    assert stamped.returncode == 0, (stamped.stdout, stamped.stderr)
+    head = _git(consumer, "rev-parse", "--short=12", "HEAD")
+    text = (consumer / "docs" / "proposed" / "E-1-thing" / "spec-index.md").read_text()
+    assert f"generated_sha: {head}" in text and "generated_at:" in text and "docs/new.md" in text
+    assert text.rstrip().endswith("# index"), "the body is untouched"
+    assert "REUSE" in _run(consumer, "E-1").stdout, "the same DELTA does not re-fire"
+
+
+def _run_args(repo: Path, args: list[str]) -> subprocess.CompletedProcess:
+    env = {k: v for k, v in os.environ.items() if k not in ("MAD_HARNESS_REPO", "MAD_HARNESS_CALLER_PWD")}
+    env["PATH"] = os.pathsep.join(d for d in env.get("PATH", "").split(os.pathsep) if "/.venv/" not in d)
+    env.pop("VIRTUAL_ENV", None)
+    return subprocess.run([str(SCRIPT), *args], cwd=repo, env=env, capture_output=True, text=True, timeout=120)

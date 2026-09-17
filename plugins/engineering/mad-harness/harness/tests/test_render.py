@@ -118,3 +118,46 @@ def test_check_names_the_fix_when_the_file_is_missing(epic, tmp_path):
     store, e, _ = epic
     why = check(store, e, tmp_path / "absent.md")
     assert why and "--write" in why
+
+
+# --- BUG 11: the destination is in the project, and a miss is an error --------------------
+
+
+def test_a_relative_destination_lands_in_the_project_not_the_harness(epic, tmp_path, monkeypatch):
+    """Every wrapper cd's into the harness before Python starts, so the documented
+    `--write docs/proposed/<epic>-<slug>/tasks.md` wrote into the installed plugin cache,
+    exit 0, and `--check` then compared the wrong file."""
+    s, e, _ = epic
+    repo = tmp_path / "project"
+    repo.mkdir()
+    monkeypatch.setattr("models.resolve.REPO", repo)
+    assert write(s, e, "docs/proposed/x/tasks.md")
+    assert (repo / "docs" / "proposed" / "x" / "tasks.md").is_file()
+    assert check(s, e, "docs/proposed/x/tasks.md") is None, "--check reads the same file --write wrote"
+
+
+def test_a_relative_destination_that_escapes_the_project_is_refused(epic, tmp_path, monkeypatch):
+    from tracker.port import TrackerError
+
+    s, e, _ = epic
+    repo = tmp_path / "project"
+    repo.mkdir()
+    monkeypatch.setattr("models.resolve.REPO", repo)
+    with pytest.raises(TrackerError, match="outside the project"):
+        write(s, e, "../elsewhere/tasks.md")
+    assert not (tmp_path / "elsewhere").exists()
+
+
+def test_the_bare_id_renders_the_same_epic_as_the_prefixed_one(epic):
+    s, e, ids = epic
+    bare = e.split("-", 1)[1]
+    assert render_epic(s, bare) == render_epic(s, e)
+    assert "has not been planned yet" not in render_epic(s, bare)
+
+
+def test_an_unknown_epic_is_an_error_not_an_unplanned_view(epic):
+    from tracker.port import TrackerError
+
+    s, _, _ = epic
+    with pytest.raises(TrackerError, match="no such epic"):
+        render_epic(s, "t-nope")

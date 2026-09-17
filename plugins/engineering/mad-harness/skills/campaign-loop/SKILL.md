@@ -458,15 +458,28 @@ git log --oneline --since=<index date> -- <the docs and code paths the index nam
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh list --parent <epic> --json    # have children been added, closed or re-scoped?
 ```
 
-| Finding | Action |
-|---|---|
 **Run `${CLAUDE_PLUGIN_ROOT}/harness/checks/spec-index-status.sh <epic-id>` — it answers this table.** The index records the
 SHA it was generated against and every doc it cites, so "has anything it cites moved?" is a diff,
-not a judgement. It prints `REUSE`, `DELTA` with the changed paths, or `REBUILD`.
+not a judgement. It prints `REUSE`, `DELTA` with the changed paths, or `REBUILD` — and either id
+form, bare or prefixed, is accepted. A `REBUILD` that says *no staging folder* and names the
+patterns it tried is a lookup miss, not a verdict: check the folder name before surveying.
 
+| Finding | Action |
+|---|---|
 | No index, or the epic's children have changed | **Full SURVEY.** |
 | Index exists and nothing it cites has moved | **Reuse it.** Say so in the report, with the index's date and what you checked. Do not re-dispatch. |
 | Index exists but some cited docs have moved | **Dispatch a DELTA survey** — hand the analyst the existing index and the list of changed paths, and ask it to verify and extend rather than rebuild. This is the common case and it is a fraction of the cost. |
+
+**A DELTA closes its own loop, or it re-fires forever.** The survey verifies the changed docs
+and writes its findings to the epic; nothing about that moves the index's `generated_sha`, so
+the next run diffs against the same old baseline, finds the same paths moved, and dispatches
+the same survey — an epic that DELTAs once pays a survey every run. When the DELTA survey has
+landed, **you** move the baseline (the analyst will not infer it, and an interrupted survey
+must not stamp what it did not check):
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/harness/checks/spec-index-status.sh <epic-id> --stamp [--cite <path>]...   # baseline → HEAD, today; cites extended
+```
 
 **The adequacy VERDICT still has to be current** — if the epic's children changed, the verdict
 is stale even when the corpus has not, because adequacy is judged against what is being built.

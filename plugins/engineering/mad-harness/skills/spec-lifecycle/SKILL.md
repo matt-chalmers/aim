@@ -65,6 +65,12 @@ that is a design change: flag it for the owner rather than silently rewriting it
 
 ## What `<paths.proposed>/<epic>-<slug>/` stages
 
+`<epic>` here is the **bare** id — the part after the project prefix, `m7j7` for
+`PROJ-m7j7` — which is how every staged folder is named on disk. Every harness script that
+looks a folder up (`spec-index-status.sh`, `check-decision-register.sh`, `archive-epic.sh`,
+`render-epic.sh`) accepts either form of the id and says what it tried when it finds nothing;
+the two forms are never a reason for a silent miss.
+
 Nothing here is a claim about the running system, and **nothing survives its own
 fold-in**:
 
