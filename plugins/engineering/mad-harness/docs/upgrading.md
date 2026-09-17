@@ -261,3 +261,29 @@ Four field bugs from a `/halt release`, and a fix to the A/B rig. No config chan
   that copy; each run records the commit, and the report flags an arm that mixes them.
 
 - **mechanical** — re-stamp `harness.version`, when convenient.
+
+### 0.10.2
+
+One measured doctrine fix, and the first two lever measurements. No config change.
+
+- **Workers were being denied on 55% of dispatches — for the doctrine's own test.** In the
+  lab, 22 of 40 worker dispatches hit a denial, every one the same shape: the "delete the
+  implementation, does it go red?" check hand-rolled as a single compound shell command
+  (`cp … && cat > … <<EOF … pytest … cp`), which matches no permission rule. Each one wastes
+  a turn and a retry. `test-doctrine` §3 now says how to do the check as three granted tool
+  calls, and when to use `mutate.sh` instead.
+- **`cache_ttl` measured: null.** 5 runs per arm, 2 workers, wave 1. Cost per run $1.38 vs
+  $1.39, cache hit 97% vs 98%, write share 3% vs 2%; every spread overlaps. The 5-minute TTL
+  caused no expiry misses in a continuously turning worker; the saving is arithmetic on a
+  2–3% write share (~5%) and smaller than run-to-run variance. **Default stays unset.** Set
+  `dispatch.cache_ttl: 5m` if your test commands finish inside five minutes; one longer gap
+  rewrites the whole prefix and wipes the saving.
+- **`static_prefix` measured: null on its own.** 5 runs per arm, 8 workers, wave 1. Cost per
+  wave $5.98 vs $6.24; cache written per dispatch 49k vs 43k; spreads overlap. Eight workers
+  dispatched in one instant all miss the cache together, so a static prefix alone shares
+  nothing — that is the `stagger` lever's job, measured next. And what a worker writes to
+  cache is ~1,000 tokens per turn of new context, not the prefix, so the ceiling for prefix
+  sharing at this workload is ~6% of a wave, not the 5× the cost analysis computed for
+  prefix writes alone. **Default stays off** pending the stagger result.
+
+- **mechanical** — re-stamp `harness.version`, when convenient.

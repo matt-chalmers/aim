@@ -49,6 +49,20 @@ A test is decorative if it would still pass with the feature deleted. Specifical
 **Ask of every test: if I deleted the implementation, would this go red?** If not, it is
 not a test. This is the primary thing `verifier` hunts for.
 
+**When you actually try it, do it as separate tool calls — never as one shell command.**
+Measured in the lab: 22 of 40 worker dispatches were denied for exactly this, every one the
+same shape — `cp impl backup && cat > impl <<'EOF' … EOF; pytest …; cp backup impl` in a
+single Bash call. A compound command matches no permission rule even when every part of it
+is granted, so it is denied, the turn is wasted, and you try again. The granted way:
+
+1. **Edit** the implementation to a stub (`raise NotImplementedError`) — the Edit tool, not a
+   heredoc.
+2. Run the suite through `$HARNESS_ROOT/verify/run.sh` — one Bash call.
+3. **Edit** it back, or `git checkout -- <that one path>` — one call, that path only.
+
+Three calls, all granted, and the answer is the same. Once the work is committed, prefer
+`mutate.sh` (§5), which does this in a throwaway tree and records the result as evidence.
+
 ## 4. Test-first by default — and the red step must leave evidence
 
 **Where the behaviour is knowable before the code, write the test first and watch it fail.**
