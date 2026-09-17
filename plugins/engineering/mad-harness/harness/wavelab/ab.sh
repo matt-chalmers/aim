@@ -96,6 +96,20 @@ for ARM in "${ARM_LIST[@]}"; do
       env "${ENVS[@]}" "$FLAB/dispatch-wave.sh" --root "$RUN_ROOT" "$BACKEND" || true
       env "${ENVS[@]}" "$FLAB/merge-wave.sh" --root "$RUN_ROOT" "$BACKEND" || true
     fi
+    # A LIMITED ACCOUNT IS NOT A SAMPLE. When the usage window closes the CLI returns
+    # "You've hit your session limit" in one turn at $0 for every dispatch; a series that
+    # keeps going records nothing for hours and the runs read as complete. Discard the run
+    # and stop the series here; it resumes where it left off once the window reopens.
+    EVENTS="$RUN_ROOT/$BACKEND/.harness/run/events/harness.dispatch.jsonl"
+    if [ -f "$EVENTS" ] && python3 -c '
+import json, sys
+rows = [json.loads(l).get("payload", json.loads(l)) for l in open(sys.argv[1]) if l.strip()]
+sys.exit(0 if any(r.get("terminal") in ("usage_limit", "api_error") for r in rows) else 1)
+' "$EVENTS"; then
+      echo "!! $LEVER:$ARM:$RUN hit the account's usage limit (or an API error); discarding the run and STOPPING." >&2
+      rm -rf "$RUN_ROOT"
+      exit 5
+    fi
     echo "$SHA" > "$RUN_ROOT/.ab-sha"
     date -u +"%Y-%m-%dT%H:%M:%SZ" > "$RUN_ROOT/.ab-done"
   done

@@ -240,14 +240,26 @@ class Outcome:
 
     @property
     def terminal(self) -> str:
-        """Why it ended: `success`, `budget`, `max_turns`, `api_error`, `error`."""
+        """Why it ended: `success`, `budget`, `max_turns`, `usage_limit`, `api_error`, `error`.
+
+        `subtype: success` with `is_error: true` is the API-failure shape — the agent loop
+        completed but the last turn was an API error — and one of those is the account's
+        usage window closing: the CLI returns "You've hit your session limit" as the result,
+        one turn, $0. An A/B series ran 26 more runs of exactly that before anyone looked,
+        because it read as success. Named so the rig can stop.
+        """
         sub = str(self.raw.get("subtype") or "")
-        if sub == "success":
-            return "success"
         if sub == "error_max_budget_usd":
             return "budget"
         if sub == "error_max_turns":
             return "max_turns"
+        if self.raw.get("is_error"):
+            text = str(self.raw.get("result") or "").lower()
+            if "limit" in text and ("session" in text or "usage" in text or "rate" in text):
+                return "usage_limit"
+            return str(self.raw.get("terminal_reason") or "api_error")
+        if sub == "success":
+            return "success"
         return str(self.raw.get("terminal_reason") or "error")
 
     @property

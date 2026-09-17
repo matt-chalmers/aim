@@ -124,3 +124,17 @@ def test_the_report_weights_the_cache_by_tokens_and_counts_kills():
     assert row["budget_kills"] == 1
     assert row["cache_hit_pct"] == 18 and row["cache_write_pct"] == 82
     assert row["fail_pct"] == 50
+
+
+def test_an_api_error_result_is_not_success_and_a_closed_usage_window_is_named():
+    """`subtype: success` with `is_error: true` is the API-failure shape; the usage window
+    closing arrives that way with "You've hit your session limit" as the result, one turn,
+    $0. Read as success, an A/B series recorded 26 runs of it."""
+    limited = {**KILL, "subtype": "success", "is_error": True, "total_cost_usd": 0.0, "num_turns": 1,
+               "result": "You've hit your session limit · resets 2:20am", "terminal_reason": None}
+    out = dispatch("verifier", "x", runner=_runner(limited))
+    assert not out.ok and out.terminal == "usage_limit"
+    other = {**limited, "result": "API Error: 529 overloaded", "terminal_reason": "api_error"}
+    assert dispatch("verifier", "x", runner=_runner(other)).terminal == "api_error"
+    fine = {**limited, "is_error": False, "result": "PASS"}
+    assert dispatch("verifier", "x", runner=_runner(fine)).terminal == "success"
