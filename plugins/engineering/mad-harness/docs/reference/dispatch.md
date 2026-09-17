@@ -38,7 +38,18 @@ class Outcome:
     turns: int; duration_ms: int; session_id: str
     permission_denials: list[Any]
     raw: dict[str, Any]                          # diagnostics only
+    # derived: terminal ("success" | "budget" | "max_turns" | "api_error" | "error"),
+    # budget_exhausted, transcript (the steps that arrived before a terminal error),
+    # prompt_tokens, cache_hit_pct, cache_write_pct
 ```
+
+**A terminal error is an outcome, not a crash.** The CLI ends a budget kill, a turn cap or
+an API failure with an error `result` carrying the cost and turns accrued; the SDK raises
+it as `ResultError` with that payload attached. `_run_sdk` returns the payload — and the
+transcript it kept as the run streamed — so the dispatch is recorded with the spend that
+caused it and the orchestrator sees what the worker did, not a traceback in place of it.
+`dispatch.sh` exits **3** on a budget kill (`EXIT_BUDGET`), distinct from a worker that ran
+and returned not-ok (1), so a pipe like `dispatch.sh … | tail` has something to notice.
 
 ## Tier resolution
 
@@ -96,9 +107,16 @@ if needs_worktree(agent) and cwd == REPO: raise DispatchError
 ```python
 {"agent", "task", "attempt", "tier", "model", "effort", "max_budget_usd",
  "cost_usd", "input_tokens", "output_tokens", "cache_read_tokens",
- "cache_creation_tokens", "turns", "duration_ms", "ok", "denied_tools",
+ "cache_creation_tokens", "cache_hit_pct", "cache_write_pct", "models",
+ "turns", "duration_ms", "ok", "terminal", "denied_tools",
  "env_names", "missing_env", "escalated_from"}
 ```
+
+`cache_hit_pct` and `cache_write_pct` are shares of all prompt tokens the dispatch sent
+(fresh + written + read). They are the numbers a cost analysis otherwise has to
+reconstruct from transcripts by hand: workers in one wave that each start cold show as a
+low hit rate; a resumed agent shows as ~0. `terminal` is why the run ended, so a tier
+that keeps being killed by its ceiling is visible in `make models-cost` as `kills`.
 
 `env_names` carries variable **names**, never values — `Resolved.redacted()` is the only
 serialiser, because a provider token rendered into a record survives in the tracked export.

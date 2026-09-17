@@ -44,7 +44,13 @@ tiers:
     provider: anthropic
     model: claude-sonnet-5
     effort: high
-    max_budget_usd: 1.50
+    # 3.00, from 1.50. Measured: two tasks carrying 34KB records and twelve criteria each
+    # needed to read a harvest document and several ADRs before writing code, and $1.50
+    # did not cover reading the inputs — both were cut off mid-exploration, one with no
+    # commit at all. A kill costs the whole spend and a re-dispatch; the ceiling is a
+    # circuit breaker for a runaway, not a target. Sized against the recorded series
+    # (`make models-cost` now shows kills and cache rates per tier); revisit from that.
+    max_budget_usd: 3.00
 
   # Real reasoning over a codebase, where being wrong is expensive to detect.
   # On the [1m] variant because the context window is the binding constraint for

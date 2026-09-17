@@ -215,6 +215,15 @@ block on a missing permission — it denies the tool, lets the model continue, a
 `dispatch.sh` already treats any denial as not-ok and exits non-zero; if you see one, the work
 did not happen, whatever the return text claims.
 
+**Exit 3 is a budget kill, and it is not `BLOCKED`.** The worker never got to return
+anything; the ceiling cut it off. `dispatch.sh` records the spend it reached, prints the
+steps that arrived before the kill and then the error (never the error instead of them), and
+says `BUDGET EXHAUSTED` on stderr. Route it deliberately: run `resume-point.sh <id>` first —
+a kill mid-edit usually leaves REATTACH-able work — then either escalate the tier (the task
+needed more than the ceiling) or split it (the task is too big), and never re-dispatch as-is.
+A pipe such as `dispatch.sh … | tail` returns `tail`'s status, so read the exit code from the
+rc file, not the pipeline.
+
 **The prompt file is the only parent→child channel.** The worker sees none of
 this conversation, none of the files you read, none of the planner's output. Each prompt
 must carry, in full:

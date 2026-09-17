@@ -8,7 +8,7 @@ the first time an agent changes shape.
 
 | tier | model | effort | ceiling | for |
 |---|---|---|---|---|
-| `worker` | `claude-sonnet-5` | high | $1.50 | well-specified work with a cheap recovery path |
+| `worker` | `claude-sonnet-5` | high | $3.00 | well-specified work with a cheap recovery path |
 | `strong` | `claude-opus-5[1m]` | xhigh | $4.00 | reasoning over a codebase, where being wrong is expensive to detect |
 | `strategic` | `claude-opus-5[1m]` | max | $8.00 | the work that decides what everything else builds against |
 

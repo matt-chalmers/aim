@@ -227,6 +227,47 @@ class Outcome:
     permission_denials: list[Any]
     raw: dict[str, Any]
 
+    @property
+    def budget_exhausted(self) -> bool:
+        """Killed by the per-dispatch ceiling. NOT `BLOCKED`: the worker never got to say
+        anything, so it never entered the escalation ladder — the orchestrator was left a
+        stack trace to interpret. First-class so the swarm can route it."""
+        return self.raw.get("subtype") == "error_max_budget_usd"
+
+    @property
+    def terminal(self) -> str:
+        """Why it ended: `success`, `budget`, `max_turns`, `api_error`, `error`."""
+        sub = str(self.raw.get("subtype") or "")
+        if sub == "success":
+            return "success"
+        if sub == "error_max_budget_usd":
+            return "budget"
+        if sub == "error_max_turns":
+            return "max_turns"
+        return str(self.raw.get("terminal_reason") or "error")
+
+    @property
+    def transcript(self) -> list[str]:
+        return list(self.raw.get("transcript") or [])
+
+    @property
+    def prompt_tokens(self) -> int:
+        """Every token sent as prompt across the dispatch: fresh, cache-written, cache-read."""
+        return self.input_tokens + self.cache_creation_tokens + self.cache_read_tokens
+
+    @property
+    def cache_hit_pct(self) -> float | None:
+        """Share of prompt tokens served from cache. THE ONE NUMBER the cost analysis had
+        to reconstruct by hand from transcripts: a wave whose workers each start cold
+        shows here as a low hit rate, and a resumed agent's near-total miss shows as ~0."""
+        return round(100 * self.cache_read_tokens / self.prompt_tokens, 1) if self.prompt_tokens else None
+
+    @property
+    def cache_write_pct(self) -> float | None:
+        """Share of prompt tokens written to cache — billed at a premium (1.25x at the
+        5-minute TTL, 2x at 1-hour), so this is where TTL and prefix choices show up."""
+        return round(100 * self.cache_creation_tokens / self.prompt_tokens, 1) if self.prompt_tokens else None
+
     def telemetry(
         self,
         task: str | None = None,
@@ -240,11 +281,15 @@ class Outcome:
             "escalated_from": escalated_from,
             **self.resolved.redacted(),
             "ok": self.ok,
+            "terminal": self.terminal,
             "cost_usd": round(self.cost_usd, 6),
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "cache_read_tokens": self.cache_read_tokens,
             "cache_creation_tokens": self.cache_creation_tokens,
+            "cache_hit_pct": self.cache_hit_pct,
+            "cache_write_pct": self.cache_write_pct,
+            "models": sorted((self.raw.get("model_usage") or {}).keys()),
             "turns": self.turns,
             "duration_ms": self.duration_ms,
             "permission_denials": len(self.permission_denials),
@@ -380,7 +425,14 @@ def _run_sdk(
     """
     import asyncio
 
-    from claude_agent_sdk import ResultMessage, query
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ResultError,
+        ResultMessage,
+        TextBlock,
+        ToolUseBlock,
+        query,
+    )
 
     async def _go() -> dict[str, Any]:
         options = r.sdk_options(cwd=cwd, env=env)
@@ -390,20 +442,56 @@ def _run_sdk(
         # wave's telemetry. See models/broker.py.
         options.can_use_tool = broker(r.agent, task=task)
         last: dict[str, Any] = {}
-        async for message in query(prompt=prompt, options=options):
-            if isinstance(message, ResultMessage):
-                last = {
-                    "subtype": message.subtype,
-                    "is_error": message.is_error,
-                    "result": message.result or "",
-                    "total_cost_usd": message.total_cost_usd or 0.0,
-                    "usage": message.usage or {},
-                    "model_usage": message.model_usage or {},
-                    "num_turns": message.num_turns,
-                    "duration_ms": message.duration_ms,
-                    "session_id": message.session_id,
-                    "permission_denials": message.permission_denials or [],
-                }
+        # THE TRANSCRIPT IS KEPT AS IT STREAMS, because a terminal error arrives as an
+        # exception and would otherwise take every turn before it with it. Two workers
+        # killed by the budget ceiling left output files holding only a traceback — no
+        # turns, no tool calls, nothing to say how far they got or why it cost that much.
+        transcript: list[str] = []
+        try:
+            async for message in query(prompt=prompt, options=options):
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock) and block.text.strip():
+                            transcript.append(block.text.strip())
+                        elif isinstance(block, ToolUseBlock):
+                            arg = json.dumps(block.input)[:160]
+                            transcript.append(f"[tool] {block.name} {arg}")
+                elif isinstance(message, ResultMessage):
+                    last = {
+                        "subtype": message.subtype,
+                        "is_error": message.is_error,
+                        "result": message.result or "",
+                        "total_cost_usd": message.total_cost_usd or 0.0,
+                        "usage": message.usage or {},
+                        "model_usage": message.model_usage or {},
+                        "num_turns": message.num_turns,
+                        "duration_ms": message.duration_ms,
+                        "session_id": message.session_id,
+                        "permission_denials": message.permission_denials or [],
+                    }
+        except ResultError as exc:
+            # A TERMINAL ERROR IS AN OUTCOME, NOT A CRASH. The CLI reported a result —
+            # `error_max_budget_usd`, `error_max_turns`, an API error — with the cost,
+            # tokens and turns it had accrued, and the SDK hands that payload over on the
+            # exception. Returning it lets the caller record the spend (the spend that
+            # caused the failure is the one that matters most) and classify the kill
+            # instead of interpreting a stack trace.
+            data = dict(exc.data or {})
+            return {
+                "subtype": exc.subtype or data.get("subtype") or "error",
+                "is_error": True,
+                "result": exc.result or data.get("result") or str(exc),
+                "total_cost_usd": data.get("total_cost_usd") or 0.0,
+                "usage": data.get("usage") or {},
+                "model_usage": data.get("modelUsage") or data.get("model_usage") or {},
+                "num_turns": data.get("num_turns") or 0,
+                "duration_ms": data.get("duration_ms") or 0,
+                "session_id": exc.session_id or data.get("session_id") or "",
+                "permission_denials": data.get("permission_denials") or [],
+                "terminal_reason": exc.terminal_reason,
+                "errors": list(exc.errors or []),
+                "transcript": transcript,
+            }
         if not last:
             raise DispatchError(
                 "the SDK returned no result message — the agent produced nothing at all. "
@@ -610,13 +698,36 @@ def main(argv: list[str] | None = None) -> int:
     if not args.no_record:
         record(outcome, task=args.task, attempt=args.attempt)
 
+    if outcome.terminal != "success" and outcome.transcript:
+        # What arrived before the kill, THEN the error — never the error instead of it.
+        print(f"-- partial transcript, {len(outcome.transcript)} step(s) before the run ended:")
+        for step in outcome.transcript:
+            print(f"   {step}")
+        print()
     print(outcome.text)
+    if outcome.budget_exhausted:
+        ceiling = outcome.resolved.max_budget_usd
+        print(
+            f"\n-- BUDGET EXHAUSTED: ${outcome.cost_usd:.2f} spent"
+            + (f" against a ${ceiling:.2f} ceiling" if ceiling else "")
+            + f" after {outcome.turns} turn(s). This is not BLOCKED — the worker was cut off. "
+            f"Check `resume-point.sh <task>` for uncommitted work, then escalate the tier or "
+            f"split the task; do not re-dispatch as-is.",
+            file=sys.stderr,
+        )
     print(
         f"\n-- {outcome.resolved.provider}/{outcome.resolved.model} "
-        f"tier={outcome.resolved.tier} turns={outcome.turns} "
+        f"tier={outcome.resolved.tier} terminal={outcome.terminal} turns={outcome.turns} "
         f"${outcome.cost_usd:.4f} {outcome.duration_ms}ms",
         file=sys.stderr,
     )
+    if outcome.prompt_tokens:
+        print(
+            f"-- cache: {outcome.cache_hit_pct}% read, {outcome.cache_write_pct}% written, "
+            f"{outcome.prompt_tokens:,} prompt tokens over {outcome.turns} turn(s); "
+            f"{outcome.output_tokens:,} output",
+            file=sys.stderr,
+        )
     if outcome.permission_denials:
         # WHICH tool was denied is the whole diagnostic value. A bare count tells
         # an operator that something was blocked but not what the agent could not
@@ -631,7 +742,14 @@ def main(argv: list[str] | None = None) -> int:
             shown = json.dumps(detail)[:160] if detail else ""
             name = d.get("tool_name", "?") if isinstance(d, dict) else str(d)[:40]
             print(f"     {name}: {shown}", file=sys.stderr)
+    if outcome.budget_exhausted:
+        return EXIT_BUDGET
     return 0 if outcome.ok else 1
+
+
+#: A budget kill exits distinctly from a worker that ran and failed, so a caller can
+#: route it — and so a pipe like `dispatch.sh … | tail` has something to lose.
+EXIT_BUDGET = 3
 
 
 if __name__ == "__main__":

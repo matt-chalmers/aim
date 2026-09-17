@@ -48,6 +48,12 @@ def summarise(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         turns = [int(e.get("turns") or 0) for e in es]
         fails = sum(1 for e in es if not e.get("ok"))
         escalations = sum(1 for e in es if e.get("escalated_from"))
+        # THE CACHE, TOKEN-WEIGHTED across the group rather than averaged per dispatch,
+        # so one expensive cold run is not hidden behind ten cheap warm ones.
+        reads = sum(int(e.get("cache_read_tokens") or 0) for e in es)
+        writes = sum(int(e.get("cache_creation_tokens") or 0) for e in es)
+        fresh = sum(int(e.get("input_tokens") or 0) for e in es)
+        prompt = reads + writes + fresh
         rows.append(
             {
                 "agent": agent,
@@ -59,6 +65,11 @@ def summarise(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "mean_turns": sum(turns) / len(es),
                 "fail_pct": round(100 * fails / len(es)),
                 "escalations": escalations,
+                "cache_hit_pct": round(100 * reads / prompt) if prompt else None,
+                "cache_write_pct": round(100 * writes / prompt) if prompt else None,
+                # A budget kill is not a failure the worker reported; it is the ceiling
+                # cutting it off. Counted apart so a tier that keeps dying is visible.
+                "budget_kills": sum(1 for e in es if e.get("terminal") == "budget"),
             }
         )
     return sorted(rows, key=lambda r: -r["total_usd"])
@@ -78,15 +89,23 @@ def main() -> int:
     print(
         f"{'agent':<22}{'tier':<11}{'provider':<11}{'n':>4}"
         f"{'total $':>10}{'mean $':>9}{'turns':>7}{'fail%':>7}{'esc':>5}"
+        f"{'kills':>7}{'cache%':>8}{'write%':>8}"
     )
+    pct = lambda v: "—" if v is None else str(v)  # noqa: E731
     for r in rows:
         print(
             f"{r['agent']:<22}{r['tier']:<11}{r['provider']:<11}{r['n']:>4}"
             f"{r['total_usd']:>10.3f}{r['mean_usd']:>9.4f}"
             f"{r['mean_turns']:>7.1f}{r['fail_pct']:>7}{r['escalations']:>5}"
+            f"{r['budget_kills']:>7}{pct(r['cache_hit_pct']):>8}{pct(r['cache_write_pct']):>8}"
         )
     total = sum(r["total_usd"] for r in rows)
-    print(f"\n{len(events)} dispatches, ${total:.2f} total.")
+    kills = sum(r["budget_kills"] for r in rows)
+    print(f"\n{len(events)} dispatches, ${total:.2f} total, {kills} killed by the budget ceiling.")
+    print(
+        "cache% = prompt tokens served from cache; write% = written to cache at a premium. "
+        "Workers in one wave that each start cold show as low cache%; a resumed agent as ~0."
+    )
     print(
         "A tier is worth keeping when its fail% and escalations stay low. "
         "A cheap tier that escalates re-pays the whole fixed base, so it is a "

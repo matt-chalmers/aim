@@ -159,3 +159,24 @@ still running, a branch committed but not merged — was resumed by dispatching 
 - **mechanical** — nothing in the config. If you have stranded refs from before 0.9.5's
   sweep, the next `/swarm` will find them per task via `resume-point.sh` and adopt them.
 - **mechanical** — re-stamp `harness.version`, when convenient.
+
+### 0.9.7
+
+Measurement first — the two items a field cost analysis said to do before any other
+optimisation, because nothing else is measurable until a failed dispatch records what it
+spent. No config change.
+
+- **A budget kill is an outcome, not a crash.** It used to raise out of the SDK: the output
+  file held only a traceback, no cost event was written, and the orchestrator was left to
+  interpret a stack trace with the evidence deleted. Now the dispatch records the spend it
+  reached, keeps the steps that arrived before the kill, prints `BUDGET EXHAUSTED` with what
+  to do, and exits **3** — distinct from a worker that ran and failed. `make models-cost`
+  shows kills per tier.
+- **The cache is measured per dispatch.** `cache_hit_pct` and `cache_write_pct` are recorded
+  on every dispatch event and printed after each run; `make models-cost` shows them
+  token-weighted per agent and tier. These are the numbers that had to be reconstructed from
+  transcripts by hand.
+- **The `worker` ceiling is $3.00**, from $1.50: measured, $1.50 did not cover reading the
+  inputs of a task with a 34KB record and twelve criteria. Revisit from the recorded series.
+
+- **mechanical** — re-stamp `harness.version`, when convenient.
