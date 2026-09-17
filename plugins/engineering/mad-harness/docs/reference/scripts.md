@@ -42,7 +42,8 @@ it.
 |---|---|
 | `swarm/swarm-worktree-init.sh <n> <lane>` | prepares one worker's isolated checkout |
 | `swarm/worktree-sweep.sh [--apply] [--prune-orphans]` | reclaims worktrees a wave left behind, and classifies worker refs that no worktree points at |
-| `swarm/resume-point.sh <task-id> [--json]` | where a task's work already is — MERGE, VERIFY, REATTACH, MERGED or FRESH — so a resumed run adopts it instead of redoing it |
+| `swarm/preserve-worktrees.sh [--to DIR]` | writes every worker worktree's uncommitted diff, untracked files and unmerged commits to a dated folder — `/halt`'s first step, before anything is removed |
+| `swarm/resume-point.sh <task-id> [--json]` | where a task's work already is — MERGE, VERIFY, REATTACH or FRESH — so a resumed run adopts it instead of redoing it |
 
 The sweep detects the default branch rather than assuming `main`. A sweep that dies leaves
 every worktree behind, which is the state it exists to prevent.

@@ -38,8 +38,16 @@ command -v uv >/dev/null || { echo "uv is required" >&2; exit 2; }
 
 # THE FIRST THING, because everything after it is meaningless otherwise: a dispatched
 # agent resolves against the INSTALLED plugin, not this checkout.
-"$HERE/check-plugin-fresh.sh" || {
-  echo "refusing to build a wavelab that would test a stale plugin" >&2; exit 4; }
+# The fresh check protects the INTERACTIVE commands, which come from the installed cache.
+# Dispatched agents load the plugin by path from this tree (resolve.py passes
+# `plugins=[{"type":"local","path":...}]`), so an A/B running from a frozen worktree is
+# testing exactly the tree it runs from and the cache is irrelevant to it. ab.sh sets this.
+if [ "${WAVELAB_SKIP_FRESH:-0}" = "1" ]; then
+  echo "  (fresh check skipped: WAVELAB_SKIP_FRESH=1 — dispatched agents run this tree by path)"
+else
+  "$HERE/check-plugin-fresh.sh" || {
+    echo "refusing to build a wavelab that would test a stale plugin" >&2; exit 4; }
+fi
 command -v bd >/dev/null || echo "WARNING: bd is not on PATH — the beads repo will not seed" >&2
 
 seed_repo() {  # $1 = name, $2 = tracker yaml block

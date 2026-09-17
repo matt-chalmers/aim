@@ -89,11 +89,27 @@ def test_harness_residue_in_a_worktree_is_not_uncommitted_work(repo):
     assert resume.resume_point("T-1", repo, notes="").state == "VERIFY"
 
 
-def test_work_that_already_landed_is_merged_not_fresh(repo):
+def test_work_that_already_landed_is_fresh_because_nothing_is_left_to_adopt(repo):
+    """Landed work and an empty branch look identical from the ref. The first version
+    guessed MERGED from main's log and told an orchestrator to close a task whose
+    worker had committed nothing; a redundant dispatch is the cheaper error, and the
+    tracker's closed status prevents even that for work that really landed."""
     _branch(repo, "worktree-agent-a1b2c3", "feat: done [T-1]")
     _git(repo, "merge", "-q", "--no-edit", "worktree-agent-a1b2c3")
     rp = resume.resume_point("T-1", repo, notes="")
-    assert rp.state == "MERGED" and rp.merged and rp.commits == 0
+    assert rp.state == "FRESH" and rp.commits == 0
+
+
+def test_an_empty_branch_is_fresh_even_when_main_mentions_the_task(repo):
+    """The field case: a killed worker, a branch with zero commits, and a tracker-sync
+    commit on main naming the task id. That read as MERGED."""
+    (repo / "notes.md").write_text("closing out\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "chore(beads): sync — T-1 claimed then released")
+    _git(repo, "branch", "harness-w1-T-1")
+    rp = resume.resume_point("T-1", repo, notes="")
+    assert rp.state == "FRESH", rp
+    assert "close" not in rp.describe().lower()
 
 
 def test_a_branch_cut_for_the_task_but_never_used_is_fresh(repo):

@@ -15,8 +15,15 @@ worker back on its own work.
     MERGE       committed, lenses recorded PASS at this head     merge it; no worker
     VERIFY      committed, no verdict recorded for this head     run the lenses; PASS → merge, FAIL → --resume
     REATTACH    a worktree holds UNCOMMITTED work                dispatch INTO it (--resume its branch)
-    MERGED      every commit is already in main                  nothing to adopt; the task should be closed
-    FRESH       nothing                                          dispatch as normal
+    FRESH       nothing to adopt                                 dispatch as normal
+
+There is deliberately NO "merged" state. A branch with nothing ahead of main was either
+cut and never used, or fast-forwarded into main — and from the ref alone the two are
+indistinguishable. The first version guessed by grepping main's log for the task id, and a
+tracker-sync commit that named the id made a zero-commit branch read as MERGED: a killed
+worker that had committed nothing was reported as "work landed; close the task". A false
+FRESH costs a redundant dispatch that the tracker's own closed status prevents anyway; a
+false MERGED closes work nobody did. Zero commits ahead is FRESH, always.
 
 The verdict comes from a `VERIFIED <sha>` note on the task, which the lens step records
 when every lens passes. Absent, committed work resumes at VERIFY — the lenses are cheap
@@ -129,7 +136,7 @@ class ResumePoint:
     def describe(self) -> str:
         lines = [f"task:      {self.task}", f"state:     {self.state}"]
         if self.branch:
-            how = "merged into main" if self.merged else f"{self.commits} commit(s) ahead of main, unmerged"
+            how = f"{self.commits} commit(s) ahead of main" if self.commits else "nothing ahead of main — empty, or already landed"
             lines.append(f"branch:    {self.branch}   ({how})")
         if self.worktree:
             lines.append(f"worktree:  {self.worktree}   ({'UNCOMMITTED changes' if self.dirty else 'clean'})")
@@ -145,7 +152,6 @@ NEXT = {
     "MERGE": "merge {branch} in step 8 — no worker needed",
     "VERIFY": "run the lenses on {branch}; PASS → merge in step 8, FAIL → dispatch.sh … --resume {branch}",
     "REATTACH": "dispatch.sh … --worker <n> --resume {branch} — the worker continues in that worktree",
-    "MERGED": "nothing to adopt; if the task is still open, close it or say why it is not done",
     "FRESH": "dispatch as normal",
 }
 
@@ -181,22 +187,17 @@ def resume_point(task: str, repo: Path | None = None, notes: str | None = None) 
     ref, when, commits, head, wt, dirty = candidates[0]
     others = tuple(c[0] for c in candidates[1:])
     verified = any(head.startswith(s) for s in verified_shas)
-    # Nothing ahead of main means either the work LANDED (main carries commits for the
-    # task) or the branch was cut and never used. Those are different answers.
-    landed = commits == 0 and bool(_git(repo, "log", "-1", "--fixed-strings", f"--grep={task}", "--format=%H", main).strip())
 
     if dirty:
         state = "REATTACH"
     elif commits > 0:
         state = "MERGE" if verified else "VERIFY"
-    elif landed:
-        state = "MERGED"
     else:
-        state = "FRESH"
+        state = "FRESH"  # nothing ahead of main: nothing to adopt, whatever the history says
 
     return ResumePoint(
         task=task, state=state, branch=ref, head=head[:12] if head else None, commits=commits,
-        merged=landed, worktree=str(wt) if wt else None, dirty=dirty, verified=verified, others=others,
+        merged=False, worktree=str(wt) if wt else None, dirty=dirty, verified=verified, others=others,
     )
 
 

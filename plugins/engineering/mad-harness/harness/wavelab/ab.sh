@@ -41,21 +41,42 @@ case "$LEVER" in cache_ttl|static_prefix|stagger|task_budget|preload) ;; *) echo
 
 # The environment each arm dispatches under. Everything else is inherited unchanged, and
 # every arm clears the levers it does not set, so a stray export cannot leak into an arm.
-arm_env() {  # $1 = off|on  -> prints VAR=value lines
-  echo "MAD_HARNESS_CACHE_TTL="; echo "MAD_HARNESS_STATIC_PREFIX="; echo "MAD_HARNESS_STAGGER_SECONDS="
-  echo "MAD_HARNESS_TASK_BUDGET_TOKENS="; echo "MAD_HARNESS_PRELOAD="
+ENVS=()
+arm_envs() {  # $1 = off|on  -> fills ENVS
+  ENVS=(MAD_HARNESS_CACHE_TTL= MAD_HARNESS_STATIC_PREFIX= MAD_HARNESS_STAGGER_SECONDS=
+        MAD_HARNESS_TASK_BUDGET_TOKENS= MAD_HARNESS_PRELOAD=)
   case "$LEVER:$1" in
-    cache_ttl:on)      echo "MAD_HARNESS_CACHE_TTL=5m" ;;
-    static_prefix:on)  echo "MAD_HARNESS_STATIC_PREFIX=1" ;;
-    stagger:off)       echo "MAD_HARNESS_STATIC_PREFIX=1" ;;
-    stagger:on)        echo "MAD_HARNESS_STATIC_PREFIX=1"; echo "MAD_HARNESS_STAGGER_SECONDS=8" ;;
-    task_budget:on)    echo "MAD_HARNESS_TASK_BUDGET_TOKENS=400000" ;;
-    preload:on)        echo "MAD_HARNESS_PRELOAD=evidence-gathering" ;;
+    cache_ttl:on)      ENVS+=(MAD_HARNESS_CACHE_TTL=5m) ;;
+    static_prefix:on)  ENVS+=(MAD_HARNESS_STATIC_PREFIX=1) ;;
+    stagger:off)       ENVS+=(MAD_HARNESS_STATIC_PREFIX=1) ;;
+    stagger:on)        ENVS+=(MAD_HARNESS_STATIC_PREFIX=1 MAD_HARNESS_STAGGER_SECONDS=8) ;;
+    task_budget:on)    ENVS+=(MAD_HARNESS_TASK_BUDGET_TOKENS=400000) ;;
+    preload:on)        ENVS+=(MAD_HARNESS_PRELOAD=evidence-gathering) ;;
   esac
 }
 
 mkdir -p "$ROOT"
-echo "== A/B $LEVER: arms [$ARMS] x $RUNS run(s), fan-out $FANOUT, backend $BACKEND, root $ROOT"
+
+# FROZEN CODE. The first series ran from the live working tree; edits to harness/tracker/
+# made mid-series tripped the fresh check and aborted every remaining lever in four
+# seconds — and had it not aborted, later runs would have run different code from earlier
+# ones, which is a confound no report could detect. An experiment pins its code: the
+# plugin at HEAD is checked out, detached, into the series root, every run dispatches
+# from that copy, and the commit is recorded beside each run. Continue developing freely.
+AIM="$(cd "$HERE/../../../../.." && git rev-parse --show-toplevel)"
+SHA="$(git -C "$AIM" rev-parse --short=12 HEAD)"
+FROZEN="$ROOT/plugin-$SHA"
+if [ ! -d "$FROZEN" ]; then
+  echo "== freezing the plugin at $SHA into $FROZEN"
+  git -C "$AIM" worktree add --detach -q "$FROZEN" "$SHA"
+fi
+FLAB="$FROZEN/plugins/engineering/mad-harness/harness/wavelab"
+[ -x "$FLAB/reset.sh" ] || { echo "frozen tree has no wavelab at $FLAB" >&2; exit 3; }
+if [ -n "$(git -C "$AIM" status --porcelain -- plugins/engineering/mad-harness/harness plugins/engineering/mad-harness/agents plugins/engineering/mad-harness/skills plugins/engineering/mad-harness/commands)" ]; then
+  echo "   note: the live tree has uncommitted changes; the series runs $SHA, not them"
+fi
+export WAVELAB_SKIP_FRESH=1
+echo "== A/B $LEVER: arms [$ARMS] x $RUNS run(s), fan-out $FANOUT, backend $BACKEND, root $ROOT, code $SHA"
 IFS=',' read -r -a ARM_LIST <<< "$ARMS"
 for ARM in "${ARM_LIST[@]}"; do
   [ "$ARM" = "baseline" ] && ARM=off
@@ -64,16 +85,18 @@ for ARM in "${ARM_LIST[@]}"; do
     if [ -f "$RUN_ROOT/.ab-done" ]; then echo "-- $LEVER:$ARM:$RUN already done, skipping"; continue; fi
     echo; echo "== $LEVER:$ARM:$RUN  ($RUN_ROOT)"
     rm -rf "$RUN_ROOT"
-    "$HERE/reset.sh" --root "$RUN_ROOT" --only "$BACKEND" --fanout "$FANOUT" --cap "$FANOUT"
+    "$FLAB/reset.sh" --root "$RUN_ROOT" --only "$BACKEND" --fanout "$FANOUT" --cap "$FANOUT" || {
+      echo "!! reset failed for $LEVER:$ARM:$RUN — stopping this lever" >&2; exit 4; }
     # The label every dispatch event in this run carries.
-    ENVS=("MAD_HARNESS_EXPERIMENT=$LEVER:$ARM:$RUN")
-    while IFS= read -r kv; do ENVS+=("$kv"); done < <(arm_env "$ARM")
-    env "${ENVS[@]}" "$HERE/dispatch-wave.sh" --root "$RUN_ROOT" "$BACKEND" || true
-    env "${ENVS[@]}" "$HERE/merge-wave.sh" --root "$RUN_ROOT" "$BACKEND" || true
+    arm_envs "$ARM"
+    ENVS+=("MAD_HARNESS_EXPERIMENT=$LEVER:$ARM:$RUN")
+    env "${ENVS[@]}" "$FLAB/dispatch-wave.sh" --root "$RUN_ROOT" "$BACKEND" || true
+    env "${ENVS[@]}" "$FLAB/merge-wave.sh" --root "$RUN_ROOT" "$BACKEND" || true
     if [ "$WAVE1_ONLY" = "0" ]; then
-      env "${ENVS[@]}" "$HERE/dispatch-wave.sh" --root "$RUN_ROOT" "$BACKEND" || true
-      env "${ENVS[@]}" "$HERE/merge-wave.sh" --root "$RUN_ROOT" "$BACKEND" || true
+      env "${ENVS[@]}" "$FLAB/dispatch-wave.sh" --root "$RUN_ROOT" "$BACKEND" || true
+      env "${ENVS[@]}" "$FLAB/merge-wave.sh" --root "$RUN_ROOT" "$BACKEND" || true
     fi
+    echo "$SHA" > "$RUN_ROOT/.ab-sha"
     date -u +"%Y-%m-%dT%H:%M:%SZ" > "$RUN_ROOT/.ab-done"
   done
 done

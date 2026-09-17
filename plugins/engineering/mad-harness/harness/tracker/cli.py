@@ -243,9 +243,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("id")
     p.add_argument("--actor", default=None)
 
-    p = add("release", help="give a claim back")
+    p = add("release", help="give a claim back, and clear the record's assignee")
     p.add_argument("id")
     p.add_argument("--actor", default=None)
+    p.add_argument("--force", action="store_true", help="release another actor's claim — a halt's job")
+    p.add_argument("--keep-assignee", action="store_true")
 
     add("slot-check", help="is the merge slot free?")
     p = add("slot-acquire")
@@ -276,6 +278,7 @@ def build_parser() -> argparse.ArgumentParser:
         "foreign-claims",
         help="claims recorded by another host — the cross-machine collision warning",
     )
+    add("claims", help="every claim currently held: task, holder, host, age, alive/stale — what a halt looks at")
     return ap
 
 
@@ -315,14 +318,47 @@ def main(argv: list[str] | None = None) -> int:
         return 4
     try:
         if v in ("claim", "release", "slot-check", "slot-acquire", "slot-release",
-                 "foreign-claims"):
+                 "foreign-claims", "claims"):
             co = tracker.coordination()
             if v == "claim":
                 r = co.try_claim(args.id, _actor(args.actor))
                 _emit(asdict(r), getattr(args, 'json', False))
                 return 0 if r.held else 1
             if v == "release":
-                return 0 if co.release_claim(args.id, _actor(args.actor)) else 1
+                what = co.release_claim(args.id, _actor(args.actor), force=args.force)
+                if what == "released":
+                    cleared = ""
+                    if not args.keep_assignee:
+                        # THE RECORD'S ASSIGNEE GOES WITH THE CLAIM. A released task that
+                        # still names an assignee reads as owned by whoever sees it next;
+                        # /halt's own recipe expected this cleared and the verb did not do it.
+                        try:
+                            tracker.task_store().update(args.id, assignee="")
+                            cleared = ", assignee cleared"
+                        except TrackerError as exc:
+                            cleared = f", assignee NOT cleared: {exc}"
+                    print(f"released {args.id}{cleared}")
+                    return 0
+                if what == "not-claimed":
+                    print(f"{args.id} is not claimed — nothing to release", file=sys.stderr)
+                    return 1
+                print(
+                    f"{args.id} is held by {what.split(':', 1)[1]}, not by {_actor(args.actor)} — "
+                    f"pass --actor <holder>, or --force if that worker is gone",
+                    file=sys.stderr,
+                )
+                return 1
+            if v == "claims":
+                rows = co.claims()
+                if getattr(args, "json", False):
+                    print(json.dumps(rows))
+                elif not rows:
+                    print("no claims held")
+                else:
+                    for c in rows:
+                        state = "alive" if c["alive"] else ("STALE" if c["stale"] else "not provably alive")
+                        print(f"{c['task']:<20} {c['holder']:<16} {c['host']:<14} {c['age_s'] // 60:>5}m  {state}")
+                return 0
             if v == "slot-check":
                 _emit(asdict(co.slot_check()), getattr(args, 'json', False))
                 return 0

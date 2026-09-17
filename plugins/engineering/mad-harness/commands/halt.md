@@ -34,7 +34,7 @@ git worktree list --porcelain | awk '/^worktree /{print $2}' | while read -r w; 
   echo "== $w"; git -C "$w" status --porcelain; git -C "$w" log --oneline main..HEAD
 done                                   # THIS is where uncommitted and unmerged work lives
 git log --oneline -10                  # what actually landed on main
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh list --status in_progress --json    # tasks still claimed
+${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh claims                        # tasks still CLAIMED — holder, host, age, alive/stale
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-check                    # free, or held by a worker that died?
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh backend --json    # check the autosync state           # almost certainly export.auto=false
 ```
@@ -42,6 +42,12 @@ ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh backend --json    # check the autosy
 **Look in the worktrees, not the main checkout.** A killed writer leaves both uncommitted
 edits *and* possibly a committed-but-unmerged branch inside its own worktree. Both are
 invisible to `git status` in the main tree — which is exactly how three worktrees (tens to hundreds of megabytes each) went stranded and unnoticed.
+
+**Claims, not status.** A campaign claims a task with `tk.sh claim`, which records a holder
+and leaves the status `open` — so `tk.sh list --status in_progress` finds tasks from other,
+earlier sessions and not the ones being halted. An operator following that literally cleaned
+up four foreign tasks and left the two real ones claimed. `tk.sh claims` reads the claim
+records, which are the authority, and says whether each holder is provably alive.
 
 Report this before changing state. **Never discard uncommitted work without showing it
 first** — a killed worker's edits are indistinguishable from your own until you look.
@@ -83,19 +89,33 @@ uncommitted changes. A worker with the same `BEADS_ACTOR` re-claims its own task
 
 Use when you want someone else, or the next run, to pick this work up fresh.
 
+**First, preserve. Then look. Then release. Then remove.** In that order, because each
+step is what makes the next one safe:
+
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <ids> --status open --assignee ""     # verified: returns them to ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh ready
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/preserve-worktrees.sh                 # 1. every worktree's uncommitted diff, untracked files and unmerged
+                                                                          #    commits, as files under .harness/halted-<date>/<branch>/
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/resume-point.sh <id>                  # 2. per task: REATTACH / VERIFY / MERGE / FRESH — what a resumed run would adopt
+${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh release <id> --force          # 3. the claim goes, the assignee is cleared, and it SAYS so
+${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <id> --append-notes "released <date>: work preserved at .harness/halted-<date>/<branch>; <what is done, what is not>"
 ```
 
-Then, for each released task, **deal with its partial work explicitly**:
+**The work lives in the worktrees, not the main tree.** Writers are dispatched with
+`--worker <n>`, so every edit a killed worker made is in its own worktree under
+`.claude/worktrees/`. Main-tree commands — `git restore`, `git checkout` — do nothing to it
+and were never the right advice. Step 1 writes each worktree's state to a dated folder so
+nothing is lost whatever happens next; name that path on the task.
 
-- worth keeping → commit it on a branch and note the branch on the task
-  (`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <id> --append-notes "partial work on <branch>: <what is done, what is not>"`)
-- not worth keeping → `git restore` **only the paths that task touched**, never `git restore .`
-  and never `git checkout .`, which would take out a sibling's landed-but-unstaged work
+**Then decide, per task, from what `resume-point.sh` said:**
 
-A released task with orphaned edits still in the tree is the worst outcome: the next worker
-claims it, finds unexplained changes, and cannot tell whose they are.
+| it said | it means | do |
+|---|---|---|
+| `VERIFY` / `MERGE` | committed work on the branch | keep the branch; the next run adopts it. Note the branch on the task |
+| `REATTACH` | uncommitted work in the worktree | worth keeping → commit it on the branch (it becomes VERIFY). Not worth keeping → **remove the worktree**: `git worktree remove --force <path>` — that is what makes the next dispatch `FRESH` instead of silently re-attaching whoever picks it up to a killed run's unverified edits |
+| `FRESH` | nothing held | nothing to do; the empty branch is the sweep's to delete |
+
+A released task with a worktree still holding unexplained edits is the worst outcome: the
+next worker re-attaches to them, cannot tell whose they are, and builds on top.
 
 ## 4. Always — clear the stuck state
 

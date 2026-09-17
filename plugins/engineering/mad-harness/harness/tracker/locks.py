@@ -233,19 +233,47 @@ class FileCoordination:
             return ClaimResult(held=True, holder=actor, reentrant=True)
         return ClaimResult(held=False, holder=holder)
 
-    def release_claim(self, task_id: str, actor: str) -> bool:
+    def release_claim(self, task_id: str, actor: str, *, force: bool = False) -> str:
+        """Release a claim. Returns WHAT HAPPENED, not a bare bool: `released`,
+        `not-claimed`, or `held-by:<other>` — a silent False on a halt left the operator
+        checking `tk.sh ready` to learn whether anything had happened. `force` releases
+        another actor's claim, which is what a halt does for a worker that is gone."""
         path = self._claim_path(task_id)
         rec = _read(path)
         if rec is None:
-            return False
-        if str(rec.get("actor")) != actor:
-            return False
+            return "not-claimed"
+        holder = str(rec.get("actor") or "?")
+        if holder != actor and not force:
+            return f"held-by:{holder}"
         path.unlink(missing_ok=True)
-        return True
+        return "released"
 
     def claim_holder(self, task_id: str) -> dict | None:
         """The full claim record, for the cross-host warning at pre-flight."""
         return _read(self._claim_path(task_id))
+
+    def claims(self) -> list[dict]:
+        """EVERY claim, for a halt. `/halt` §1 told the operator to list tasks with
+        `--status in_progress`; a campaign claims with `tk.sh claim`, which writes a claim
+        record and leaves the status `open`, so that query returned four tasks from
+        unrelated sessions and neither of the two being halted. The claims directory is
+        the authority on what is held."""
+        out = []
+        for p in sorted((self.root / "claims").glob("*.claim")):
+            rec = _read(p)
+            if not rec:
+                continue
+            age = int(_now() - float(rec.get("at") or 0))
+            out.append({
+                "task": p.stem,
+                "holder": str(rec.get("actor") or "?"),
+                "host": str(rec.get("host") or "?"),
+                "pid": rec.get("pid"),
+                "age_s": age,
+                "alive": _definitely_alive(rec),
+                "stale": age > STALE_AFTER_S and not _definitely_alive(rec),
+            })
+        return out
 
     def foreign_claims(self) -> list[dict]:
         """Claims recorded by another host — the cheap cross-machine collision detector.

@@ -234,3 +234,30 @@ name rather than the marketplace's and refused every `reset.sh`; fixed.
 - **mechanical** — nothing. Leave `dispatch:` unset until a measured default lands; set a
   lever early only if you want to measure it yourself with `make models-cost`.
 - **mechanical** — re-stamp `harness.version`, when convenient.
+
+### 0.10.1
+
+Four field bugs from a `/halt release`, and a fix to the A/B rig. No config change.
+
+- **`resume-point.sh` never says "landed" any more.** A killed worker's branch with zero
+  commits read as MERGED — "nothing to adopt, close the task" — because main's log happened
+  to mention the task id. An empty branch and one that fast-forwarded into main are
+  indistinguishable from the ref; nothing ahead of main is FRESH, always. A false FRESH costs
+  a redundant dispatch the task's own closed status prevents; a false MERGED closes work
+  nobody did.
+- **`tk.sh claims`** lists every held claim with holder, host, age and liveness. `/halt` §1
+  said `list --status in_progress`, which finds tasks from other sessions and not the claimed
+  ones — a campaign claim leaves the status `open`.
+- **`tk.sh release` says what it did**, clears the record's assignee (`--keep-assignee` to
+  not), and `--force` releases a gone worker's claim. It was silent and left the assignee.
+- **`/halt` §3 is worktree-aware**: `preserve-worktrees.sh` first (every worktree's diff,
+  untracked files and unmerged commits to `.harness/halted-<date>/`), then `resume-point.sh`
+  per task, then release, then remove the worktree of anything not worth keeping — which is
+  what makes the next dispatch FRESH instead of re-attaching to a killed run's edits. The
+  main-tree `git restore` advice is gone.
+- **The A/B rig runs frozen code.** Edits made mid-series tripped the fresh check and aborted
+  every remaining lever; had it not, later runs would have run different code from earlier
+  ones. `ab.sh` now checks the plugin out at HEAD into the series root and dispatches from
+  that copy; each run records the commit, and the report flags an arm that mixes them.
+
+- **mechanical** — re-stamp `harness.version`, when convenient.

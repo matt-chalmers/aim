@@ -171,7 +171,7 @@ beside the branch that already holds it; one task accumulated five such branches
 per task answers this, and its answer decides what happens next:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/swarm/resume-point.sh <id>          # MERGE · VERIFY · REATTACH · MERGED · FRESH
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/resume-point.sh <id>          # MERGE · VERIFY · REATTACH · FRESH
 ```
 
 | it says | what you do |
@@ -179,8 +179,7 @@ ${CLAUDE_PLUGIN_ROOT}/harness/swarm/resume-point.sh <id>          # MERGE · VER
 | **MERGE** — committed, and a `VERIFIED <sha>` note matches the branch head | **no worker.** Put the branch straight on step 8's merge list |
 | **VERIFY** — committed, no verdict recorded for this head | **no worker yet.** Run step 7's lenses on that branch's diff now; PASS → step 8, FAIL → dispatch with `--resume <branch>` and the finding list |
 | **REATTACH** — a worktree holds uncommitted work | dispatch with `--resume <branch>`; the worker continues *in that worktree* |
-| **MERGED** — the work already landed | nothing to adopt; the task should be closed — close it or say why not |
-| **FRESH** | dispatch as below |
+| **FRESH** — nothing to adopt (no branch, or a branch with nothing ahead of `main`) | dispatch as below. An empty branch and one that fast-forwarded into `main` are indistinguishable from the ref, so neither is ever reported as "landed": a false "landed" would close work nobody did, a redundant dispatch is prevented by the task's own closed status |
 
 `--resume` attaches the worker to the existing branch (reusing its live worktree if there is
 one) and prefixes its prompt with *RESUMING — do not start over*, the commit count, and whether

@@ -170,7 +170,7 @@ def test_a_merged_orphan_ref_is_deleted_on_apply(tracked_repo):
     _orphan(tracked_repo, "harness-w2-merged", f"feat: merged [{tid}]")
     _git(tracked_repo, "merge", "-q", "--no-edit", "harness-w2-merged")
     out = _sweep(tracked_repo)
-    assert "would delete (merged, no worktree):       harness-w2-merged" in out, out
+    assert "would delete (nothing ahead of main — merged or empty; no worktree): harness-w2-merged" in out, out
     _sweep(tracked_repo, "--apply")
     assert "harness-w2-merged" not in _git(tracked_repo, "branch", "--list")
 

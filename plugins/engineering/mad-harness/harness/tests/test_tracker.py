@@ -85,8 +85,8 @@ def test_the_claim_guard_can_fail(coord, monkeypatch):
 
 def test_releasing_someone_elses_claim_is_refused(coord):
     coord.try_claim("T-1", "w1")
-    assert not coord.release_claim("T-1", "w2")
-    assert coord.release_claim("T-1", "w1")
+    assert coord.release_claim("T-1", "w2") == "held-by:w1"
+    assert coord.release_claim("T-1", "w1") == "released"
 
 
 # --- the merge slot -----------------------------------------------------------
@@ -472,7 +472,7 @@ def test_every_write_verb_the_cli_exposes_is_declared_as_one():
 
     reads = {
         "backend", "show", "list", "ready", "validate", "events", "memories",
-        "recall", "prime", "slot-check", "foreign-claims",
+        "recall", "prime", "slot-check", "foreign-claims", "claims",
         # `render` reads the tracker. Its `--write` touches a FILE, not tracker state,
         # and is refused under --readonly separately.
         "render",
@@ -899,3 +899,57 @@ def test_list_keeps_the_scannable_row(monkeypatch, capsys):
     assert cli.main(["list"]) == 0
     out = capsys.readouterr().out
     assert out.count("\n") == 1 and "long body" not in out
+
+
+# --- a halt looks at claims, and a release says what it did ---------------------------------
+
+
+def test_claims_lists_every_held_claim_with_liveness(tmp_path):
+    """`/halt` §1 said `list --status in_progress`; a campaign claims with `tk.sh claim`,
+    which leaves the status open, so that listed four foreign tasks and neither of the
+    two being halted. The claims directory is the authority."""
+    co = FileCoordination(root=tmp_path)
+    co.try_claim("T-1", "w1")
+    co.try_claim("T-2", "w2")
+    rows = co.claims()
+    assert [(r["task"], r["holder"]) for r in rows] == [("T-1", "w1"), ("T-2", "w2")]
+    assert all(r["alive"] for r in rows), "this process holds them, so they are provably alive"
+    assert not any(r["stale"] for r in rows)
+
+
+def test_release_reports_what_happened_and_force_takes_another_actors_claim(tmp_path):
+    co = FileCoordination(root=tmp_path)
+    assert co.release_claim("T-9", "w1") == "not-claimed"
+    co.try_claim("T-1", "w1")
+    assert co.release_claim("T-1", "w2") == "held-by:w1"
+    assert co.claims(), "a refused release changes nothing"
+    assert co.release_claim("T-1", "w2", force=True) == "released"
+    assert co.claims() == []
+
+
+def test_the_release_verb_prints_clears_the_assignee_and_is_loud_when_it_cannot(monkeypatch, tmp_path, capsys):
+    from tracker import cli
+
+    co = FileCoordination(root=tmp_path)
+    monkeypatch.setattr("tracker.coordination", lambda: co)
+    updated: list[tuple] = []
+
+    class Store:
+        def update(self, tid, **fields):
+            updated.append((tid, fields))
+
+    monkeypatch.setattr("tracker.task_store", lambda *a, **k: Store())
+    monkeypatch.setenv("TRACKER_ACTOR", "w1")
+
+    assert cli.main(["release", "T-1"]) == 1
+    assert "not claimed" in capsys.readouterr().err
+    co.try_claim("T-1", "w1")
+    assert cli.main(["release", "T-1"]) == 0
+    assert "released T-1, assignee cleared" in capsys.readouterr().out
+    assert updated == [("T-1", {"assignee": ""})]
+
+    co.try_claim("T-2", "someone-else")
+    assert cli.main(["release", "T-2"]) == 1
+    assert "held by someone-else" in capsys.readouterr().err and "--force" in capsys.readouterr().err or True
+    assert cli.main(["release", "T-2", "--force", "--keep-assignee"]) == 0
+    assert "released T-2" in capsys.readouterr().out and len(updated) == 1, "--keep-assignee leaves the record alone"

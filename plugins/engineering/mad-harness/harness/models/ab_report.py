@@ -47,7 +47,9 @@ def load(root: Path, lever: str) -> dict[str, list[dict[str, Any]]]:
             if not label.startswith(f"{lever}:"):
                 continue
             _, arm, run = label.split(":", 2)
-            payload = dict(payload, _arm=arm, _run=run)
+            sha_file = events.parents[4] / ".ab-sha"
+            sha = sha_file.read_text().strip() if sha_file.is_file() else "?"
+            payload = dict(payload, _arm=arm, _run=run, _sha=sha)
             by_arm[arm].append(payload)
     return dict(by_arm)
 
@@ -67,6 +69,7 @@ def summarise(by_arm: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, An
         s: dict[str, Any] = {
             "n_dispatches": len(rows),
             "n_runs": len({r["_run"] for r in rows}),
+            "shas": sorted({r.get("_sha", "?") for r in rows}),
             "kills": sum(1 for r in rows if r.get("terminal") == "budget"),
             "not_ok": sum(1 for r in rows if not r.get("ok")),
         }
@@ -112,7 +115,8 @@ def main(argv: list[str] | None = None) -> int:
             continue
         a = s[arm]
         q1, med, q3 = a["cost_per_run"]
-        print(f"\n[{arm}]  {a['n_runs']} run(s), {a['n_dispatches']} dispatch(es), {a['kills']} budget kill(s), {a['not_ok']} not-ok")
+        code = ", ".join(a["shas"]) + ("  ← MIXED CODE across runs; do not read this arm as one sample" if len(a["shas"]) > 1 else "")
+        print(f"\n[{arm}]  {a['n_runs']} run(s), {a['n_dispatches']} dispatch(es), {a['kills']} budget kill(s), {a['not_ok']} not-ok, code {code}")
         print(f"  cost / run        ${med:.2f}   (IQR ${q1:.2f}–${q3:.2f})")
         for key, label, unit, _ in METRICS:
             v = a.get(key)

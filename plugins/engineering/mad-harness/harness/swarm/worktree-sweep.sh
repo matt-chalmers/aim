@@ -180,7 +180,7 @@ while IFS=' ' read -r ref cdate; do
   if git merge-base --is-ancestor "$ref" "$MAIN" 2>/dev/null; then
     n_orph_merged=$((n_orph_merged+1))
     if [ "$APPLY" = "1" ]; then git branch -d "$ref" >/dev/null 2>&1 || true
-    else echo "  would delete (merged, no worktree):       $ref"; fi
+    else echo "  would delete (nothing ahead of main — merged or empty; no worktree): $ref"; fi
     continue
   fi
   ids=""
