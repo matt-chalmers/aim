@@ -10,8 +10,16 @@ set -euo pipefail
 
 
 ROOT="${WAVELAB_ROOT:-$HOME/harness-wavelab}"
-while [ "${1:-}" = "--root" ]; do ROOT="${2:?}"; shift 2; done
-NAME="${1:?usage: seed-epic.sh [--root DIR] <beads|mdfiles>}"
+FANOUT=2
+while [ $# -gt 1 ]; do
+  case "$1" in
+    --root) ROOT="${2:?}"; shift 2 ;;
+    --fanout) FANOUT="${2:?--fanout needs a count, 2..8}"; shift 2 ;;
+    *) break ;;
+  esac
+done
+NAME="${1:?usage: seed-epic.sh [--root DIR] [--fanout N] <beads|mdfiles>}"
+[ "$FANOUT" -ge 2 ] && [ "$FANOUT" -le 8 ] || { echo "--fanout must be 2..8" >&2; exit 2; }
 REPO="$ROOT/$NAME"
 [ -d "$REPO" ] || { echo "no such repo: $REPO — run reset.sh first" >&2; exit 2; }
 
@@ -61,17 +69,46 @@ ACCEPTANCE
 - Tests in tests/test_phone.py cover the happy path, blank, None and punctuation.
 - SURFACE: none — a new module, no existing caller.")
 
-C=$(tk create "Wire both normalisers into clean_contact" --parent "$EPIC" -p 2 --description \
-"Use normalise_email and normalise_phone in \`clean_contact\`.
+# FAN-OUT beyond two: more file-disjoint normalisers, one task each, so a wave can carry
+# up to eight parallel workers. The cache levers' whole effect is on workers 2..N, and the
+# cost analysis sized it at N=8; two workers show the direction, eight show the size.
+EXTRA=()
+FIELDS=(name postcode country url date currency)
+RULES=(
+  "Collapses internal whitespace to single spaces and title-cases each word."
+  "Removes spaces and uppercases; 'sw1a 1aa' -> 'SW1A1AA'."
+  "Strips whitespace; a two-letter code is uppercased, anything longer is title-cased."
+  "Strips whitespace; lowercases the scheme and host; prefixes 'https://' when no scheme is present."
+  "Accepts 'YYYY-MM-DD' or 'DD/MM/YYYY' and returns ISO 'YYYY-MM-DD'; any other shape returns ''."
+  "Strips whitespace and uppercases a three-letter code; anything else returns ''."
+)
+i=0
+while [ $((i + 2)) -lt "$FANOUT" ]; do
+  f="${FIELDS[$i]}"
+  T=$(tk create "Add normalise_$f" --parent "$EPIC" -p 1 --description \
+"Add \`normalise_$f(value: str) -> str\` in src/wavelab/$f.py.
 
 ACCEPTANCE
-- clean_contact normalises the 'email' and 'phone' keys when present, leaving others alone.
+- ${RULES[$i]}
+- Returns '' for None or a blank string rather than raising.
+- Tests in tests/test_$f.py cover the happy path, blank, None and the rule above.
+- SURFACE: none — a new module, no existing caller.")
+  EXTRA+=("$T")
+  i=$((i + 1))
+done
+ALL_FIELDS="normalise_email and normalise_phone"
+[ ${#EXTRA[@]} -gt 0 ] && ALL_FIELDS="every normaliser (email, phone, ${FIELDS[*]:0:${#EXTRA[@]}})"
+C=$(tk create "Wire the normalisers into clean_contact" --parent "$EPIC" -p 2 --description \
+"Use $ALL_FIELDS in \`clean_contact\`.
+
+ACCEPTANCE
+- clean_contact normalises each of those keys when present, leaving others alone.
 - Absent keys must not be invented.
 - tests/test_contact.py still passes unchanged, and gains coverage for the new behaviour.
 - SURFACE: clean_contact is the one public entry point; its signature must not change.")
-
 tk dep "$C" "$A"
 tk dep "$C" "$B"
+for T in ${EXTRA[@]+"${EXTRA[@]}"}; do tk dep "$C" "$T"; done
 
 mkdir -p "$REPO/docs/proposed/$EPIC-normalise"
 ( cd "$REPO" && "$(cd "$HERE/.." && pwd)/tracker/render-epic.sh" \
@@ -82,4 +119,4 @@ mkdir -p "$REPO/docs/proposed/$EPIC-normalise"
   git -c user.email=wavelab@example.com -c user.name=wavelab \
       commit -q -m "seed: the normalise-contact epic" )
 
-echo "  seeded $NAME: epic $EPIC — wave 1 = $A, $B (parallel) · wave 2 = $C"
+echo "  seeded $NAME: epic $EPIC — wave 1 = $A, $B${EXTRA[@]+, ${EXTRA[*]}} (parallel, fan-out $FANOUT) · wave 2 = $C"

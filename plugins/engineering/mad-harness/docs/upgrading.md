@@ -204,3 +204,33 @@ The last three open field bugs. No config change.
 - **mechanical** — for any epic that has taken the DELTA path before this release, run
   `spec-index-status.sh <epic> --stamp` once, if its last survey's findings are current.
 - **mechanical** — re-stamp `harness.version`, when convenient.
+
+### 0.10.0
+
+**Cost levers as switches, and the rig that sizes them.** A new optional `dispatch:` block
+— minor bump by the version rule, but nothing changes unless you write it.
+
+Every lever the field cost analysis ranked is now a switch, **off by default**, read in one
+place (`harness/models/levers.py`), flippable per project in `harness.yaml` or per run by
+environment, and recorded on every dispatch event (`levers`, `experiment`) so a series can
+always be read:
+
+| lever | `harness.yaml` | env |
+|---|---|---|
+| prompt-cache TTL | `dispatch.cache_ttl: 5m\|1h` | `MAD_HARNESS_CACHE_TTL` |
+| static system-prompt prefix across a wave | `dispatch.static_prefix: true` | `MAD_HARNESS_STATIC_PREFIX` |
+| stagger worker 1 ahead of the rest | `dispatch.stagger_seconds: 8` | `MAD_HARNESS_STAGGER_SECONDS` |
+| API-side task budget the model paces against | `tiers.yaml` `<tier>.task_budget_tokens` | `MAD_HARNESS_TASK_BUDGET_TOKENS` |
+| preload a skill into a dispatch | — (agent frontmatter) | `MAD_HARNESS_PRELOAD` |
+
+`harness/wavelab/ab.sh <lever>` runs the same seeded epic N times per arm in fresh
+repositories — up to an eight-worker fan-out — and `ab-report.sh` reads the series back as
+medians and interquartile ranges, refusing to call overlapping spreads a finding. Defaults
+will move only on those numbers; each move will be its own note here with the measurement.
+
+Also: `wavelab/check-plugin-fresh.sh` looked for the plugin cache under the plugin's own
+name rather than the marketplace's and refused every `reset.sh`; fixed.
+
+- **mechanical** — nothing. Leave `dispatch:` unset until a measured default lands; set a
+  lever early only if you want to measure it yourself with `make models-cost`.
+- **mechanical** — re-stamp `harness.version`, when convenient.

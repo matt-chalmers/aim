@@ -20,13 +20,16 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN="$(cd "$HERE/../.." && pwd)"
 NAME=$(python3 -c "import json;print(json.load(open('$PLUGIN/.claude-plugin/plugin.json'))['name'])")
 VERSION=$(python3 -c "import json;print(json.load(open('$PLUGIN/.claude-plugin/plugin.json'))['version'])")
-CACHE="$HOME/.claude/plugins/cache/$NAME/$NAME/$VERSION"
+# The cache path is <marketplace>/<plugin>/<version>, and the marketplace's name is not
+# the plugin's. This assumed `$NAME/$NAME` and reported STALE for every install from a
+# marketplace under a different name — which refused every reset.sh, i.e. every lab run.
+CACHE="$(ls -d "$HOME/.claude/plugins/cache"/*/"$NAME/$VERSION" 2>/dev/null | head -1)"
 
-if [ ! -d "$CACHE" ]; then
-  echo "STALE: no installed copy at version $VERSION." >&2
-  echo "  The dispatched agents would run whatever WAS installed, not this tree." >&2
+if [ -z "$CACHE" ] || [ ! -d "$CACHE" ]; then
+  echo "STALE: no installed copy at version $VERSION under ~/.claude/plugins/cache/*/$NAME/." >&2
+  echo "  The interactive commands would run whatever WAS installed, not this tree." >&2
   echo "  Fix: bump version in .claude-plugin/plugin.json, then" >&2
-  echo "       claude plugin update $NAME@$NAME" >&2
+  echo "       claude plugin update $NAME@<marketplace>" >&2
   exit 1
 fi
 

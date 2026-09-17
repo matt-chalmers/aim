@@ -15,7 +15,7 @@ slug: madharness
 # when the plugin is newer. See docs/upgrading.md. Here it is also a test: a version
 # bump that forgets to restamp this file fails the suite.
 harness:
-  version: 0.9.8
+  version: 0.10.0
 
 stacks:
   - python-uv-selftest

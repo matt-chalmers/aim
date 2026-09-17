@@ -183,6 +183,10 @@ class Resolved:
     disallowed_tools: tuple[str, ...] = ()
     #: Which settings files the dispatched agent loads. See :func:`cli_args`.
     setting_sources: str = "project"
+    #: An API-side token budget the model is told about so it can pace and wrap up, from
+    #: the tier's `task_budget_tokens`. None = not set. Distinct from `max_budget_usd`,
+    #: which is a circuit breaker the model never sees.
+    task_budget_tokens: int | None = None
     #: OS-level containment for Bash and its children. See :func:`sandbox_for`.
     sandbox: dict[str, Any] = field(default_factory=dict)
     #: Extra settings handed to the dispatch as JSON, carrying the sandbox's filesystem
@@ -218,10 +222,24 @@ class Resolved:
         """
         from claude_agent_sdk import ClaudeAgentOptions
 
+        from .levers import lever
+
+        # A STATIC PREFIX IS WHAT LETS A WAVE SHARE ONE CACHE. The CLI's preset embeds the
+        # working directory and git status in the system prompt, and every worker's
+        # worktree is a different directory — so eight workers on identical doctrine are
+        # eight cold prefixes. With the dynamic sections moved into the first user message
+        # the system prompt is byte-identical across the wave. Measured before default.
+        system_prompt = (
+            {"type": "preset", "preset": "claude_code", "exclude_dynamic_sections": True}
+            if lever("static_prefix")
+            else None
+        )
         return ClaudeAgentOptions(
             model=self.model,
             effort=self.effort,
             max_budget_usd=self.max_budget_usd,
+            system_prompt=system_prompt,
+            task_budget={"total": self.task_budget_tokens} if self.task_budget_tokens else None,
             permission_mode=self.permission_mode,
             allowed_tools=list(self.allowed_tools),
             disallowed_tools=list(self.disallowed_tools),
@@ -444,6 +462,16 @@ def qualified(agent: str) -> str:
         return agent
     name = plugin_name()
     return f"{name}:{agent}" if name else agent
+
+
+def _task_budget(spec: dict[str, Any]) -> int | None:
+    """The tier's `task_budget_tokens`, or the A/B rig's per-arm override."""
+    from .levers import lever
+
+    override = lever("task_budget", block={})
+    if override:
+        return int(override)
+    return int(spec["task_budget_tokens"]) if spec.get("task_budget_tokens") else None
 
 
 def permission_for(agent: str, agents_dir: Path | None = None) -> tuple[str, tuple[str, ...]]:
@@ -744,6 +772,7 @@ def resolve(
         model=spec["model"],
         effort=spec["effort"],
         max_budget_usd=float(spec["max_budget_usd"]),
+        task_budget_tokens=_task_budget(spec),
         env=env,
         missing_env=missing,
         permission_mode=mode,

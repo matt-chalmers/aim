@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build or rebuild the two wavelab repositories from one base.
 #
-#   harness/wavelab/reset.sh [--root DIR]
+#   harness/wavelab/reset.sh [--root DIR] [--only beads|mdfiles] [--fanout N] [--cap N]
 #
 # Two repositories, byte-identical except for one config block: the tracker backend. That
 # is the whole design — a difference in what a wave produces is then attributable to the
@@ -14,9 +14,13 @@ set -euo pipefail
 
 
 ROOT="${WAVELAB_ROOT:-$HOME/harness-wavelab}"
+CAP=2; FANOUT=2; ONLY=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --root) ROOT="${2:?--root needs a directory}"; shift ;;
+    --cap) CAP="${2:?--cap needs a worker count}"; shift ;;
+    --fanout) FANOUT="${2:?--fanout needs a task count}"; shift ;;
+    --only) ONLY="${2:?--only needs beads or mdfiles}"; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -82,7 +86,7 @@ lanes:
   backend:
     stacks: [python-uv]
     agent: fullstack-engineer
-    cap: 2
+    cap: '"$CAP"'
 stacks:
   - python-uv
 testing:
@@ -97,6 +101,7 @@ signals:
   megafile_lines: 1000'
 
 echo "wavelab repositories:"
+[ -z "$ONLY" ] || [ "$ONLY" = "beads" ] && \
 seed_repo beads   "$COMMON
 beads:
   prefix: WL
@@ -107,6 +112,7 @@ tracker:
   limits:
     record_bytes: 64000"
 
+[ -z "$ONLY" ] || [ "$ONLY" = "mdfiles" ] && \
 seed_repo mdfiles "$COMMON
 beads:
   prefix: WL
@@ -122,9 +128,10 @@ tracker:
 # The tracker is seeded THROUGH THE SHIM, for both repos. That is deliberate: the seeding
 # itself is the first end-to-end exercise of the abstraction, and using `bd` for one and
 # markdown for the other would leave the two repos' task text subtly different.
-"$HERE/seed-epic.sh" --root "$ROOT" beads
-"$HERE/seed-epic.sh" --root "$ROOT" mdfiles
+[ -z "$ONLY" ] || [ "$ONLY" = "beads" ]   && "$HERE/seed-epic.sh" --root "$ROOT" --fanout "$FANOUT" beads
+[ -z "$ONLY" ] || [ "$ONLY" = "mdfiles" ] && "$HERE/seed-epic.sh" --root "$ROOT" --fanout "$FANOUT" mdfiles
 
 echo
-echo "Both repos are at an identical green base with the same epic."
-echo "Next:  harness/wavelab/dispatch-wave.sh beads"
+if [ -z "$ONLY" ]; then echo "Both repos are at an identical green base with the same epic."
+else echo "$ONLY is at a green base with the seeded epic (fan-out $FANOUT, cap $CAP)."; fi
+echo "Next:  harness/wavelab/dispatch-wave.sh ${ONLY:-beads}"

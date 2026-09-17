@@ -73,3 +73,29 @@ One epic, three tasks, shaped to produce a two-wave DAG:
 Wave 1 is the two file-disjoint tasks in parallel — which is what tests the claim mutex
 under real concurrency. Wave 2 is the one that depends on them, which tests that closing a
 blocker actually releases its dependent.
+
+## A/B-ing a cost lever
+
+Every cost lever in `harness/models/levers.py` is a switch, off until measured. This is
+where it gets measured: the same seeded epic, N runs with the lever off and N with it on,
+each in a fresh repository, every dispatch event tagged `lever:arm:run`.
+
+```bash
+harness/wavelab/ab.sh static_prefix --runs 5 --fanout 8 --wave1-only   # the fan-out lever, at the size the analysis computed
+harness/wavelab/ab.sh cache_ttl     --runs 5 --wave1-only
+harness/wavelab/ab.sh task_budget   --runs 5                            # needs the whole epic: it is about finishing
+harness/wavelab/ab-report.sh static_prefix                              # medians, IQRs, and whether the spreads separate
+```
+
+**Why not the field.** A campaign runs different tasks every time and the analysis that
+motivated this measured 30x token variance on IDENTICAL tasks. The field confirms a
+lever's direction; only the same work, repeated, can size it. `ab-report.sh` prints
+medians with interquartile ranges and refuses to call overlapping spreads a finding.
+
+**Fan-out.** `--fanout N` seeds N file-disjoint tasks (up to eight normalisers) and sets the
+lane cap to match, so wave 1 dispatches N workers at once. The cache levers' whole effect
+is on workers 2..N — two workers show the direction, eight show the size the cost analysis
+computed (`N × 1.25P` cold against `1.25P + 0.1(N−1)P` warm; 5× at N=8).
+
+**Cost.** Measured on 0.9.x at fan-out 2: ~$0.55–1.50 per dispatch, ~$2.50–3 per two-wave
+run. `--wave1-only` halves that and is enough for the cache levers.

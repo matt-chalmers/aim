@@ -21,11 +21,12 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --root) ROOT="${2:?}"; shift ;;
     --lens) LENS=1 ;;
+    --stagger) STAGGER="${2:?--stagger needs seconds}"; shift ;;
     *) NAME="$1" ;;
   esac
   shift
 done
-NAME="${NAME:?usage: dispatch-wave.sh [--root DIR] [--lens] <beads|mdfiles>}"
+NAME="${NAME:?usage: dispatch-wave.sh [--root DIR] [--lens] [--stagger SECONDS] <beads|mdfiles>}"
 REPO="$ROOT/$NAME"
 [ -d "$REPO" ] || { echo "no such repo: $REPO — run reset.sh first" >&2; exit 2; }
 
@@ -60,8 +61,16 @@ echo "ready: $READY"
 
 # One background dispatch per task, all launched together — the shape /swarm requires, and
 # the only shape that tests the claim mutex under real concurrency.
+# STAGGER: worker 1 alone first, so its cache write is warm before the rest read it. A
+# fan-out of N cold prefixes costs N x 1.25P; sequenced it is 1.25P + 0.1(N-1)P — at N=8
+# that is 5x. Only true when the prefix is static (the static_prefix lever); measured.
+STAGGER="${STAGGER:-${MAD_HARNESS_STAGGER_SECONDS:-0}}"
 PIDS=(); N=0
 for TASK in $READY; do
+  if [ "$N" = "1" ] && [ "$STAGGER" -gt 0 ]; then
+    echo "-- stagger: waiting ${STAGGER}s for worker 1's first request before the rest"
+    sleep "$STAGGER"
+  fi
   N=$((N+1))
   PROMPT="$SCRATCH/prompt-$TASK.txt"
   tk show "$TASK" --json | python3 -c "

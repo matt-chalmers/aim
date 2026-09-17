@@ -304,6 +304,40 @@ class Project:
         _version_key(version)  # validate the shape here, not at first comparison
         return version
 
+    def dispatch(self) -> dict[str, Any]:
+        """The `dispatch:` block — cost levers a project sets once it has measured them.
+
+        Every key optional; see models/levers.py for what each does and its default.
+        Validated here so a typo fails the config check, not a wave.
+        """
+        raw = self.raw.get("dispatch")
+        if raw is None:
+            return {}
+        if not isinstance(raw, dict):
+            raise ProjectError("dispatch: must be a map — e.g. dispatch: {cache_ttl: 5m, static_prefix: true}")
+        out: dict[str, Any] = {}
+        if "cache_ttl" in raw and raw["cache_ttl"] is not None:
+            ttl = str(raw["cache_ttl"])
+            if ttl not in ("5m", "1h"):
+                raise ProjectError(f"dispatch.cache_ttl must be 5m or 1h, got {ttl!r}")
+            out["cache_ttl"] = ttl
+        if "static_prefix" in raw:
+            if not isinstance(raw["static_prefix"], bool):
+                raise ProjectError("dispatch.static_prefix must be true or false")
+            out["static_prefix"] = raw["static_prefix"]
+        if "stagger_seconds" in raw:
+            try:
+                secs = int(raw["stagger_seconds"])
+            except (TypeError, ValueError) as exc:
+                raise ProjectError("dispatch.stagger_seconds must be a whole number of seconds") from exc
+            if secs < 0:
+                raise ProjectError("dispatch.stagger_seconds cannot be negative")
+            out["stagger_seconds"] = secs
+        unknown = set(raw) - {"cache_ttl", "static_prefix", "stagger_seconds"}
+        if unknown:
+            raise ProjectError(f"dispatch: unknown key(s) {', '.join(sorted(unknown))}")
+        return out
+
     def ports(self) -> dict[str, int]:
         """The `ports:` block — every TCP port this project's servers bind, by name.
 

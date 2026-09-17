@@ -62,6 +62,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from . import levers as _levers
 from .broker import broker, resolved_requests
 from .context import render_card
 from .resolve import (
@@ -74,6 +75,9 @@ from .resolve import (
     require_sandbox,
     resolve,
 )
+
+#: The plugin's shipped skills, for the `preload` lever.
+PLUGIN_ROOT_SKILLS = HARNESS.parent / "skills"
 
 #: Where worktrees this module creates are placed. Same directory Claude Code uses
 #: for Agent-tool isolation, so `harness/swarm/worktree-sweep.sh` reclaims ours too
@@ -282,6 +286,8 @@ class Outcome:
             **self.resolved.redacted(),
             "ok": self.ok,
             "terminal": self.terminal,
+            "experiment": _levers.experiment(),
+            "levers": _levers.snapshot(),
             "cost_usd": round(self.cost_usd, 6),
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
@@ -372,7 +378,26 @@ def with_context(
         "Line numbers are fine in your report and in chat.\n"
     )
     card = render_card(lane)
-    return "\n\n".join(x for x in (prompt, card, where, answered, conventions) if x)
+    preload = _preloaded_skills()
+    return "\n\n".join(x for x in (prompt, card, where, answered, conventions, preload) if x)
+
+
+def _preloaded_skills() -> str:
+    """Skills named by the `preload` lever, appended in full. In production a skill is
+    preloaded through the agent's frontmatter and arrives in the system prompt; this is
+    the same text one message later, so an A/B can measure a preload without editing
+    the agent — the writers' batching doctrine (evidence-gathering) being the case."""
+    from .levers import lever
+
+    parts = []
+    for name in lever("preload", block={}):
+        path = PLUGIN_ROOT_SKILLS / name / "SKILL.md"
+        if not path.is_file():
+            raise DispatchError(f"MAD_HARNESS_PRELOAD names {name!r}, but {path} does not exist")
+        body = path.read_text()
+        body = body.split("---", 2)[2] if body.startswith("---") else body  # drop frontmatter
+        parts.append(f"## Preloaded skill: {name}\n\n{body.strip()}")
+    return "\n\n".join(parts)
 
 
 def build_env(r: Resolved, base: dict[str, str] | None = None) -> dict[str, str]:
@@ -399,6 +424,16 @@ def build_env(r: Resolved, base: dict[str, str] | None = None) -> dict[str, str]
         Path(path).mkdir(parents=True, exist_ok=True)
     env["HARNESS_ROOT"] = str(HARNESS)
     env.setdefault("MAD_HARNESS_REPO", str(REPO))
+    # THE CACHE TTL IS A CHOICE, NOT AN ACCIDENT. Nobody had set it: workers through this
+    # path wrote cache at the 1-hour rate (2x) while lenses through the Agent tool wrote at
+    # 5-minute (1.25x), a difference nobody chose. A worker turns continuously, so the
+    # 5-minute window is rarely missed — but a test suite longer than five minutes IS a
+    # miss, and then 1h pays. Measured per project; see models/levers.py.
+    from .levers import lever
+
+    ttl = lever("cache_ttl")
+    if ttl:
+        env["CLAUDE_CODE_PROMPT_CACHE_TTL"] = ttl
     return env
 
 

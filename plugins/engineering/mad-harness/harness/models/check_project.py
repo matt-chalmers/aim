@@ -103,6 +103,13 @@ def main(argv: list[str] | None = None) -> int:
         failures.append(str(exc))
 
     try:
+        levers_on = p.dispatch()
+        if levers_on:
+            print(f"levers:  {', '.join(f'{k}={v}' for k, v in sorted(levers_on.items()))}")
+    except ProjectError as exc:
+        failures.append(str(exc))
+
+    try:
         ports = p.ports()
         if ports:
             print(f"ports:   {', '.join(f'{k}={v}' for k, v in sorted(ports.items()))}")

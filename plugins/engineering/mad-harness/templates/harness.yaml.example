@@ -17,7 +17,7 @@ slug: acme                    # lowercase, no hyphens — names per-worker resou
 # stop until /harness-setup has applied the upgrade notes (docs/upgrading.md) and
 # re-stamped. Leave it out and every pre-flight treats the config as unreviewed.
 harness:
-  version: 0.9.8
+  version: 0.10.0
 
 # Toolchains: how to RUN things. See harness/stacks/ for shipped modules, and add
 # your own under .harness/stacks/ to shadow or extend them.
@@ -93,6 +93,19 @@ swarm:
   # A second name for a variable some prompt or doc still reads. Declared rather than
   # duplicated, so it cannot drift from its source.
   aliases: {}
+
+# Cost levers. Every key optional and OFF by default; each is a measured switch, and every
+# dispatch event records which were on. Flip one at a time and read `make models-cost`.
+#   cache_ttl        5m | 1h   — prompt-cache TTL for dispatched agents (1h writes at 2x, 5m at 1.25x;
+#                                1h pays only when turns are >5 minutes apart, e.g. a long suite)
+#   static_prefix    true      — keep the system prompt byte-identical across a wave's workers so
+#                                they share one cache; dynamic sections move to the first message
+#   stagger_seconds  8         — start worker 1 first so its cache write is warm for the rest;
+#                                only meaningful with static_prefix
+# dispatch:
+#   cache_ttl: 5m
+#   static_prefix: true
+#   stagger_seconds: 8
 
 # Every TCP port your servers bind, by name. The campaign owns these — workers are
 # banned from binding them — and the pre-flight probes each one so a dev server left
