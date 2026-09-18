@@ -34,6 +34,7 @@ lookup it used to carry.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -302,12 +303,12 @@ def run_key(
 
     elapsed = time.monotonic() - started
     rc = proc.returncode
+    log = _keep_log(stack.name, key, proc.stdout or "", proc.stderr or "")
     detail = ""
     if rc != 0:
-        # The last line of stderr is where a runner puts the thing that went
-        # wrong; falling back to the exit code keeps a silent failure legible.
-        tail = (proc.stderr or proc.stdout or "").strip().splitlines()
-        detail = tail[-1][:160] if tail else f"exit {rc}"
+        detail = _digest(proc.stdout or "", proc.stderr or "", rc, log)
+    elif log is not None:
+        detail = f"log: {_rel(log)}"
     return Outcome(
         stack=stack.name,
         key=key,
@@ -318,6 +319,66 @@ def run_key(
         detail=detail,
         duration_s=elapsed,
     )
+
+
+#: Where a stack command's whole output goes. Under the CHECKOUT — a worker's own
+#: worktree — beside the telemetry, and ignored by git like the rest of `.harness/run/`.
+LOG_DIR = ".harness/run/out"
+#: Lines a failing run is summarised by. Runner-neutral on purpose — the stack declares
+#: the command, not its output format — so two tiers: the line that NAMES a failure
+#: (a test runner's per-test verdict, a compiler's diagnostic) and the lines that
+#: explain one (an assertion, a stack frame), which only fill what the names leave.
+FAILURE_NAME = re.compile(r"^(FAILED|ERROR|FAIL\b|✗|×|●)")
+FAILURE_DETAIL = re.compile(r"(?:^|\s)(?:error|Error)(?: TS\d+)?:\s|^E   |^\s+at ")
+DIGEST_FAILURES = 12
+DIGEST_TAIL = 4
+
+
+def _keep_log(stack: str, key: str, out: str, err: str) -> Path | None:
+    """The whole output, kept where the worker can window it. A result is paid on every
+    later turn, so the report prints a digest and this path — `peek.sh <path>:START-END`
+    reads a section — instead of the output. Before this the output was captured and
+    discarded, and a worker that saw `[FAIL]` re-ran the suite raw to learn why, paying
+    the whole output into its context. Never fails a run: an unwritable directory means
+    no path, and the digest still says what failed."""
+    try:
+        d = CHECKOUT / LOG_DIR
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f"{stack}-{key}.log"
+        parts = [out] if out.strip() else []
+        if err.strip():
+            parts.append("[stderr]\n" + err)
+        path.write_text("\n".join(parts))
+        return path
+    except OSError:
+        return None
+
+
+def _rel(path: Path) -> str:
+    try:
+        return str(path.relative_to(CHECKOUT))
+    except ValueError:
+        return str(path)
+
+
+def _digest(out: str, err: str, rc: int, log: Path | None) -> str:
+    """What went wrong, in a dozen lines: the per-failure lines the runner printed, the
+    last few lines (a runner's summary sits there), and where the rest is."""
+    text = (out + "\n" + err).strip()
+    if not text:
+        return f"exit {rc}" + (f"  full: {_rel(log)}" if log else "")
+    lines = text.splitlines()
+    names = [ln[:160] for ln in lines if FAILURE_NAME.match(ln)]
+    details = [ln[:160] for ln in lines if not FAILURE_NAME.match(ln) and FAILURE_DETAIL.search(ln)]
+    shown = names[:DIGEST_FAILURES] + details[: max(0, DIGEST_FAILURES - len(names))]
+    tail = [ln[:160] for ln in lines[-DIGEST_TAIL:] if ln.strip() and ln[:160] not in shown]
+    parts = [f"exit {rc}"]
+    if len(names) + len(details) > len(shown):
+        parts.append(f"{len(names)} failures named, {len(details)} detail lines; showing {len(shown)}:")
+    parts += shown + tail
+    if log:
+        parts.append(f"full: {_rel(log)} ({len(lines)} lines)")
+    return "\n         ".join(parts)
 
 
 def run_keys(

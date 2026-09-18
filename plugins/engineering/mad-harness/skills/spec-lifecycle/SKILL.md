@@ -5,9 +5,9 @@ description: How a requirement becomes a spec and then code — what the staging
 
 # Spec lifecycle
 
-<!-- HARNESS CONVENTIONS: mirrored in evidence-gathering, worker-protocol and
-     spec-lifecycle, and verified byte-identical by check-conventions-mirror.sh. Edit
-     one and the check fails; edit all three or none. -->
+<!-- HARNESS CONVENTIONS: mirrored in evidence-gathering and spec-lifecycle, and
+     verified byte-identical by check-conventions-mirror.sh. Edit one and the check
+     fails; edit both or neither. -->
 
 ## Harness conventions
 

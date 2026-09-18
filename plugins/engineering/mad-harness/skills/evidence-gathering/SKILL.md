@@ -8,9 +8,9 @@ description: 'How to find out what is true about this repository without burning
 Your findings are only as good as what you looked at, and looking is what you
 spend. This is how to look at everything you need to and still have budget left.
 
-<!-- HARNESS CONVENTIONS: mirrored in evidence-gathering, worker-protocol and
-     spec-lifecycle, and verified byte-identical by check-conventions-mirror.sh. Edit
-     one and the check fails; edit all three or none. -->
+<!-- HARNESS CONVENTIONS: mirrored in evidence-gathering and spec-lifecycle, and
+     verified byte-identical by check-conventions-mirror.sh. Edit one and the check
+     fails; edit both or neither. -->
 
 ## Harness conventions
 
@@ -123,6 +123,21 @@ It resolves each key against the stack's config, so you never have to work out w
 runner this project uses, nor which directory to run it in. The same rule holds
 as for `scan` and `peek`: **every key you name produces a line**, and one the stack does
 not declare comes back as `--` rather than vanishing.
+
+## A result is paid on every later turn — window it
+
+Every later turn re-reads a tool result, so its weight is *size × turns remaining*. Two
+field workers carried **28% of everything they read** as their own results — not test
+output, which gets `| tail`ed by reflex, but whole files read in one call (38k, 54k
+chars) and `grep -A 400` on one document, three times for the same section.
+
+- **Read in windows.** `peek.sh path:START-END` after `scan.sh` finds the region; never
+  a whole file over ~200 lines, never `cat`. On SWE-bench Lite a 100-line window
+  resolved 5.3 points *more* than whole-file reads — stale content misleads as well as costs.
+- **Long output goes to a file first** (`cmd > .harness/run/out/x.log 2>&1`, then
+  `tail`/`grep`/`peek.sh`). The CLI keeps the first 30,000 chars of a bash result and
+  drops the rest with no path — for a suite, that is the summary. `run.sh` already keeps
+  each command's whole log and reports the failures named plus the path.
 
 ## Trust a zero result — it is an answer, not a gap
 

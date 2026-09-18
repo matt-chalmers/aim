@@ -55,9 +55,16 @@ def mkstack(**kw) -> Stack:
     return Stack(**base)
 
 
-def runner_returning(rc: int, err: str = ""):
+@pytest.fixture(autouse=True)
+def _logs_go_to_tmp(tmp_path, monkeypatch):
+    """run.sh keeps every command's log under the CHECKOUT; in the suite that is the
+    plugin's own tree. Ignored by git, but a test must not write there at all."""
+    monkeypatch.setattr("models.commands.CHECKOUT", tmp_path)
+
+
+def runner_returning(rc: int, err: str = "", out: str = ""):
     def _run(*a, **kw):
-        return subprocess.CompletedProcess(a[0] if a else "", rc, "", err)
+        return subprocess.CompletedProcess(a[0] if a else "", rc, out, err)
 
     return _run
 
@@ -115,21 +122,65 @@ def test_a_hang_is_never_reported_as_a_pass():
     assert "hangs" in out.detail
 
 
-def test_a_nonzero_exit_carries_the_last_line_of_stderr():
+def test_a_nonzero_exit_carries_the_runners_last_lines_and_where_the_rest_is(tmp_path, monkeypatch):
+    monkeypatch.setattr("models.commands.CHECKOUT", tmp_path)
     out = run_key(
         mkstack(commands={"test": "true"}),
         "test",
         runner=runner_returning(1, "first line\nthe actual error"),
     )
     assert out.status == FAILED
-    assert out.detail == "the actual error"
+    assert "the actual error" in out.detail and "full: .harness/run/out/demo-test.log" in out.detail
+    assert "[stderr]\nfirst line\nthe actual error" in (tmp_path / ".harness/run/out/demo-test.log").read_text()
 
 
-def test_a_failure_with_no_output_still_says_something():
+def test_a_failure_with_no_output_still_says_something(tmp_path, monkeypatch):
+    monkeypatch.setattr("models.commands.CHECKOUT", tmp_path)
     out = run_key(
         mkstack(commands={"test": "true"}), "test", runner=runner_returning(3)
     )
-    assert out.status == FAILED and out.detail == "exit 3"
+    assert out.status == FAILED and out.detail.startswith("exit 3")
+
+
+def test_a_long_failing_run_is_digested_to_the_failures_it_named_not_its_output(tmp_path, monkeypatch):
+    """A tool result is paid on every later turn. Two field workers carried 28% of their
+    prompt as their own results; before this, run.sh threw the output away and a worker
+    that saw [FAIL] re-ran the suite raw to learn why."""
+    monkeypatch.setattr("models.commands.CHECKOUT", tmp_path)
+    noise = "\n".join(f"tests/test_x.py::test_{i} PASSED" for i in range(400))
+    failing = "\n".join(
+        [
+            "tests/test_x.py::test_401 FAILED",
+            "E   assert 1 == 2",
+            "E    +  where 1 = f()",
+            "FAILED tests/test_x.py::test_401 - AssertionError",
+            "FAILED tests/test_x.py::test_402 - KeyError: 'k'",
+            "==== 2 failed, 400 passed in 3.21s ====",
+        ]
+    )
+    out = run_key(
+        mkstack(commands={"test": "true"}), "test", runner=runner_returning(1, "", noise + "\n" + failing)
+    )
+    assert out.status == FAILED
+    assert "FAILED tests/test_x.py::test_401" in out.detail and "test_402 - KeyError" in out.detail
+    assert "E   assert 1 == 2" in out.detail and "2 failed, 400 passed" in out.detail
+    assert "test_7 PASSED" not in out.detail and len(out.detail) < 1_200
+    assert "full: .harness/run/out/demo-test.log (406 lines)" in out.detail
+    assert "test_7 PASSED" in (tmp_path / ".harness/run/out/demo-test.log").read_text()
+
+
+def test_a_passing_run_says_where_its_log_is_and_nothing_else(tmp_path, monkeypatch):
+    monkeypatch.setattr("models.commands.CHECKOUT", tmp_path)
+    out = run_key(mkstack(commands={"test": "true"}), "test", runner=runner_returning(0, "", "400 passed"))
+    assert out.ok and out.detail == "log: .harness/run/out/demo-test.log"
+
+
+def test_an_unwritable_log_dir_costs_the_path_not_the_run(tmp_path, monkeypatch):
+    blocker = tmp_path / ".harness"
+    blocker.write_text("a file where the directory should be")
+    monkeypatch.setattr("models.commands.CHECKOUT", tmp_path)
+    out = run_key(mkstack(commands={"test": "true"}), "test", runner=runner_returning(1, "boom"))
+    assert out.status == FAILED and "boom" in out.detail and "full:" not in out.detail
 
 
 # --- the ladder ---------------------------------------------------------------

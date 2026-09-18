@@ -623,7 +623,7 @@ def test_fidelity_activates_only_on_a_lane_that_asks_for_it():
 
 # --- the harness's own conventions, repatriated from CLAUDE.md ----------------
 
-CONVENTION_CARRIERS = ("evidence-gathering", "worker-protocol", "spec-lifecycle")
+CONVENTION_CARRIERS = ("evidence-gathering", "spec-lifecycle")
 
 
 def test_every_agent_reaches_the_conventions_through_a_skill_it_preloads():
@@ -635,10 +635,11 @@ def test_every_agent_reaches_the_conventions_through_a_skill_it_preloads():
     sections sat under that file's `## Tasks Issue Tracker` heading: they are about
     tasks, which is the harness's tracker.
 
-    They now live in three skills, chosen because between them every agent that writes a
-    task or a report preloads at least one. If an agent stops preloading its only
-    carrier, the rules silently stop reaching it — so the coverage is checked, not
-    assumed.
+    They now live in two skills, chosen because between them every agent that writes a
+    task or a report preloads at least one (three, until the writers took
+    `evidence-gathering` and `worker-protocol`'s copy became a second charge on every
+    writer dispatch). If an agent stops preloading its only carrier, the rules silently
+    stop reaching it — so the coverage is checked, not assumed, here and in the check.
     """
     import re
 
@@ -665,6 +666,20 @@ def test_every_agent_reaches_the_conventions_through_a_skill_it_preloads():
         "these agents preload no skill carrying the harness conventions:\n  "
         + "\n  ".join(uncovered)
     )
+
+
+def test_the_check_fails_an_agent_that_preloads_no_carrier(monkeypatch, tmp_path):
+    """The coverage argument, as the check's own failure — not only the suite's."""
+    from models import check_conventions as mod
+
+    agents = tmp_path / "agents"
+    agents.mkdir()
+    (agents / "loner.md").write_text("---\nname: loner\nskills:\n  - test-doctrine\n---\nbody\n")
+    (agents / "bare.md").write_text("---\nname: bare\n---\nno preloads at all is fine\n")
+    real = mod._prompts_dir
+    monkeypatch.setattr(mod, "_prompts_dir", lambda kind: agents if kind == "agents" else real(kind))
+    assert mod._uncovered(set(mod.CARRIERS)) == ["loner preloads ['test-doctrine']"]
+    assert mod.main() == 1
 
 
 def test_the_conventions_block_is_identical_across_its_carriers():

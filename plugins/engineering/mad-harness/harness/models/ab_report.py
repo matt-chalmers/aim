@@ -28,6 +28,8 @@ METRICS: tuple[tuple[str, str, str, bool], ...] = (
     ("cache_write_pct", "cache write", "%", True),
     ("cache_creation_tokens", "cache written", "tok", True),
     ("output_tokens", "output", "tok", True),
+    ("tool_result_chars", "tool results", "chars", True),
+    ("carried_result_tokens", "results carried", "tok", True),
 )
 
 
@@ -121,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         for key, label, unit, _ in METRICS:
             v = a.get(key)
             if v:
-                fmt = (lambda x: f"${x:.3f}") if unit == "$" else (lambda x: f"{x:,.0f}{unit if unit != 'tok' else ''}")
+                fmt = (lambda x: f"${x:.3f}") if unit == "$" else (lambda x: f"{x:,.0f}{unit if unit not in ('tok', 'chars') else ''}")
                 print(f"  {label:<18}{fmt(v[1]):>12}   (IQR {fmt(v[0])}–{fmt(v[2])})")
     if off and on:
         print("\ndelta, on vs off (medians; a delta whose IQRs overlap is noise until more runs say otherwise):")

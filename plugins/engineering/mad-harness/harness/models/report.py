@@ -70,9 +70,26 @@ def summarise(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 # A budget kill is not a failure the worker reported; it is the ceiling
                 # cutting it off. Counted apart so a tier that keeps dying is visible.
                 "budget_kills": sum(1 for e in es if e.get("terminal") == "budget"),
+                # TOOL RESULTS AS A SHARE OF THE PROMPT, token-weighted like the cache
+                # figures. Field: 28% per worker; lab: 6%. Measured only where the
+                # transcript was found, so a group can show "—" beside real costs.
+                "result_share_pct": _result_share(es),
+                "large_results": sum(int(e.get("large_results") or 0) for e in es),
             }
         )
     return sorted(rows, key=lambda r: -r["total_usd"])
+
+
+def _result_share(es: list[dict[str, Any]]) -> int | None:
+    measured = [e for e in es if e.get("carried_result_tokens") is not None]
+    if not measured:
+        return None
+    carried = sum(int(e.get("carried_result_tokens") or 0) for e in measured)
+    prompt = sum(
+        int(e.get("cache_read_tokens") or 0) + int(e.get("cache_creation_tokens") or 0) + int(e.get("input_tokens") or 0)
+        for e in measured
+    )
+    return round(100 * carried / prompt) if prompt else None
 
 
 def main() -> int:
@@ -89,7 +106,7 @@ def main() -> int:
     print(
         f"{'agent':<22}{'tier':<11}{'provider':<11}{'n':>4}"
         f"{'total $':>10}{'mean $':>9}{'turns':>7}{'fail%':>7}{'esc':>5}"
-        f"{'kills':>7}{'cache%':>8}{'write%':>8}"
+        f"{'kills':>7}{'cache%':>8}{'write%':>8}{'results%':>10}{'large':>7}"
     )
     pct = lambda v: "—" if v is None else str(v)  # noqa: E731
     for r in rows:
@@ -98,6 +115,7 @@ def main() -> int:
             f"{r['total_usd']:>10.3f}{r['mean_usd']:>9.4f}"
             f"{r['mean_turns']:>7.1f}{r['fail_pct']:>7}{r['escalations']:>5}"
             f"{r['budget_kills']:>7}{pct(r['cache_hit_pct']):>8}{pct(r['cache_write_pct']):>8}"
+            f"{pct(r['result_share_pct']):>10}{r['large_results']:>7}"
         )
     total = sum(r["total_usd"] for r in rows)
     kills = sum(r["budget_kills"] for r in rows)
@@ -105,6 +123,11 @@ def main() -> int:
     print(
         "cache% = prompt tokens served from cache; write% = written to cache at a premium. "
         "Workers in one wave that each start cold show as low cache%; a resumed agent as ~0."
+    )
+    print(
+        "results% = the share of the prompt that was the agent's own tool results, re-read "
+        "every later turn; large = results of 8k+ chars (a whole file, an unwindowed grep). "
+        "Field workers ran at 28%; the fix is windowed reads, not a shorter prompt."
     )
     print(
         "A tier is worth keeping when its fail% and escalations stay low. "

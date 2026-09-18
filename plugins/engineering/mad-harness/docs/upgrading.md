@@ -366,3 +366,44 @@ models-cost` after a wave is the check.
 
 - **mechanical** — re-stamp `harness.version`, when convenient. The preload applies on
   the next dispatch.
+
+### 0.10.6
+
+**Tool-result volume is now measured per dispatch, and the reads that made it big have a
+rule.** Cost-analysis action #2 ("offload tool results to files; hand the agent paths"),
+built from what the transcripts showed rather than as framed. No config change.
+
+- **What the transcripts said first.** Two field workers (0.9.6) carried 205k characters
+  of their own tool results per session — ≈28% of everything the model read, re-read on
+  every turn after the fetch. **None of it was test output**, which workers already
+  `| tail`; it was the memories index at turn 2 (18k, carried fifty turns), whole files
+  read in one call (38k, 54k) and `grep -A 400` on one document, three times for the
+  same section. The lab's workers carry 6% with nothing over 8k, so the lab cannot
+  A/B this lever — it is a field measurement, which is why the first change is telemetry.
+- **Every dispatch record now carries its result volume**, read back from the session
+  transcript: `tool_results`, `tool_result_chars`, `large_results` (8k+),
+  `carried_result_tokens` (chars × later turns ÷ 4) and `result_chars_by_tool`. Absent —
+  not zero — when the transcript is not found. `make models-cost` shows `results%` and
+  `large` per tier; `ab-report.sh` reads the two totals.
+- **`run.sh` keeps every command's whole output** at `.harness/run/out/<stack>-<key>.log`
+  in the caller's checkout and reports a digest — the failures the runner named, the last
+  lines, the path and line count. Before, the output was captured and discarded and a
+  worker that saw `[FAIL]` re-ran the suite raw to learn why, paying the whole output in.
+- **`evidence-gathering` says to read in windows** and to send long output to a file
+  first — with the field numbers, the SWE-bench Lite finding that a 100-line window
+  resolved 5.3 points more than whole-file reads, and the CLI fact that a bash result is
+  cut at 30,000 characters with no path. Every writer and lens preloads it.
+- **`worker-protocol` no longer duplicates two sections of `evidence-gathering`** (the
+  conventions block and where the scripts are): since 0.10.5 every writer preloads both,
+  so each copy was paid twice per dispatch. The writers' preload bill falls 35,711 →
+  34,558 characters with the new section included. The conventions mirror is two
+  carriers, and the check now fails an agent whose preloads include neither, instead of
+  assuming the set.
+- **Action #3 (`clear_tool_uses` context editing) is not reachable from the dispatch
+  path.** The Agent SDK's options carry no context-management field and the CLI does not
+  use the API's context editing itself; its own mechanisms are auto-compaction and the
+  30k-character bash cut (`BASH_MAX_OUTPUT_LENGTH`, head kept, tail dropped). Recorded
+  so nobody re-derives it.
+
+- **mechanical** — re-stamp `harness.version`, when convenient. Run `make models-cost`
+  after the next wave: `results%` is the number this release exists to show.

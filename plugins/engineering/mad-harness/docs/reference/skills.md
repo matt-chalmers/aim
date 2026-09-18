@@ -39,10 +39,11 @@ cost of supporting many technologies at zero for the ones not in use.
 
 ## The mirrored block
 
-Three skills — `evidence-gathering`, `worker-protocol`, `spec-lifecycle` — each carry a
-byte-identical **harness conventions** block, so every agent that preloads any one of them
-gets the rules. `check-conventions-mirror.sh` fails on a partial edit: change all three or
-none.
+Two skills — `evidence-gathering`, `spec-lifecycle` — each carry a byte-identical
+**harness conventions** block, so every agent that preloads either gets the rules; the
+check also fails any agent whose preloads include neither. `check-conventions-mirror.sh`
+fails on a partial edit: change both or neither. (`worker-protocol` carried a third copy
+until the writers took `evidence-gathering` and paid for it twice.)
 
 That block lives in skills rather than a project file because of a lesson worth keeping.
 Twenty-six citations of a consuming project's `CLAUDE.md` were audited and twenty turned

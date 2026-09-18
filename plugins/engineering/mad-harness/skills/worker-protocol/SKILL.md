@@ -8,47 +8,10 @@ description: The contract every swarm worker runs under — the isolated worktre
 You are one worker in a wave. Several siblings are editing the same repository at
 the same time. Everything here exists because one of them once trod on another.
 
-<!-- HARNESS CONVENTIONS: mirrored in evidence-gathering, worker-protocol and
-     spec-lifecycle, and verified byte-identical by check-conventions-mirror.sh. Edit
-     one and the check fails; edit all three or none. -->
-
-## Harness conventions
-
-These are the harness's own rules about the artefacts the harness owns — task text, lens
-reports and return lines. They are stated here rather than cited from a project file
-because the harness defines them and its own checks enforce them.
-
-**Pair every task id with a short gloss.** `PROJ-4f2a` tells a reader nothing; they
-have to look it up to follow the sentence. Write `PROJ-4f2a (retry budget on the ingest job)` —
-six words maximum, ideally three or four. It is a handle, not a summary. Use the same
-gloss for the same task all session, so a reader can track it across a wave. The bare id
-is correct in commit messages and in the tracker’s own arguments, where it is the identifier.
-
-**Cite code by symbol, never by line number**, in anything persisted to a task. Write
-`services/billing.py::recompute_invoice_total`, not a line. A symbol survives edits above
-it; a line number survives none of them, and a stale pin that lands on plausible-looking
-wrong text is worse than one that obviously misses. For prose, quote the opening words
-instead — quoted text is greppable. Line numbers are fine in a lens report or in chat,
-which is what `peek.sh` emits them for; the ban is on what gets written down.
-
-<!-- END HARNESS CONVENTIONS -->
-
-## Where the harness scripts are
-
-`${CLAUDE_PLUGIN_ROOT}/harness/...`, as written throughout this file. The plugin loader
-substitutes the real install path before you ever see the text, so what reaches you is
-already absolute and needs no resolving.
-
-**Write it that way and nothing else.** Three spellings that look equivalent are not:
-
-| what you write | what happens |
-|---|---|
-| `${CLAUDE_PLUGIN_ROOT}/harness/…` | expanded at load; permitted; runs |
-| `$HARNESS_ROOT/…` | a SHELL variable. The dispatcher sets it, an interactive session does not — and no permission rule can match a command naming a variable, because matching is textual |
-| `harness/…` | resolves only when the harness happens to sit inside the repository you are working on, which it usually does not |
-
-Measured, in frontmatter and on the command line alike. The middle row cost this harness
-every interactive invocation of every command until it was found.
+The harness conventions — task glosses, cite-by-symbol — and where the harness scripts
+are (`${CLAUDE_PLUGIN_ROOT}/harness/...`, written exactly so) reach you through
+`evidence-gathering`, which you preload alongside this. Measured: a worker that preloads
+both paid for two copies of each on every dispatch.
 
 ## Your worktree is prepared for you — do not prepare it yourself
 

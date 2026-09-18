@@ -63,6 +63,7 @@ from pathlib import Path
 from typing import Any
 
 from . import levers as _levers
+from . import transcript as _transcript
 from .broker import broker, resolved_requests
 from .context import render_card
 from .resolve import (
@@ -230,6 +231,9 @@ class Outcome:
     session_id: str
     permission_denials: list[Any]
     raw: dict[str, Any]
+    #: What the worker's tool results cost it, read back from its transcript. None when
+    #: the transcript was not found — an absent measurement, never a zero one.
+    results: _transcript.ResultVolume | None = None
 
     @property
     def budget_exhausted(self) -> bool:
@@ -310,6 +314,7 @@ class Outcome:
             "models": sorted((self.raw.get("model_usage") or {}).keys()),
             "turns": self.turns,
             "duration_ms": self.duration_ms,
+            **(self.results.telemetry() if self.results else {}),
             "permission_denials": len(self.permission_denials),
             "denied_tools": sorted(
                 {
@@ -636,6 +641,7 @@ def dispatch(
         session_id=payload.get("session_id") or "",
         permission_denials=list(payload.get("permission_denials") or []),
         raw=payload,
+        results=_transcript.result_volume_for(cwd or REPO, payload.get("session_id") or ""),
     )
 def record(
     outcome: Outcome,

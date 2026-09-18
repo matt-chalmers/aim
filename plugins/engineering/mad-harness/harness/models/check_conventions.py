@@ -1,9 +1,12 @@
 """Keep the harness-conventions block identical across the skills that carry it.
 
-WHY THREE COPIES AT ALL. The rules — task glosses, cite-by-symbol — apply to every agent
-that writes a task or a report, and those agents preload no single skill in common. The
-three that cover all of them are `evidence-gathering`, `worker-protocol` and
-`spec-lifecycle`, which is the same coverage set the `$HARNESS_ROOT` fallback uses.
+WHY TWO COPIES AT ALL. The rules — task glosses, cite-by-symbol — apply to every agent
+that writes a task or a report, and those agents preload no single skill in common:
+`evidence-gathering` reaches every lens, reader and (since 0.10.5) writer; `spec-editor`
+preloads only `spec-lifecycle`. There were three carriers while the writers preloaded
+only `worker-protocol`; once they took `evidence-gathering` its copy was paid twice on
+every writer dispatch (0.10.6), so it went. Coverage is CHECKED, below — an agent whose
+preloads include no carrier fails the check rather than silently losing the rules.
 
 WHY A CHECK. Three statements of one rule is the shape that produced most of what four
 independence reviews found. Duplication is only safe when divergence is mechanical.
@@ -18,13 +21,27 @@ from .resolve import _prompts_dir
 START = "<!-- HARNESS CONVENTIONS:"
 END = "<!-- END HARNESS CONVENTIONS -->"
 
-CARRIERS = ("evidence-gathering", "worker-protocol", "spec-lifecycle")
+CARRIERS = ("evidence-gathering", "spec-lifecycle")
 
 
 def extract(text: str) -> str | None:
     if START not in text or END not in text:
         return None
     return text[text.index(START) : text.index(END) + len(END)]
+
+
+def _uncovered(carriers: set[str]) -> list[str]:
+    """Agents that preload skills but none of the carriers."""
+    import re
+
+    out = []
+    for path in sorted(_prompts_dir("agents").glob("*.md")):
+        text = path.read_text()
+        head = text[: text.index("\n---\n", 3)]
+        declared = set(re.findall(r"^\s+- (\S+)$", head, re.M))
+        if declared and not (declared & carriers):
+            out.append(f"{path.stem} preloads {sorted(declared)}")
+    return out
 
 
 def main() -> int:
@@ -54,6 +71,12 @@ def main() -> int:
         )
         return 1
 
+    uncovered = _uncovered(set(blocks))
+    if uncovered:
+        print("FAIL: these agents preload no skill carrying the harness conventions:", file=sys.stderr)
+        for u in uncovered:
+            print(f"  - {u}", file=sys.stderr)
+        return 1
     distinct = set(blocks.values())
     if len(distinct) > 1:
         print(
@@ -66,7 +89,7 @@ def main() -> int:
                 file=sys.stderr,
             )
         print(
-            "\n  Edit all three or none. A rule stated three ways is worse than a rule\n"
+            "\n  Edit every carrier or none. A rule stated two ways is worse than a rule\n"
             "  stated once badly, because a reader cannot tell which one is live.",
             file=sys.stderr,
         )

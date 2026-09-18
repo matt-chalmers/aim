@@ -22,7 +22,7 @@ without spending anything. It is the fastest way to see what a dispatch *would* 
 | script | does |
 |---|---|
 | `verify/brief.sh <task> [sha]` | builds the shared brief. Prints its path on **stdout**, a size note on **stderr** |
-| `verify/run.sh <key> [--scoped PATH]` | runs a stack's declared commands, loading the worker environment for you |
+| `verify/run.sh <key> [--scoped PATH]` | runs a stack's declared commands, loading the worker environment for you; keeps each whole log at `.harness/run/out/` and reports a failure digest plus the path |
 | `verify/peek.sh` | reads many files or slices in one tool call |
 | `verify/scan.sh` | answers many search questions in one tool call |
 | `verify/mutate.sh` | a mutation batch in a tree that cannot carry stale bytecode |
