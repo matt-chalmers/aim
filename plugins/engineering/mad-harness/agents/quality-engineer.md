@@ -6,6 +6,7 @@ disallowedTools: TodoWrite
 skills:
   - test-doctrine
   - worker-protocol
+  - evidence-gathering
 isolation: worktree
 model: claude-sonnet-5
 model_tier: worker

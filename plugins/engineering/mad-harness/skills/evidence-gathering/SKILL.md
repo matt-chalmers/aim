@@ -1,6 +1,6 @@
 ---
 name: evidence-gathering
-description: 'How to find out what is true about this repository without burning the budget doing it — the measured cost model, the precomputed lens brief, and the batch primitives that answer many questions in one tool call. Preloaded by every agent whose job is to READ the repo and report: the four verification lenses, fidelity-auditor, analyst, analyst-survey, planner and architect.'
+description: 'How to find out what is true about this repository without burning the budget doing it — the measured cost model, the precomputed lens brief, and the batch primitives that answer many questions in one tool call. Preloaded by every agent whose job is to READ the repo and report — the four verification lenses, fidelity-auditor, analyst, analyst-survey, planner and architect — and, measured to pay for itself, by the two writers.'
 ---
 
 # Evidence gathering

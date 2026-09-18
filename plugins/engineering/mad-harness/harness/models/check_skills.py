@@ -32,15 +32,21 @@ SKILLS_DIR = _prompts_dir("skills")
 #: CALIBRATED TO CATCH THE FAILURE, NOT THE INTENDED CONFIGURATION. `test-doctrine`
 #: alone is ~18,400 chars, so any budget under ~23,000 flags every agent that
 #: legitimately combines it with anything else — a threshold that fires on the
-#: correct setup teaches people to ignore it. 32,000 leaves room for
+#: correct setup teaches people to ignore it. 36,000 leaves room for
 #: test-doctrine plus two focused skills, while still catching the actual
 #: mistake this guards against: preloading something campaign-loop-sized
 #: (~56,000 chars) into an agent that runs several times per task.
 #:
+#: 36,000, from 32,000 (0.10.5). The writers' third skill, `evidence-gathering`, put
+#: them at ~35,700 — and it was MEASURED to pay for itself: the same epic, five runs
+#: per arm, cost per run $2.40 -> $1.83 (-24%, interquartile ranges apart), output
+#: tokens -36%, turns 45 -> 32. A preload is a per-dispatch charge; that one buys
+#: fewer, larger tool calls, and the bill went down.
+#:
 #: Not a hard law — a deliberate exception is fine and should be argued in the
 #: commit — but an agent quietly crossing it means every one of its dispatches
 #: got dearer and nobody decided that.
-BUDGET_CHARS = 32_000
+BUDGET_CHARS = 36_000
 
 #: A card is injected into every dispatch in its lane, so it is a recurring cost in
 #: a way a depth skill is not. Budgeted separately and tightly: without a ceiling a

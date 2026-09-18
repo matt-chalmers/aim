@@ -100,6 +100,16 @@ def test_the_budget_is_calibrated_to_catch_the_real_failure():
     )
 
 
+def test_the_writers_preload_evidence_gathering():
+    """0.10.5: measured on the same epic, five runs per arm — cost per run -24% with the
+    spreads apart, output tokens -36%. The preload is a per-dispatch charge that bought
+    fewer, larger tool calls. It is why the budget above sits at 36,000, not 32,000."""
+    for agent in ("fullstack-engineer", "quality-engineer"):
+        assert "evidence-gathering" in declared_skills(agent), (
+            f"{agent} no longer preloads evidence-gathering — the measured -24% goes with it"
+        )
+
+
 def test_the_four_lenses_all_carry_the_gate_doctrine():
     """The gate's rules — especially that L3 must not see the diff — are shared by
     all four lenses. Two of them preloaded nothing at all before this skill existed,

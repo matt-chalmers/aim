@@ -338,3 +338,31 @@ Two more lever measurements. No config change required.
   not worth a default.
 - **mechanical** — re-stamp `harness.version`, when convenient. Nothing else: the new
   default applies on the next dispatch.
+
+### 0.10.5
+
+**The second measured default: the two writers now preload `evidence-gathering`.** No
+config change.
+
+- **`preload` measured: -24% per run, spreads apart.** 5 runs per arm, 2 workers, the full
+  three-task epic, frozen code. Cost per run $2.40 → $1.83 (IQR $2.08–2.79 vs $1.44–1.83),
+  output tokens 17,969 → 11,449 (-36%, spreads apart), turns 45 → 32 and cost per dispatch
+  $0.72 → $0.53 (overlap), no kills on either arm. The `on` arm appended the
+  `evidence-gathering` skill — the harness's cost model and batch primitives — to each
+  writer's prompt; the mechanism is fewer, larger tool calls and less narration, which is
+  what the output-token drop says. Dispatches with a permission denial also fell, 8 → 4 of
+  15, consistent with workers reaching for the harness scripts instead of hand-rolled
+  compound commands. **Default now set:** `fullstack-engineer` and `quality-engineer`
+  carry `evidence-gathering` in their `skills:`, which puts them at ~35,700 preloaded
+  characters; the per-agent preload budget rises 32,000 → 36,000 with this measurement as
+  the argument, and still catches the campaign-loop-sized mistake it exists for.
+
+This closes the cost-lever series from the field cost analysis. Of the five levers, two
+moved a default on separated spreads (`task_budget`, 0.10.4; `preload`, here) and three
+stay off as measured null or bounded (`cache_ttl` and `static_prefix`, 0.10.2; `stagger`,
+0.10.4). Each was measured alone against its own baseline arm, never stacked; whether the
+two defaults compound is a second pass, if anyone wants it. In the field, `make
+models-cost` after a wave is the check.
+
+- **mechanical** — re-stamp `harness.version`, when convenient. The preload applies on
+  the next dispatch.
