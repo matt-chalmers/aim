@@ -174,6 +174,12 @@ def main(argv: list[str] | None = None) -> int:
         except (json.JSONDecodeError, OSError):
             payload = {}
         source = str(payload.get("source") or "")
+        # A DISPATCHED AGENT IS NOT THE ORCHESTRATOR. The hook fires in every worker too
+        # (`startup`), and during a wave claims are always held — so the loop's rules and
+        # every sibling's worktree were landing in each worker's first message. The
+        # payload names the agent a session runs as; when it does, this is not our reader.
+        if payload.get("agent_type"):
+            return 0
         if payload.get("transcript_path"):
             transcript = Path(str(payload["transcript_path"]))
 

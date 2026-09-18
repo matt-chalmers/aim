@@ -9,6 +9,8 @@
 #            stagger          off = static prefix, no stagger                  on = static prefix + 8s
 #            task_budget      off = none                                       on = 400000 tokens
 #            preload          off = today's writers                            on = + evidence-gathering
+#            lean_catalog     off = the CLI's full Skill catalog                on = plugin + project skills only
+#            preload_declared off = frontmatter skills: ignored (the CLI's way) on = appended to the prompt
 #
 # WHY A RIG AND NOT A FIELD RUN. A field campaign runs different tasks every time and the
 # cost analysis that motivated this measured 30x token variance on IDENTICAL tasks; it can
@@ -37,7 +39,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-case "$LEVER" in cache_ttl|static_prefix|stagger|task_budget|preload) ;; *) echo "unknown lever: $LEVER" >&2; exit 2 ;; esac
+case "$LEVER" in cache_ttl|static_prefix|stagger|task_budget|preload|lean_catalog|preload_declared) ;; *) echo "unknown lever: $LEVER" >&2; exit 2 ;; esac
 
 # The environment each arm dispatches under. Everything else is inherited unchanged, and
 # every arm clears the levers it does not set, so a stray export cannot leak into an arm.
@@ -52,6 +54,10 @@ arm_envs() {  # $1 = off|on  -> fills ENVS
     stagger:on)        ENVS+=(MAD_HARNESS_STATIC_PREFIX=1 MAD_HARNESS_STAGGER_SECONDS=8) ;;
     task_budget:on)    ENVS+=(MAD_HARNESS_TASK_BUDGET_TOKENS=400000) ;;
     preload:on)        ENVS+=(MAD_HARNESS_PRELOAD=evidence-gathering) ;;
+    lean_catalog:off)  ENVS+=(MAD_HARNESS_LEAN_CATALOG=0) ;;
+    lean_catalog:on)   ENVS+=(MAD_HARNESS_LEAN_CATALOG=1) ;;
+    preload_declared:off) ENVS+=(MAD_HARNESS_PRELOAD_DECLARED=0) ;;
+    preload_declared:on)  ENVS+=(MAD_HARNESS_PRELOAD_DECLARED=1) ;;
   esac
 }
 

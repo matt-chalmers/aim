@@ -15,7 +15,7 @@ The one file that makes the harness fit your repository. Written by
 | `beads` | the id prefix the task-hygiene checks build their patterns from | yes, on the beads backend |
 | `swarm` | wave sizing and worker resources | no |
 | `ports` | every TCP port your servers bind, by name — the pre-flight probes them | no |
-| `dispatch` | cost levers, each a measured switch: `cache_ttl`, `static_prefix`, `stagger_seconds`, `task_budget_tokens` — see [`models/levers.py`](../../harness/models/levers.py) | no (`task_budget_tokens` defaults from the tier; the rest off) |
+| `dispatch` | cost levers, each a measured switch: `cache_ttl`, `static_prefix`, `stagger_seconds`, `task_budget_tokens`, `lean_catalog`, `preload_declared` — see [`models/levers.py`](../../harness/models/levers.py) | no (`task_budget_tokens` defaults from the tier, `lean_catalog` on; the rest off) |
 | `paths` | docs, staging, archive — **omit any your project lacks** | yes |
 | `domain` | your domain vocabulary — prompts are guarded against naming it | no |
 | `lanes` | concurrency per lane, measured on your hardware | no |

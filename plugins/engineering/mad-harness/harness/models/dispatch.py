@@ -325,7 +325,7 @@ class Outcome:
             ),
         }
 def with_context(
-    prompt: str, lane: str | None, cwd: str | None = None, task: str | None = None
+    prompt: str, lane: str | None, cwd: str | None = None, task: str | None = None, agent: str | None = None
 ) -> str:
     """The prompt plus the technology card for this lane.
 
@@ -395,19 +395,29 @@ def with_context(
         "Line numbers are fine in your report and in chat.\n"
     )
     card = render_card(lane)
-    preload = _preloaded_skills()
+    preload = _preloaded_skills(agent)
     return "\n\n".join(x for x in (prompt, card, where, answered, conventions, preload) if x)
 
 
-def _preloaded_skills() -> str:
-    """Skills named by the `preload` lever, appended in full. In production a skill is
-    preloaded through the agent's frontmatter and arrives in the system prompt; this is
-    the same text one message later, so an A/B can measure a preload without editing
-    the agent — the writers' batching doctrine (evidence-gathering) being the case."""
-    from .levers import lever
+def _preloaded_skills(agent: str | None = None) -> str:
+    """Skills appended to the prompt in full: those the `preload` lever names for an
+    arm, and — under `preload_declared` — the agent's own frontmatter `skills:`.
 
+    THE FRONTMATTER ALONE DOES NOT PRELOAD UNDER DISPATCH. Measured (0.10.8): a writer
+    and a lens dispatched through this module both reported every declared skill ABSENT
+    from context; the CLI preloads an agent's `skills:` only on the Agent-tool subagent
+    path, which this harness never uses. So the −24% that 0.10.5 measured came from THIS
+    path (the lever appending evidence-gathering), not from the frontmatter line it then
+    shipped — and the 82% of writers that never invoked test-doctrine on demand had
+    never read it. `preload_declared` is what makes a frontmatter declaration true."""
+    from .levers import lever
+    from .resolve import declared_skills
+
+    names = list(lever("preload", block={}))
+    if agent and lever("preload_declared"):
+        names += [n for n in declared_skills(agent) if n not in names]
     parts = []
-    for name in lever("preload", block={}):
+    for name in names:
         path = PLUGIN_ROOT_SKILLS / name / "SKILL.md"
         if not path.is_file():
             raise DispatchError(f"MAD_HARNESS_PRELOAD names {name!r}, but {path} does not exist")
@@ -456,6 +466,11 @@ def build_env(r: Resolved, base: dict[str, str] | None = None) -> dict[str, str]
     # miss, and then 1h pays. Measured per project; see models/levers.py.
     from .levers import lever
 
+    # The bundled-skills half of the lean catalog: the CLI's own switch for the 17
+    # skills it ships. Measured 26,130 -> 23,241 on its own; the `skills` list in
+    # `sdk_options` takes the rest.
+    if lever("lean_catalog"):
+        env["CLAUDE_CODE_DISABLE_BUNDLED_SKILLS"] = "1"
     ttl = lever("cache_ttl")
     if ttl:
         env["CLAUDE_CODE_PROMPT_CACHE_TTL"] = ttl
@@ -606,7 +621,7 @@ def dispatch(
     started = time.monotonic()
     payload = (runner or _run_sdk)(
         r,
-        with_context(prompt, lane, cwd=str(cwd or REPO), task=task),
+        with_context(prompt, lane, cwd=str(cwd or REPO), task=task, agent=agent),
         cwd=str(cwd or REPO),
         env=build_env(r),
         timeout=timeout,

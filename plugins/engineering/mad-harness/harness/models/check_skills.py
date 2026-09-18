@@ -29,6 +29,12 @@ SKILLS_DIR = _prompts_dir("skills")
 
 #: Per-agent preload ceiling, in characters (~4 chars/token).
 #:
+#: WHAT IS BEING BUDGETED. Under `--agent` dispatch the CLI does not preload an agent's
+#: frontmatter `skills:` at all (measured 0.10.8); the harness appends them to the
+#: prompt itself when `dispatch.preload_declared` is on. This bill is the size of that
+#: append — paid once into cache per dispatch and read back every turn — and the
+#: same figure the Agent-tool path would put in a subagent's system prompt.
+#:
 #: CALIBRATED TO CATCH THE FAILURE, NOT THE INTENDED CONFIGURATION. `test-doctrine`
 #: alone is ~18,400 chars, so any budget under ~23,000 flags every agent that
 #: legitimately combines it with anything else — a threshold that fires on the

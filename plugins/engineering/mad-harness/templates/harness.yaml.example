@@ -17,7 +17,7 @@ slug: acme                    # lowercase, no hyphens — names per-worker resou
 # stop until /harness-setup has applied the upgrade notes (docs/upgrading.md) and
 # re-stamped. Leave it out and every pre-flight treats the config as unreviewed.
 harness:
-  version: 0.10.7
+  version: 0.10.8
 
 # Toolchains: how to RUN things. See harness/stacks/ for shipped modules, and add
 # your own under .harness/stacks/ to shadow or extend them.
@@ -108,11 +108,21 @@ swarm:
 #                                harvest document, several decision records) — a budget the
 #                                work cannot fit makes the worker wrap up early, which is
 #                                cheaper than a kill but still a re-dispatch.
+#   lean_catalog     true      — the Skill catalog a dispatched agent sees is the plugin's skills
+#                                plus your own .claude/skills/, not the CLI's 17 bundled skills and
+#                                the orchestrator commands. ON by default (measured -3.4k tokens per
+#                                request); false restores the CLI's full catalog.
+#   preload_declared false     — append each agent's frontmatter `skills:` to its prompt. The CLI
+#                                does not preload them for a dispatched agent (measured); this is
+#                                how the doctrine an agent declares actually reaches it. Off until
+#                                the lab has sized it.
 # dispatch:
 #   cache_ttl: 5m
 #   static_prefix: true
 #   stagger_seconds: 8
 #   task_budget_tokens: 400000
+#   lean_catalog: true
+#   preload_declared: false
 
 # Every TCP port your servers bind, by name. The campaign owns these — workers are
 # banned from binding them — and the pre-flight probes each one so a dev server left

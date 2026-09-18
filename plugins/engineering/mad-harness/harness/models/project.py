@@ -321,10 +321,11 @@ class Project:
             if ttl not in ("5m", "1h"):
                 raise ProjectError(f"dispatch.cache_ttl must be 5m or 1h, got {ttl!r}")
             out["cache_ttl"] = ttl
-        if "static_prefix" in raw:
-            if not isinstance(raw["static_prefix"], bool):
-                raise ProjectError("dispatch.static_prefix must be true or false")
-            out["static_prefix"] = raw["static_prefix"]
+        for flag in ("static_prefix", "lean_catalog", "preload_declared"):
+            if flag in raw:
+                if not isinstance(raw[flag], bool):
+                    raise ProjectError(f"dispatch.{flag} must be true or false")
+                out[flag] = raw[flag]
         if "stagger_seconds" in raw:
             try:
                 secs = int(raw["stagger_seconds"])
@@ -341,7 +342,9 @@ class Project:
             if budget < 50_000:
                 raise ProjectError(f"dispatch.task_budget_tokens is {budget}; below 50000 a worker cannot read its own task")
             out["task_budget_tokens"] = budget
-        unknown = set(raw) - {"cache_ttl", "static_prefix", "stagger_seconds", "task_budget_tokens"}
+        unknown = set(raw) - {
+            "cache_ttl", "static_prefix", "stagger_seconds", "task_budget_tokens", "lean_catalog", "preload_declared",
+        }
         if unknown:
             raise ProjectError(f"dispatch: unknown key(s) {', '.join(sorted(unknown))}")
         return out

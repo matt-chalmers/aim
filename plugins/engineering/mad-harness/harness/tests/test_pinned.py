@@ -96,3 +96,14 @@ def test_the_plugin_hook_points_at_the_wrapper_and_fires_on_compaction():
     [hook] = entry["hooks"]
     assert hook["command"].startswith('"${CLAUDE_PLUGIN_ROOT}/harness/swarm/pinned.sh"')
     assert (PLUGIN_ROOT / "harness" / "swarm" / "pinned.sh").exists()
+
+
+def test_the_hook_is_silent_inside_a_dispatched_agent(monkeypatch, capsys):
+    """During a wave claims are always held, and the hook fires in every worker on
+    `startup` — so the orchestrator's rules and every sibling's worktree were landing in
+    each worker's first message. The payload names the agent a session runs as."""
+    monkeypatch.setattr(mod, "in_flight", lambda: _state(claims=("PROJ-a1",)))
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps({"source": "startup", "agent_type": "mad-harness:fullstack-engineer"})))
+    assert mod.main(["--hook"]) == 0 and capsys.readouterr().out == ""
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps({"source": "startup"})))
+    assert mod.main(["--hook"]) == 0 and "PROJ-a1" in capsys.readouterr().out

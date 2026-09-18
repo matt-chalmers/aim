@@ -272,11 +272,20 @@ class Resolved:
             if lever("static_prefix")
             else None
         )
+        # THE SKILL CATALOG IS PAID ON EVERY REQUEST. The Skill tool lists every skill the
+        # session can see — the plugin's, the CLI's 17 bundled ones (dataviz, claude-api,
+        # keybindings-help...) and the plugin's slash commands, which a dispatched worker
+        # can neither use nor must ever run. Naming the plugin's skills here makes the
+        # catalog exactly those: measured 26,130 -> 22,743 tokens on a worker's first
+        # request. The SDK carries the list as `Skill(name)` grants, which is also what
+        # keeps /swarm and /halt out of a worker's reach.
+        skills = catalog_skills() if lever("lean_catalog") else None
         return ClaudeAgentOptions(
             model=self.model,
             effort=self.effort,
             max_budget_usd=self.max_budget_usd,
             system_prompt=system_prompt,
+            skills=skills,
             task_budget={"total": self.task_budget_tokens} if self.task_budget_tokens else None,
             permission_mode=self.permission_mode,
             allowed_tools=list(self.allowed_tools),
@@ -495,6 +504,50 @@ def plugin_name() -> str | None:
         return None
 
 
+def _skill_dirs(root: Path) -> list[str]:
+    return sorted(d.name for d in root.iterdir() if (d / "SKILL.md").is_file()) if root.is_dir() else []
+
+
+def plugin_skills() -> list[str]:
+    """Every skill the plugin ships, plugin-qualified."""
+    return [qualified(n) for n in _skill_dirs(_prompts_dir("skills"))]
+
+
+def project_skills(repo: Path | None = None) -> list[str]:
+    """Every skill the consuming project ships under `.claude/skills/`, by bare name."""
+    return _skill_dirs((repo or REPO) / ".claude" / "skills")
+
+
+def catalog_skills(repo: Path | None = None) -> list[str]:
+    """The Skill catalog a dispatched agent sees under `lean_catalog`: the plugin's skills
+    and the project's own. The CLI treats the list as an allowlist that matches a bare
+    name exactly or a qualified one by suffix, so a project skill listed by its bare
+    name stays visible and invocable. Measured (0.10.8): a list of the plugin's skills
+    alone silently hid a project's `.claude/skills/*` — listed nowhere, and an invoke
+    rejected as `not in this session's skills allowlist`, which is not a permission
+    denial and so never reached the dispatcher. The union is what makes this safe."""
+    return plugin_skills() + project_skills(repo)
+
+
+def declared_skills(agent: str, agents_dir: Path | None = None) -> list[str]:
+    """The agent's frontmatter `skills:` list, read by line so an agent whose frontmatter
+    is not strict YAML (see `agent_frontmatter`) still yields it."""
+    path = (agents_dir or AGENTS_DIR) / f"{agent}.md"
+    match = _FRONTMATTER.match(path.read_text())
+    if not match:
+        return []
+    out, inside = [], False
+    for line in match.group(1).splitlines():
+        if not line.startswith((" ", "\t")):
+            inside = line.split(":", 1)[0].strip() == "skills"
+            continue
+        if inside:
+            item = line.strip()
+            if item.startswith("- "):
+                out.append(item[2:].strip().strip("'\""))
+    return out
+
+
 def qualified(agent: str) -> str:
     """`agent`, namespaced if this harness is installed as a plugin."""
     if ":" in agent:
@@ -705,8 +758,14 @@ def sandbox_for() -> tuple[dict[str, Any], str]:
         "autoAllowBashIfSandboxed": True,
         "allowUnsandboxedCommands": False,
     }
-    settings = json.dumps({"sandbox": {"filesystem": {"allowWrite": writable}}}) if writable else ""
-    return sandbox, settings
+    # NO CLOUD CONNECTORS FOR A DISPATCH. The CLI attaches the account's claude.ai MCP
+    # connectors to every session: measured, a "Claude Docs" connector connected on every
+    # worker dispatch (~1.2s) and put ~500 tokens of its instructions into every worker's
+    # first message — for tools the agent's `tools:` ceiling never lets it call.
+    extra: dict[str, Any] = {"disableClaudeAiConnectors": True}
+    if writable:
+        extra["sandbox"] = {"filesystem": {"allowWrite": writable}}
+    return sandbox, json.dumps(extra)
 
 
 class SandboxUnavailable(RuntimeError):

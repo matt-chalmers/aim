@@ -16,13 +16,25 @@ has decided), then the default.
     stagger_seconds  MAD_HARNESS_STAGGER_SECONDS dispatch.stagger_seconds 0
     task_budget      MAD_HARNESS_TASK_BUDGET_TOKENS  dispatch.task_budget_tokens, else tiers.yaml <tier>.task_budget_tokens
     preload          MAD_HARNESS_PRELOAD        —  (agents/<name>.md skills:)  none
+    lean_catalog     MAD_HARNESS_LEAN_CATALOG   dispatch.lean_catalog   true  (the exception — see below)
+    preload_declared MAD_HARNESS_PRELOAD_DECLARED dispatch.preload_declared false
     experiment       MAD_HARNESS_EXPERIMENT     —                       — (a label, recorded)
 
-`preload` is env-only because in production it is an agent's frontmatter; `task_budget`
-has a tier default the project may override in `harness.yaml` — a project whose tasks
-carry 34KB records needs more room than the lab's — and the env form exists so an A/B can
-flip either per arm without editing anything. `preload` names skills whose SKILL.md is appended to the prompt —
-the same text a frontmatter preload puts in the system prompt, arriving one message later.
+`preload` names skills whose SKILL.md is appended to the prompt, env-only, for an arm.
+`preload_declared` appends the agent's own frontmatter `skills:` the same way — because
+under `--agent` dispatch the CLI does NOT preload them (measured 0.10.8: a dispatched
+writer and lens both answered ABSENT for every declared skill; the CLI preloads
+frontmatter skills only when it spawns a subagent through the Agent tool, which this
+harness never does). `task_budget` has a tier default the project may override in
+`harness.yaml` — a project whose tasks carry 34KB records needs more room than the lab's.
+
+THE ONE LEVER THAT DEFAULTS ON is `lean_catalog`, and it is the exception to "off until
+the lab has sized it" because it removes rather than changes: the Skill catalog a worker
+sees drops 17 bundled CLI skills and the plugin's 10 orchestrator commands, which a
+headless worker can neither use nor must ever run. Sized at the request level, where the
+effect is deterministic — 26,130 → 22,743 tokens on a worker's first request — and below
+run-to-run variance by construction, which is exactly the case a run-level A/B cannot
+read. `ab.sh lean_catalog` exists so it can be sized that way anyway.
 """
 
 from __future__ import annotations
@@ -38,9 +50,17 @@ _ENV = {
     "stagger_seconds": "MAD_HARNESS_STAGGER_SECONDS",
     "task_budget": "MAD_HARNESS_TASK_BUDGET_TOKENS",
     "preload": "MAD_HARNESS_PRELOAD",
+    "lean_catalog": "MAD_HARNESS_LEAN_CATALOG",
+    "preload_declared": "MAD_HARNESS_PRELOAD_DECLARED",
 }
 _DEFAULT: dict[str, Any] = {
     "cache_ttl": None, "static_prefix": False, "stagger_seconds": 0, "task_budget": None, "preload": (),
+    # ON BY DEFAULT — the one lever that removes rather than changes. Measured at the
+    # request level (0.10.8): a worker's first prompt fell 26,130 -> 22,743 tokens when
+    # its Skill catalog held the plugin's own skills instead of those plus 17 bundled
+    # CLI skills and 10 orchestrator commands a headless worker can never use.
+    "lean_catalog": True,
+    "preload_declared": False,
 }
 #: The harness.yaml key each lever reads, where it differs from the lever's name.
 _KEY = {"task_budget": "task_budget_tokens"}
@@ -64,7 +84,7 @@ def lever(name: str, block: dict[str, Any] | None = None) -> Any:
         block = _project_block() if block is None else block
         key = _KEY.get(name, name)
         return block[key] if key in block else _DEFAULT[name]
-    if name == "static_prefix":
+    if name in ("static_prefix", "lean_catalog", "preload_declared"):
         return raw.strip().lower() in _TRUE
     if name == "stagger_seconds":
         return max(0, int(raw))

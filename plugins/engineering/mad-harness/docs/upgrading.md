@@ -443,3 +443,80 @@ config change; the hook installs with the plugin.
 
 - **mechanical** — re-stamp `harness.version`, when convenient. Restart Claude Code once
   after `plugin update` so the hook registers.
+
+### 0.10.8
+
+**A dispatched agent was never given the doctrine it declares.** Found while evaluating a
+suggestion (tool-schema deferral and skill progressive disclosure) under adversarial
+review; the suggestion itself is mostly not applicable here, but the review turned up
+three things that are. No config change; one default moves on a request-level measurement
+and says so.
+
+- **Frontmatter `skills:` do not preload under `--agent` dispatch.** The CLI preloads an
+  agent's declared skills only when it spawns that agent through the Agent tool, which
+  this harness never does — every agent goes through `dispatch.sh`. Verified twice: a
+  dispatched writer and a dispatched lens, asked with no tools whether `test-doctrine`,
+  `worker-protocol` or `evidence-gathering` were in their context, answered ABSENT for
+  all three (the writer first claimed one was present and quoted a heading that exists
+  nowhere). Across 456 worker transcripts the only doctrine that ever reached a worker
+  was what it loaded on demand: `test-doctrine` in 62, `worker-protocol` in 2,
+  `evidence-gathering` in none. **So 0.10.5's shipped change (evidence-gathering in the
+  writers' frontmatter) reached no writer**; the −24% it measured came from the `preload`
+  lever, which appends the skill to the prompt — the path that works. New lever
+  `dispatch.preload_declared` appends every agent's declared skills that way. **Off until
+  sized:** it adds ~13k tokens to a writer's first message, and whether the doctrine pays
+  for itself at that size is a run-level question the lab is answering now
+  (`ab.sh preload_declared`). Verified live: with it on, the same writer answered PRESENT
+  for all three and quoted their real headings.
+- **`dispatch.lean_catalog`, on by default — the stated exception to "off until sized".**
+  The Skill tool lists every skill a session can see, and a dispatched worker's list held
+  17 bundled CLI skills (dataviz, claude-api, keybindings-help…) and the plugin's 10
+  orchestrator commands it must never run. The catalog is now the plugin's skills plus
+  the project's own `.claude/skills/*`. Measured on a worker's first request: 26,130 →
+  22,743 tokens (−13%; ~6% of a field first request), paid at cache-read rate on every
+  later turn. It is the exception because it removes rather than changes, and its
+  effect is below run variance by construction; `ab.sh lean_catalog` exists to size it
+  anyway. One behavioural effect, welcome: in 4 of 463 transcripts a worker answered a
+  permission denial by invoking the bundled `update-config` skill to grant itself
+  `Write`; that skill is no longer in reach. The review caught a real defect before it
+  shipped: a plugin-only list hid a consuming project's own skills — unlisted, and an
+  invoke rejected with an error that is not a permission denial, so the dispatcher would
+  never have seen it. The union is the fix, with a test.
+- **No cloud connectors on a dispatch.** The account's claude.ai "Claude Docs" MCP
+  connector attached to every worker (~1.2s) and put ~500 tokens of its instructions
+  into every first message, for tools the agent's `tools:` ceiling never lets it call.
+  `disableClaudeAiConnectors: true` is now in every dispatch's settings. With the lean
+  catalog: 26,130 → 21,028 tokens on the first request (−19.5%).
+- **The 0.10.7 hook was firing inside workers.** `SessionStart` runs in a dispatched
+  agent too (`startup`), and during a wave claims are always held, so the orchestrator's
+  pinned rules and every sibling's worktree landed in each worker's first message
+  (~1–2.7k tokens). The hook is silent when the payload names an agent.
+- **Tool-schema deferral: not applicable, and the numbers say why.** A worker's whole tool
+  set is Bash, Read, Edit, Write, Skill — the CLI drops Grep and Glob when Bash is on,
+  which is why 61 transcripts hold zero calls to either — about 2.3k tokens of schema,
+  under Anthropic's own "don't defer below ~10 tools" line. The CLI's tool search is on by
+  default and inert for an agent whose `tools:` frontmatter fixes the pool; forcing
+  `ENABLE_TOOL_SEARCH=true` measured 26,130 → 26,130. And a deferral-hint flip is one of
+  the CLI's own recorded cache-break causes. Skill progressive disclosure is already how
+  the Skill tool works; what we choose to preload is the doctrine, and 0.10.5 measured
+  that paying for it is cheaper than not.
+
+- **Where the field's tokens actually go — the finding that outranks the rest.** The
+  review tallied TipDonkey's five campaign sessions of 15–17 September: orchestrator
+  163.5M prompt tokens, plugin agents spawned through the **Agent tool** 67.2M, agents
+  through `dispatch.sh` 6.9M. Eighteen of the ~22 plugin-agent runs (architect, planner,
+  analyst, analyst-survey) went through the Agent tool inside the orchestrator, where
+  `/design` and `/plan-swarm` say `dispatch.sh` and `campaign-loop` §3a half-assumes the
+  Agent tool. That path has no budget ceiling, no sandbox, no telemetry, and none of
+  these levers — every measurement in this series is of the 3% path. Whether the
+  read-only agents belong on `dispatch.sh` (ceiling, telemetry, levers) or on the Agent
+  tool (frontmatter preloads work there; no worktree) is an owner decision, recorded
+  here rather than made.
+- **A conformance guard for the catalog.** `make conformance` now connects the real CLI
+  once (no API call) and asserts it lists exactly the catalog the dispatcher named: the
+  CLI stores the list unvalidated and lists the intersection, so a CLI upgrade that
+  changed the matching would shrink a worker's catalog silently. The SDK is lock-pinned
+  (0.2.152, bundled CLI 2.1.259) but declared `>=`.
+
+- **mechanical** — re-stamp `harness.version`, when convenient. Nothing to set:
+  `lean_catalog` applies on the next dispatch; `preload_declared` waits for its number.
