@@ -71,10 +71,11 @@ def summarise(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 # cutting it off. Counted apart so a tier that keeps dying is visible.
                 "budget_kills": sum(1 for e in es if e.get("terminal") == "budget"),
                 # TOOL RESULTS AS A SHARE OF THE PROMPT, token-weighted like the cache
-                # figures. Field: 28% per worker; lab: 6%. Measured only where the
+                # figures. Field: 28% per worker; lab: ~7%. Measured only where the
                 # transcript was found, so a group can show "—" beside real costs.
                 "result_share_pct": _result_share(es),
                 "large_results": sum(int(e.get("large_results") or 0) for e in es),
+                "cache_breaks": sum(int(e.get("cache_breaks") or 0) for e in es),
             }
         )
     return sorted(rows, key=lambda r: -r["total_usd"])
@@ -106,7 +107,7 @@ def main() -> int:
     print(
         f"{'agent':<22}{'tier':<11}{'provider':<11}{'n':>4}"
         f"{'total $':>10}{'mean $':>9}{'turns':>7}{'fail%':>7}{'esc':>5}"
-        f"{'kills':>7}{'cache%':>8}{'write%':>8}{'results%':>10}{'large':>7}"
+        f"{'kills':>7}{'cache%':>8}{'write%':>8}{'results%':>10}{'large':>7}{'breaks':>8}"
     )
     pct = lambda v: "—" if v is None else str(v)  # noqa: E731
     for r in rows:
@@ -115,7 +116,7 @@ def main() -> int:
             f"{r['total_usd']:>10.3f}{r['mean_usd']:>9.4f}"
             f"{r['mean_turns']:>7.1f}{r['fail_pct']:>7}{r['escalations']:>5}"
             f"{r['budget_kills']:>7}{pct(r['cache_hit_pct']):>8}{pct(r['cache_write_pct']):>8}"
-            f"{pct(r['result_share_pct']):>10}{r['large_results']:>7}"
+            f"{pct(r['result_share_pct']):>10}{r['large_results']:>7}{r['cache_breaks']:>8}"
         )
     total = sum(r["total_usd"] for r in rows)
     kills = sum(r["budget_kills"] for r in rows)
@@ -127,7 +128,9 @@ def main() -> int:
     print(
         "results% = the share of the prompt that was the agent's own tool results, re-read "
         "every later turn; large = results of 8k+ chars (a whole file, an unwindowed grep). "
-        "Field workers ran at 28%; the fix is windowed reads, not a shorter prompt."
+        "Field workers ran at 28%; the fix is windowed reads, not a shorter prompt. "
+        "breaks = requests that re-wrote a prefix the previous request had cached — a TTL "
+        "expiry over a long test run, or something above the history changing."
     )
     print(
         "A tier is worth keeping when its fail% and escalations stay low. "

@@ -30,6 +30,7 @@ METRICS: tuple[tuple[str, str, str, bool], ...] = (
     ("output_tokens", "output", "tok", True),
     ("tool_result_chars", "tool results", "chars", True),
     ("carried_result_tokens", "results carried", "tok", True),
+    ("cache_breaks", "cache breaks", "", True),
 )
 
 

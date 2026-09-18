@@ -9,7 +9,7 @@ Measured on two field workers (TipDonkey, 0.9.6): 205k chars of results per sess
 carried ≈1.7M of 6.2M input tokens — 28%. None of it was test output, which workers
 already `| tail`: it was the memories index at turn 2 (18k chars, carried the whole
 session), whole-file reads (38k, 54k) and `grep -A 400` on a large document, three
-times for the same section. The lab's workers: 21k chars, 6%, nothing over 8k. So this
+times for the same section. The lab's workers: 21k chars, ~7%, nothing over 8k. So this
 is field telemetry; the lab cannot show what it measures.
 """
 
@@ -24,6 +24,12 @@ from typing import Any
 
 #: A result this size or larger is one the worker should have windowed or offloaded.
 LARGE_CHARS = 8_000
+#: A request that read less from cache than the previous one had put there is a break.
+#: Classified by the gap since the previous request — the CLI's own diagnostic uses the
+#: same rule, behind a flag this build cannot set, and the API's `cache_miss_reason` is
+#: null on every request in every transcript here. So it is derived, per request.
+TTL_5M_S = 5 * 60
+TTL_1H_S = 60 * 60
 
 
 @dataclass(frozen=True)
@@ -31,10 +37,16 @@ class ResultVolume:
     results: int = 0
     chars: int = 0
     large: int = 0
-    #: chars × later turns ÷ 4 — the tokens those results added to every prompt after
+    #: chars × later requests ÷ 4 — the tokens those results added to every prompt after
     #: the one that fetched them. An estimate; the transcript does not carry tokens.
     carried_tokens: int = 0
     by_tool: dict[str, int] = field(default_factory=dict)
+    #: Requests whose cache read fell short of what the previous request had cached, by
+    #: the gap that explains them: ttl_5m / ttl_1h (the prompt was unchanged and the
+    #: cache aged out) or mutation (something before the history changed — system prompt,
+    #: tools, an edited message). And what those breaks re-wrote, in tokens.
+    cache_breaks: dict[str, int] = field(default_factory=dict)
+    rewritten_tokens: int = 0
 
     def telemetry(self) -> dict[str, Any]:
         return {
@@ -43,6 +55,9 @@ class ResultVolume:
             "large_results": self.large,
             "carried_result_tokens": self.carried_tokens,
             "result_chars_by_tool": dict(sorted(self.by_tool.items(), key=lambda kv: -kv[1])),
+            "cache_breaks": sum(self.cache_breaks.values()),
+            "cache_break_reasons": dict(self.cache_breaks),
+            "rewritten_tokens": self.rewritten_tokens,
         }
 
 
@@ -72,11 +87,30 @@ def _text(content: Any) -> str:
     return ""
 
 
+def _when(row: dict[str, Any]) -> float | None:
+    ts = row.get("timestamp")
+    if not isinstance(ts, str):
+        return None
+    from datetime import datetime
+
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
 def result_volume(path: Path) -> ResultVolume:
-    """One pass over a transcript: every tool result's size and the turn it arrived in."""
+    """One pass over a transcript: every tool result's size and the request it arrived
+    in, and every request's cache figures. A request is one API call; the CLI writes one
+    row per content block, all sharing a `requestId`, so rows are not requests."""
     turns = 0
     names: dict[str, str] = {}
     seen: list[tuple[int, int, str]] = []
+    last_request: str | None = None
+    prev_cached = 0
+    prev_at: float | None = None
+    breaks: dict[str, int] = {}
+    rewritten = 0
     with path.open(errors="replace") as fh:
         for line in fh:
             try:
@@ -85,7 +119,25 @@ def result_volume(path: Path) -> ResultVolume:
                 continue
             msg = row.get("message") or {}
             if row.get("type") == "assistant":
-                turns += 1
+                rid = str(row.get("requestId") or msg.get("id") or f"row-{turns}-{id(row)}")
+                if rid != last_request:
+                    last_request = rid
+                    turns += 1
+                    usage = msg.get("usage") or {}
+                    read = int(usage.get("cache_read_input_tokens") or 0)
+                    wrote = int(usage.get("cache_creation_input_tokens") or 0)
+                    at = _when(row)
+                    if turns > 1 and read < prev_cached:
+                        gap = (at - prev_at) if (at is not None and prev_at is not None) else None
+                        reason = (
+                            "ttl_1h" if gap is not None and gap > TTL_1H_S
+                            else "ttl_5m" if gap is not None and gap > TTL_5M_S
+                            else "mutation"
+                        )
+                        breaks[reason] = breaks.get(reason, 0) + 1
+                        rewritten += wrote
+                    prev_cached = read + wrote
+                    prev_at = at
             content = msg.get("content")
             if not isinstance(content, list):
                 continue
@@ -105,6 +157,8 @@ def result_volume(path: Path) -> ResultVolume:
         large=sum(1 for _, n, _ in seen if n >= LARGE_CHARS),
         carried_tokens=sum(n * (turns - t) for t, n, _ in seen) // 4,
         by_tool=by_tool,
+        cache_breaks=breaks,
+        rewritten_tokens=rewritten,
     )
 
 

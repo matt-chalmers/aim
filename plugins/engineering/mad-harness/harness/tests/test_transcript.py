@@ -117,3 +117,47 @@ def test_the_cost_report_shows_results_as_a_share_of_the_prompt_and_dash_when_un
     # Only the measured dispatch counts toward the share — an unmeasured one is not a zero.
     assert by["a"]["result_share_pct"] == 28 and by["a"]["large_results"] == 3
     assert by["b"]["result_share_pct"] is None and by["b"]["large_results"] == 0
+
+
+def _request(rid, ts, read, wrote, *content):
+    return {"type": "assistant", "requestId": rid, "timestamp": ts,
+            "message": {"role": "assistant", "id": rid, "usage": {"cache_read_input_tokens": read, "cache_creation_input_tokens": wrote, "input_tokens": 2},
+                        "content": list(content)}}
+
+
+def test_rows_of_one_request_are_one_turn(tmp_path):
+    """The CLI writes one row per content block: thinking, tool_use, tool_use — three rows,
+    one API call. Counting rows as turns overweighted every result by the block count."""
+    p = tmp_path / "s.jsonl"
+    _session(p, [
+        _request("r1", "2026-09-18T02:35:57Z", 0, 15_000, {"type": "thinking"}),
+        _request("r1", "2026-09-18T02:35:58Z", 0, 15_000, _use("a", "Bash")),
+        _request("r1", "2026-09-18T02:35:59Z", 0, 15_000, _use("b", "Bash")),
+        _user(_result("a", "x" * 4_000), _result("b", "y" * 4_000)),
+        _request("r2", "2026-09-18T02:36:10Z", 15_000, 2_100, _use("c", "Bash")),
+        _user(_result("c", "z")),
+    ])
+    v = mod.result_volume(p)
+    assert v.results == 3 and v.carried_tokens == (8_000 * 1 + 1 * 0) // 4
+    assert v.cache_breaks == {} and v.rewritten_tokens == 0
+
+
+def test_a_cache_break_is_named_by_the_gap_that_explains_it(tmp_path):
+    """Request 2 read everything request 1 cached: no break. Request 3, six minutes later,
+    read less than request 2 had cached: the 5-minute TTL aged out. Request 4, seconds
+    later, read less again: the prompt above the history changed. Request 5, 61 minutes
+    on: the 1-hour TTL."""
+    p = tmp_path / "s.jsonl"
+    _session(p, [
+        _request("r1", "2026-09-18T02:00:00Z", 0, 15_000),
+        _request("r2", "2026-09-18T02:00:30Z", 15_000, 1_000),
+        _request("r3", "2026-09-18T02:06:40Z", 14_000, 2_000),
+        _request("r4", "2026-09-18T02:06:50Z", 9_000, 7_000),
+        _request("r5", "2026-09-18T03:08:00Z", 0, 16_000),
+        _request("r6", "2026-09-18T03:08:10Z", 16_000, 500),
+    ])
+    v = mod.result_volume(p)
+    assert v.cache_breaks == {"ttl_5m": 1, "mutation": 1, "ttl_1h": 1}
+    assert v.rewritten_tokens == 2_000 + 7_000 + 16_000
+    t = v.telemetry()
+    assert t["cache_breaks"] == 3 and t["cache_break_reasons"] == v.cache_breaks and t["rewritten_tokens"] == 25_000

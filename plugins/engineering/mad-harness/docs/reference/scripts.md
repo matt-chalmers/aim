@@ -44,6 +44,7 @@ it.
 | `swarm/worktree-sweep.sh [--apply] [--prune-orphans]` | reclaims worktrees a wave left behind, and classifies worker refs that no worktree points at |
 | `swarm/preserve-worktrees.sh [--to DIR]` | writes every worker worktree's uncommitted diff, untracked files and unmerged commits to a dated folder — `/halt`'s first step, before anything is removed |
 | `swarm/resume-point.sh <task-id> [--json]` | where a task's work already is — MERGE, VERIFY, REATTACH or FRESH — so a resumed run adopts it instead of redoing it |
+| `swarm/pinned.sh [--always] [--transcript PATH]` | the campaign's pinned state — claims, merge slot, worktrees, the loop's rules — read from disk; the `SessionStart` hook prints it after a compaction, resume or start whenever a campaign is in flight, naming every pinned id the compaction summary dropped |
 
 The sweep detects the default branch rather than assuming `main`. A sweep that dies leaves
 every worktree behind, which is the state it exists to prevent.

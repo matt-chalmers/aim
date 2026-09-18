@@ -45,6 +45,32 @@ question. Parking is always better than deciding.
 
 ---
 
+## After a compaction — the rules that must survive it
+
+This skill reaches you as a message, and a message is what compaction summarises away.
+Measured: one campaign session's summary kept 2 of the 9 task ids the previous 400 rows
+named and dropped two that were mid-dispatch. So the harness does not rely on the summary.
+A `SessionStart` hook (`compact|resume|startup`) prints the **pinned state** — claims,
+merge slot, worktrees, the block below — read from the tracker and git, and names every
+pinned id the summary dropped. When you see it, trust it over the summary, and re-read
+this skill's §4 before your next action.
+
+<!-- PINNED -->
+- **Never answer a `decision` task.** Park the epic: `tk.sh gate create` AND `tk.sh update <epic> --status blocked`. Move on.
+- **One epic at a time.** §3 → §4 waves → §5 close → §6 report → next. Never fan §3 across the queue.
+- **Every dispatch goes through `dispatch.sh --worker N`** into a worktree; never edit the primary checkout during a wave.
+- **No close without the lens gate** — L1–L3 always, L4 when its trigger fires; unanimity to pass.
+- **Ask `resume-point.sh <id>` before dispatching any claimed task.** A branch with commits is MERGE/VERIFY/REATTACH, never FRESH.
+- **`tk.sh release` what you stop, `preserve-worktrees.sh` before you remove.** Uncommitted work is reported, never deleted.
+- **Workers never push. You push once per wave, at `/swarm` step 9,** after the lens gate and the whole-repo wave gate — the push is the wave's terminal action, never a mid-wave one.
+- **`tk.sh autosync on` at §5**, or in `/halt` if the run dies first.
+<!-- END PINNED -->
+
+The block above is what `${CLAUDE_PLUGIN_ROOT}/harness/swarm/pinned.sh` prints. It is the digest; the sections
+it points at are the rule. Edit it when a rule changes and nowhere else.
+
+---
+
 ## 0. Pre-flight — once per run
 
 ```bash

@@ -378,7 +378,7 @@ built from what the transcripts showed rather than as framed. No config change.
   every turn after the fetch. **None of it was test output**, which workers already
   `| tail`; it was the memories index at turn 2 (18k, carried fifty turns), whole files
   read in one call (38k, 54k) and `grep -A 400` on one document, three times for the
-  same section. The lab's workers carry 6% with nothing over 8k, so the lab cannot
+  same section. The lab's workers carry ~7% with nothing over 8k, so the lab cannot
   A/B this lever — it is a field measurement, which is why the first change is telemetry.
 - **Every dispatch record now carries its result volume**, read back from the session
   transcript: `tool_results`, `tool_result_chars`, `large_results` (8k+),
@@ -407,3 +407,39 @@ built from what the transcripts showed rather than as framed. No config change.
 
 - **mechanical** — re-stamp `harness.version`, when convenient. Run `make models-cost`
   after the next wave: `results%` is the number this release exists to show.
+
+### 0.10.7
+
+**The campaign survives its own compaction, and cache breaks are counted.** Two
+suggestions from the field, checked against the transcripts before either was built. No
+config change; the hook installs with the plugin.
+
+- **Compaction was losing the ids in flight.** One campaign session's summary kept 2 of
+  the 9 task ids the previous 400 rows named and dropped two that were mid-dispatch. The
+  loop's rules go the same way: `campaign-loop` arrives through the Skill tool as a
+  message, which is what compaction summarises. Workers never compact (0 of 33
+  transcripts); the orchestrator does, once or twice per long session, and every field
+  bug about abandoned worktrees and re-dispatched tasks sits downstream of it.
+  **The plugin now ships a `SessionStart` hook** (`compact|resume|startup`) that runs
+  `swarm/pinned.sh`: claims, merge slot, harness worktrees and the loop's pinned rules,
+  read from the tracker and git — never from memory — printed into the new context
+  whenever a campaign is in flight, and silent otherwise. After a compaction it also
+  finds the summary in the transcript and names every pinned id it dropped, which is
+  the one check the summary cannot make of itself. The rules are one marked block in
+  `campaign-loop` ("After a compaction"), the digest of the sections it points at.
+- **Cache breaks per dispatch, derived.** The API's `cache_miss_reason` is null on every
+  request in every transcript here, and the CLI's own cache-break diagnostic sits behind
+  a flag this build cannot set. So the transcript reader classifies each request whose
+  cache read fell short of what the previous one had cached, by the gap that explains it:
+  `ttl_5m`, `ttl_1h` or `mutation`. Recorded as `cache_breaks`, `cache_break_reasons` and
+  `rewritten_tokens`; `make models-cost` shows `breaks` per tier and `ab-report.sh` reads
+  it. Across 7 field and lab worker transcripts: zero breaks — consistent with the 98%
+  hit rate and the null `cache_ttl` result. Long test runs in the field are where they
+  would appear.
+- **Requests, not rows.** The 0.10.6 reader counted transcript rows as turns; the CLI
+  writes one row per content block, so a thinking + two tool calls message counted three
+  times. Both sides of the result-share ratio were affected equally — 28% in the field
+  stands, the lab is ~7% — but `carried_result_tokens` per dispatch is now on requests.
+
+- **mechanical** — re-stamp `harness.version`, when convenient. Restart Claude Code once
+  after `plugin update` so the hook registers.

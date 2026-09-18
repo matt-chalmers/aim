@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "compact|resume|startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/harness/swarm/pinned.sh\" --hook",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
