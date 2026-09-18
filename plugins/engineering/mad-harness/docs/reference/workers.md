@@ -58,14 +58,26 @@ export SWARM_LANE=backend
   call is refused.
 
 `verify/run.sh` loads it via `commands.py::_worker_env()` — a five-line parser, not a
-shell — and that is the sanctioned path.
+shell — and that is the sanctioned path. It looks for it at the root of the checkout the
+caller stands in (`CHECKOUT`), which is the worker's worktree; it once looked in the
+project (`REPO`), so a worker's suite ran against the primary's code and the shared
+database, green with the worker's own change broken. Every command's whole output is kept
+at `.harness/run/out/<stack>-<key>.log` in that checkout, and the report carries a digest
+and the path.
 
 ## Lifecycle
 
 Worktrees are created on demand by `dispatch()` when the agent declares
-`isolation: worktree`, and reclaimed after the wave. They are never reused: a leftover
-worktree from a failed wave carries a stale branch and a stale `.swarm-env`, so the
-harness refuses rather than silently inheriting it.
+`isolation: worktree`, and reclaimed after the wave. A fresh dispatch never inherits one
+silently — a leftover from a failed wave carries a stale branch and a stale `.swarm-env`,
+so `dispatch()` refuses and names the sweep. But a run that was *stopped* leaves work worth
+adopting, and that is a decision the harness makes explicit rather than defaulting either
+way: `resume-point.sh <task>` reads the branch, the worktree and the task's notes and
+answers **MERGE** (committed, verified — merge it), **VERIFY** (committed, not yet judged),
+**REATTACH** (uncommitted edits in the worktree — `dispatch.sh --resume <branch>` adopts
+them) or **FRESH**. Nothing ahead of main is always FRESH; a false "landed" once closed work
+nobody had done. `/halt` runs `preserve-worktrees.sh` first, so every worktree's diff and
+unmerged commits are copied under `.harness/halted-<date>/` before anything is removed.
 
 ```bash
 # created by dispatch when the agent declares isolation: worktree
@@ -83,9 +95,10 @@ harness/swarm/worktree-sweep.sh --apply    # remove
 
 | case | behaviour |
 |---|---|
-| worktree path already exists | `DispatchError` naming the sweep command — never silent reuse |
+| worktree path already exists | `DispatchError` naming the sweep command — never silent reuse; `--resume <branch>` is the explicit adoption |
 | agent declares `isolation: worktree`, cwd is the primary checkout | refused; a wave that proceeds corrupts the main tree |
-| worker stopped mid-task (budget, crash) | partial edits remain, uncommitted and isolated. The sweep reports them rather than discarding |
+| worker stopped mid-task (budget, crash) | partial edits remain, uncommitted and isolated. The sweep reports them rather than discarding; `resume-point.sh` says REATTACH; `preserve-worktrees.sh` copies them out before a release |
+| a branch or worktree with no live task — the residue of a killed run | the sweep's second pass lists it as an orphan ref; `--prune-orphans` removes what carries no unmerged commit |
 | default branch is not `main` | detected via `origin/HEAD`, then `main`/`master`/`trunk`, then error |
 
 ## Concurrency primitives

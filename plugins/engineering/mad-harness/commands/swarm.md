@@ -47,13 +47,10 @@ decorrelated.
 ## 1. Pre-flight
 
 ```bash
-git status --porcelain          # must be clean
-${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --strict   # exit 3 = the plugin moved on since this config was reviewed: stop, run /harness-setup
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-check             # must exist and be free
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh autosync off # stop beads staging issues.jsonl into a sibling's commit
-                                # (step 9 restores it — if a run dies before then, /halt does)
-${CLAUDE_PLUGIN_ROOT}/harness/checks/check-ports.sh   # declared `ports:` already bound — a server left over from a killed run
-df -h . | tail -1                          # disk headroom — worktrees consume it (informational)
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/preflight.sh    # ONE call: clean tree, config current (exit 3 = the plugin moved on since
+                                                    # this config was reviewed: stop, run /harness-setup), merge slot free,
+                                                    # autosync off (step 9 restores it; /halt if the run dies first), declared
+                                                    # ports unbound, disk headroom. It was six calls at your context's price.
 git worktree list && git worktree prune   # worktrees stranded by a previous killed run
 ${CLAUDE_PLUGIN_ROOT}/harness/swarm/worktree-sweep.sh                # then the real sweep — see below, prune alone is a no-op
 ${CLAUDE_PLUGIN_ROOT}/harness/checks/check-stack-commands.sh --repair   # do the declared commands still work?

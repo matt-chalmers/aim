@@ -104,7 +104,7 @@ What happens, in order:
 
 | step | effect |
 |---|---|
-| pre-flight | clean-tree check; tracker `autosync off` |
+| pre-flight | `preflight.sh`: clean tree, config current, merge slot free, `autosync off`, ports unbound |
 | dispatch | one worker per ready task, each in its own worktree |
 | claim | `O_EXCL` per task — a double-dispatch loses rather than corrupting |
 | implement | worker edits, runs the scoped suite, commits once |
@@ -116,6 +116,7 @@ What happens, in order:
 ```bash
 git log --oneline --graph -10          # one merge per task
 harness/tracker/tk.sh list             # tasks closed with reasons
+make models-cost                       # what each agent and tier cost — see concepts/cost.md
 ```
 
 If a dispatch reports not-ok, read **stderr**, not stdout — denials are printed there. See

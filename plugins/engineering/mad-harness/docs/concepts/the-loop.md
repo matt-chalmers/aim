@@ -10,10 +10,10 @@ whether it advances.
 | requirement | `/requirements` | `analyst-survey` → owner | verdict is ADEQUATE or INFERABLE, not ABSENT |
 | spec | (in loop) | `spec-editor` | `proposal.md` exists in the staging folder |
 | design | `/design` | `architect` | `design.md` names the approach and its trade-offs |
-| tasks | `/plan-swarm` | `planner` | `validate` reports no cycles, no orphans, no intra-wave file collisions |
+| tasks | `/plan-swarm` | `planner` | `apply-plan.sh` has applied the plan and `validate` reports no cycles, no orphans, no intra-wave file collisions |
 | wave | `/swarm` | `fullstack-engineer` ×N | every task committed, whole-repo gate green |
 | verify | (in wave) | 4 lenses | every **blocking** finding remediated and re-verified; non-blocking findings filed |
-| fold-in | `/landit` or campaign | `spec-editor` | staging folder archived, durable docs carry its content |
+| fold-in | `/landit` or campaign | `spec-editor` | staging folder archived, durable docs carry its content — `close-epic.sh` refuses the close until it is |
 
 `/campaign` iterates this over the epic queue; `/campaign-auto` runs it unattended.
 `/grind` is the serial alternative to a wave.
@@ -76,11 +76,14 @@ Folding in at close means the spec is written by whoever just built the thing, a
 faithfully documents the shortcut. Written first, it is an independent target the lenses
 judge against — which is the only way L3's verdict means anything.
 
-## Scheduling is deterministic
+## Scheduling is deterministic — and so is applying, closing and pre-flight
 
 `ready()` and `validate()` are graph walks in `tracker/graph.py`. No model decides what runs
 next: a topological sort already has the answer, costs nothing, and does not vary between
-runs.
+runs. The same rule now covers the loop's other mechanical sequences: `preflight.sh`,
+`apply-plan.sh` (the planner's labelled command block, validated whole before anything is
+written) and `close-epic.sh` are scripts, because a step with no judgement in it costs
+nothing as a script and ~$0.17 a call as a model turn at the orchestrator's context size.
 
 ## Procedure
 

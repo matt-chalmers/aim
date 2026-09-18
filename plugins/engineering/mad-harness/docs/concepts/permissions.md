@@ -64,6 +64,7 @@ name would go stale the first time an agent changed shape.
 permission_for(agent) -> (mode, grants)
 # mode:   "acceptEdits" if frontmatter tools contain Edit|Write, else "default"
 # grants: harness scripts (both loader spellings) + project toolchains + operator grants
+#         + Skill(<name>) for each skill in the lean catalog — the plugin's and the project's own
 ```
 
 Three grants per agent. Measured across full two-wave runs:
@@ -101,6 +102,22 @@ Permission rules match command **text**, before shell expansion.
 | `VAR=x cmd` | the string starts with `VAR=`, not the command | let the runner supply the env |
 | `$DIR/script` | matching is textual; the variable is not expanded first | absolute path |
 | `source f` | evaluates its argument as shell code | `verify/run.sh` loads it |
+
+**A compound is the commonest denial, and the doctrine answers it.** 55% of lab dispatches
+once hit a denial, every one the same shape: the delete-the-implementation check
+hand-rolled as `cp … && cat > … <<EOF … && pytest`. `test-doctrine` §3 does that check as
+three granted tool calls, and `evidence-gathering` says when to use `mutate.sh` instead.
+
+## Hooks
+
+The plugin installs two, in `hooks/hooks.json`. Neither widens anything.
+
+| hook | does |
+|---|---|
+| `PreToolUse` on `Agent` / `Task` — `swarm/guard-agent-tool.sh` | refuses `Agent(subagent_type: <plugin>:<agent>)` and prints the `dispatch.sh` form: the tier, the ceiling, the sandbox and the cost record exist only on that path, and 67.2M tokens went through the Agent tool without them in five field sessions |
+| `SessionStart` on `compact` / `resume` / `startup` — `swarm/pinned.sh` | prints the orchestrator card after a compaction or resume, and the campaign's pinned state (claims, merge slot, worktrees, the loop's rules — from disk, never memory) when one is in flight, naming every id the compaction summary dropped |
+
+Both deny or inform; the plugin never installs a hook that grants.
 
 ## The operator queue
 

@@ -1,6 +1,6 @@
 ---
 name: test-doctrine
-description: 'The single testing standard for this repository — what "tested" means, what a decorative test looks like, the mutation-testing method, and the recorded traps that have burned us. Portable: the layout and command sections point at your repository''s harness.yaml and stack modules. Preloaded by fullstack-engineer (builds to it), quality-engineer (hardens to it), and verifier + verifier-tests (judge against it).'
+description: 'The single testing standard for this repository — what "tested" means, what a decorative test looks like, the mutation-testing method, and the recorded traps that have burned us. Portable: the layout and command sections point at your repository''s harness.yaml and stack modules. Declared by fullstack-engineer (builds to it), quality-engineer (hardens to it), and verifier + verifier-tests (judge against it).'
 ---
 
 # Test doctrine

@@ -9,7 +9,7 @@ Look something up. For *why*, see [concepts/](../concepts/).
 | [Agents](agents.md) | the twelve agents and their frontmatter contract |
 | [Skills](skills.md) | the thirteen skills |
 | [Stacks](stacks.md) | the toolchain and framework module schema |
-| [Checks](checks.md) | the twenty mechanical gates |
+| [Checks](checks.md) | the mechanical gates |
 | [Scripts](scripts.md) | shell entry points |
 | [Tracker ports](tracker-ports.md) | the four ports and the conformance contract |
 | [Dispatch](dispatch.md) | `Resolved`/`Outcome`, tier resolution, injected context, telemetry |

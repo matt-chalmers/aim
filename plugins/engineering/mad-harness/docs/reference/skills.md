@@ -31,6 +31,20 @@ restate them, because a summary is a second source and it drifts.
 Technology skills are loaded only when the lane uses them, which is what keeps the
 cost of supporting many technologies at zero for the ones not in use.
 
+## How a skill reaches a dispatched agent
+
+An agent *declares* its skills in frontmatter; what delivers them depends on the path. The
+CLI preloads them only when it spawns the agent through the Agent tool, which the harness
+never does. Through `dispatch.sh` the harness appends them to the prompt when
+`dispatch.preload_declared` is on (measured: −24% per run for the writers, off until the
+full series has sized it), and otherwise the agent loads them on demand through the Skill
+tool — every agent's body says to. `check-skills.sh` prints each agent's bill: the size
+of that append, paid once into cache per dispatch and read back every turn.
+
+The catalog a dispatched agent can load from is the plugin's skills plus the project's own
+`.claude/skills/*` (`dispatch.lean_catalog`); the CLI's bundled skills and the plugin's
+commands are not in it. See [cost](../concepts/cost.md).
+
 ## Setup
 
 | skill | for |
@@ -40,8 +54,10 @@ cost of supporting many technologies at zero for the ones not in use.
 ## The mirrored block
 
 Two skills — `evidence-gathering`, `spec-lifecycle` — each carry a byte-identical
-**harness conventions** block, so every agent that preloads either gets the rules; the
-check also fails any agent whose preloads include neither. `check-conventions-mirror.sh`
+**harness conventions** block, so every agent that declares either gets the rules; the
+check also fails any agent whose declarations include neither. The dispatcher injects a
+two-line digest of the block into every prompt as well, for an agent whose skills have
+not been delivered yet. `check-conventions-mirror.sh`
 fails on a partial edit: change both or neither. (`worker-protocol` carried a third copy
 until the writers took `evidence-gathering` and paid for it twice.)
 

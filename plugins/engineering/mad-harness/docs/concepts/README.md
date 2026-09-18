@@ -11,3 +11,4 @@ Why the harness is shaped the way it is. Read these to understand it; read
 | [Tasks and tracking](tasks-and-tracking.md) | records, the DAG, waves, and swappable backends |
 | [Verification](verification.md) | four lenses, and why they must not see the same evidence |
 | [Permissions](permissions.md) | the sandbox, the small allowlist, and the operator queue |
+| [Cost](cost.md) | what every dispatch records, the levers and what each measured, and where the money is |

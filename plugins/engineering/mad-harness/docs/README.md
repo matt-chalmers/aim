@@ -25,6 +25,7 @@ Running it: [Getting started](getting-started.md). Evaluating it first:
 | [Tasks and tracking](concepts/tasks-and-tracking.md) | records, the DAG, waves, and swappable backends |
 | [Verification](concepts/verification.md) | four lenses, why they must not see the same evidence |
 | [Permissions](concepts/permissions.md) | the sandbox, the allowlist, and the operator queue |
+| [Cost](concepts/cost.md) | what every dispatch records, the levers and what each measured, where the money is |
 
 **I want to look something up**
 | page | answers |
@@ -34,10 +35,10 @@ Running it: [Getting started](getting-started.md). Evaluating it first:
 | [Agents](reference/agents.md) | the twelve agents |
 | [Skills](reference/skills.md) | the thirteen skills |
 | [Stacks](reference/stacks.md) | the toolchain module schema |
-| [Checks](reference/checks.md) | the twenty mechanical gates |
+| [Checks](reference/checks.md) | the mechanical gates |
 | [Scripts](reference/scripts.md) | shell entry points |
 | [Tracker ports](reference/tracker-ports.md) | the four ports and the conformance contract |
-| [Dispatch](reference/dispatch.md) | `Resolved`/`Outcome`, tier resolution, injected context, telemetry |
+| [Dispatch](reference/dispatch.md) | `Resolved`/`Outcome`, tier resolution, injected context, the result file, telemetry, hooks |
 | [Wave lifecycle](reference/swarm.md) | the ten steps of /swarm, its feedback paths, and what blocks what |
 | [Workers](reference/workers.md) | worktree isolation, shared state, `.swarm-env`, concurrency primitives |
 

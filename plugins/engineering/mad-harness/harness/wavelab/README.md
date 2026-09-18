@@ -84,8 +84,30 @@ each in a fresh repository, every dispatch event tagged `lever:arm:run`.
 harness/wavelab/ab.sh static_prefix --runs 5 --fanout 8 --wave1-only   # the fan-out lever, at the size the analysis computed
 harness/wavelab/ab.sh cache_ttl     --runs 5 --wave1-only
 harness/wavelab/ab.sh task_budget   --runs 5                            # needs the whole epic: it is about finishing
+harness/wavelab/ab.sh preload_declared --runs 5                         # doctrine appended to every writer's prompt
 harness/wavelab/ab-report.sh static_prefix                              # medians, IQRs, and whether the spreads separate
 ```
+
+Levers the rig knows: `cache_ttl`, `static_prefix`, `stagger`, `task_budget`, `preload`,
+`lean_catalog`, `preload_declared` — the arms are in `ab.sh`'s header. What each measured,
+and which defaults moved on it, is the lever table in [cost](../../docs/concepts/cost.md).
+
+**Frozen code.** `ab.sh` checks the plugin out at HEAD into a worktree under the series
+root and dispatches every run from that copy; each run records the commit (`.ab-sha`) and
+the report flags an arm that mixes them. Edits to the live tree mid-series therefore
+change nothing — and the fresh check that aborted the first series is skipped for the
+frozen copy (`WAVELAB_SKIP_FRESH=1`). A finished run carries `.ab-done`, so a series can be
+relaunched after an interruption and skips what it has.
+
+**A closed usage window stops the series.** A dispatch whose result is "You've hit your
+session limit" is `terminal: usage_limit`, never a success; `ab.sh` discards that run and
+exits 5, and `series.sh` stops on it. 26 such runs were once recorded as passes.
+
+**Where the lab cannot look.** The lab has no orchestrator — `dispatch-wave.sh` is a
+script — so orchestrator numbers come from field transcripts (`checks/session-cost.sh`),
+and a lever whose effect is on the orchestrator's context cannot be sized here. The lab's
+workers also carry ~7% of their prompt as tool results against 28% in the field, so the
+result-volume levers are field measurements too.
 
 **Why not the field.** A campaign runs different tasks every time and the analysis that
 motivated this measured 30x token variance on IDENTICAL tasks. The field confirms a

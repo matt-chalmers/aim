@@ -1,7 +1,9 @@
 # Checks
 
-Twenty mechanical gates in [`harness/checks/`](../../harness/checks/). Each enforces a rule
-that would otherwise be a convention people drift from.
+The mechanical gates in [`harness/checks/`](../../harness/checks/) — the table below is
+generated from the directory, so it is always the current count. Each enforces a rule that
+would otherwise be a convention people drift from; three (`models-cost.sh`,
+`session-cost.sh`, `domain-report.sh`) are reports rather than gates and are not in `make check`.
 
 **Every guard carries a companion test proving it can fail.** A check that cannot fail is
 not a guard, it is decoration — and this corpus has caught itself shipping three.

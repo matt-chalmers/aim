@@ -1,6 +1,6 @@
 ---
 name: spec-lifecycle
-description: How a requirement becomes a spec and then code — what the staging directory holds, the two fold-in moments, and the rule that specs are allowed to lead the code. Preloaded by analyst and analyst-survey (which judge and survey requirements), spec-editor (which applies them) and architect (which designs against them).
+description: How a requirement becomes a spec and then code — what the staging directory holds, the two fold-in moments, and the rule that specs are allowed to lead the code. Declared by analyst and analyst-survey (which judge and survey requirements), spec-editor (which applies them) and architect (which designs against them).
 ---
 
 # Spec lifecycle

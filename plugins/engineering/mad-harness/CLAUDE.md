@@ -16,7 +16,7 @@ here.** If you find yourself writing "an agent must…" in this file, it belongs
 ## Commands
 
 ```bash
-make check        # lint, suite, project, skills, models, prose, commands — seconds
+make check        # lint, suite, project, skills, models, prose, commands, docs, the two mirrors — seconds
 make conformance  # the tracker contract against every backend's real binary — ~1 min
 make fmt          # format
 ```
@@ -71,7 +71,12 @@ These are checked, not merely asked for. `make check` will tell you.
   above it.
 - **No agent names a technology.** That reaches an agent through its lane's card.
 - **Every mechanical guard carries a companion test proving it can fail.**
-- **Two documents must not state the same fact.** Link, do not restate.
+- **Two documents must not state the same fact.** Link, do not restate. The two mechanical
+  exceptions are mirrors: the conventions block (two skills) and the orchestrator card
+  (every command), each byte-identical by check.
+- **A cost default moves only on a measurement whose spreads separate**, in its own patch
+  release, with the numbers in `docs/upgrading.md`. `harness/models/levers.py` states the
+  one exception.
 
 ## Changing the plugin
 

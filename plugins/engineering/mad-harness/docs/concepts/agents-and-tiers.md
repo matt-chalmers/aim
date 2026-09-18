@@ -8,25 +8,33 @@ the first time an agent changes shape.
 
 | tier | model | effort | ceiling | for |
 |---|---|---|---|---|
-| `worker` | `claude-sonnet-5` | high | $3.00 | well-specified work with a cheap recovery path |
+| `worker` | `claude-sonnet-5` | high | $3.00, and a told budget of 400k tokens | well-specified work with a cheap recovery path |
 | `strong` | `claude-opus-5[1m]` | xhigh | $4.00 | reasoning over a codebase, where being wrong is expensive to detect |
 | `strategic` | `claude-opus-5[1m]` | max | $8.00 | the work that decides what everything else builds against |
 
 Defined once in [`harness/models/tiers.yaml`](../../harness/models/tiers.yaml). An agent
-names a tier; it never names a model.
+names a tier; it never names a model. The worker's `task_budget_tokens` is the one figure
+that moved on a measurement — a worker told its budget paces, −32% per run with the
+spreads apart — and a project raises it in `harness.yaml` (`dispatch.task_budget_tokens`)
+when its tasks carry more to read than the lab's.
 
 ## How a tier is chosen
 
-Four sources, first match wins. `Resolved.reason` records which one applied, so a surprising
+Five sources, first match wins. `Resolved.reason` records which one applied, so a surprising
 bill can be traced to a decision rather than guessed at.
 
 1. **explicit override** — an operator or an escalation said so outright
-2. **policy** — high-risk work is forced up regardless of what follows
-3. **agent default** — `model_tier:` in the agent's own frontmatter
-4. **global default** — `default_tier:` in `tiers.yaml`
+2. **policy** — high-risk work is forced up regardless of what follows; a project override
+   can never lower it
+3. **project override** — `tiers:` in `harness.yaml`, agent → tier. The switch for moving a
+   lens between tiers without patching the plugin — `verifier-spec: worker`, say — and a
+   switch rather than a default because a verification gate's catch rate is measured in
+   the field before its tier moves for everyone
+4. **agent default** — `model_tier:` in the agent's own frontmatter
+5. **global default** — `default_tier:` in `tiers.yaml`
 
 `check-model-config.sh` fails the build if an agent names a tier that does not exist, so
-the two cannot drift.
+the two cannot drift; it judges the plugin's defaults, not a project's overrides.
 
 ## The agents
 
@@ -67,14 +75,20 @@ reads back. That replaced an estimate — `tokens ≈ 18,700 + 2,600 × tool_cal
 observation, which is the point of routing through a boundary at all.
 
 ```bash
-make models-cost     # per agent and tier: count, mean cost, mean turns, failure rate
+make models-cost     # per agent and tier: count, cost, turns, fail%, escalations, budget kills,
+                     #   cache hit and write %, results% (own tool results re-read), cache breaks
 ```
+
+What each column means, which levers exist and what each one measured, and where a
+campaign's money actually goes: [cost](cost.md).
 
 ## What `max_budget_usd` actually does
 
 It is passed to the SDK, so **Claude Code enforces it, not the harness.** When it trips the
-dispatch returns `error_max_budget_usd` with no result text, which `Outcome.ok` already
-treats as a failure.
+dispatch ends with `error_max_budget_usd`; the run's transcript so far, its cost and its
+turns are kept and recorded (`terminal: budget`), `Outcome.ok` is false, and `dispatch.sh`
+exits 3 so the swarm can route it. It is the ceiling the model never sees;
+`task_budget_tokens` is the budget it is *told*, and that is the one that changed the number.
 
 Three things it deliberately does **not** do:
 

@@ -19,6 +19,8 @@ make conformance  # the tracker contract against every backend's real binary (~1
 | dispatch, permissions, the tracker | `harness/wavelab/` — see [end to end](#testing-end-to-end) |
 | `docs/assets/src/*.d2` | `harness/checks/check-docs.sh --write` |
 | an agent's `model_tier` | `harness/checks/check-model-config.sh` |
+| a cost lever's default | `harness/wavelab/ab.sh <lever>` — a default moves only on numbers whose spreads separate |
+| `harness/orchestrator-card.md` | `harness/checks/check-orchestrator-card.sh --write` — every command carries it |
 
 ---
 
@@ -71,13 +73,16 @@ harness/models/dispatch.sh <name> --prompt-file /tmp/x.txt --dry-run
 | *what exists* — a schema, a contract, an inventory | [`docs/`](../README.md) |
 | *what an agent must do* — procedure, judgement, a rule | a skill |
 
-**Touching the mirrored conventions block means editing all three carriers** —
-`evidence-gathering`, `worker-protocol`, `spec-lifecycle`. `check-conventions-mirror.sh`
-fails on a partial edit.
+**Touching the mirrored conventions block means editing both carriers** —
+`evidence-gathering` and `spec-lifecycle`. `check-conventions-mirror.sh` fails on a partial
+edit, and fails any agent whose preloads include neither.
 
 **Skills cost tokens on every dispatch that preloads them.** A test asserts that adding a
 module leaves every agent's preload bill unchanged; keep a skill to the rules that are
-wrong often enough to be worth the budget.
+wrong often enough to be worth the budget. Note what "preload" means under dispatch:
+the CLI does not deliver an agent's frontmatter `skills:` to a `--agent` session; the
+harness appends them when `dispatch.preload_declared` is on, and otherwise the agent
+loads them on demand. The bill `check-skills.sh` prints is the size of that append.
 
 ---
 
@@ -148,11 +153,47 @@ Scope sweeps to shipped code and to **invocations**, not prose.
 
 ---
 
+## Add a cost lever
+
+A lever is a switch that is off until the lab has sized it. Read `models/levers.py`'s
+docstring first — it states the precedence and the one exception.
+
+**1.** Name it in `levers._ENV` (`MAD_HARNESS_<LEVER>`) and `_DEFAULT`; add its `harness.yaml`
+key to `Project.dispatch()` with validation.
+**2.** Read it in exactly one place — `Resolved.sdk_options`, `build_env` or `with_context`.
+**3.** Add its two arms to `wavelab/ab.sh` and its row to the lever table in
+[cost](../concepts/cost.md).
+**4.** Tests: the switch reaches the SDK option / env / prompt when on and is absent when
+off; the yaml key is validated; `snapshot()` records it.
+**5.** Run the series (`ab.sh <lever> --runs 5`), read `ab-report.sh`. The default moves only
+if the spreads separate, in its own patch release, with the numbers in `upgrading.md`.
+
+---
+
+## Add a hook
+
+The plugin installs hooks from `hooks/hooks.json`; a hook denies or informs, never grants.
+
+**1.** Logic in `models/<name>.py` with a `decision(payload) -> dict | None` (or a `main()`
+that reads the hook payload on stdin); a wrapper `swarm/<name>.sh` of the standard form.
+**2.** Register it: `"command": "\"${CLAUDE_PLUGIN_ROOT}/harness/swarm/<name>.sh\""` with a
+matcher and a timeout. Paths the hook *prints* must be absolute — hook output is injected
+verbatim, and `${CLAUDE_PLUGIN_ROOT}` is substituted only in skill and command text.
+**3.** A hook fires in dispatched workers too. Decide whether it should (the pinned-state
+hook is silent when the payload names an agent).
+**4.** Tests: the deny case, the pass case, a broken payload never breaking the tool call,
+and the registration itself. Pipe-test the wrapper end to end.
+
+---
+
 ## Add a telemetry metric
 
-**1.** Extend the payload in `models/dispatch.py::Outcome.telemetry`.
-**2.** Read it back in `models/report.py::summarise`.
-**3.** Confirm `make models-cost` still renders.
+**1.** Extend the payload in `models/dispatch.py::Outcome.telemetry` — or, for something
+read from the session transcript, `models/transcript.py::ResultVolume`.
+**2.** Read it back in `models/report.py::summarise`, and in `models/ab_report.py::METRICS`
+if a series should compare it.
+**3.** Confirm `make models-cost` still renders, and document the field in
+[cost](../concepts/cost.md).
 
 **Never put a credential in it.** `Resolved.redacted()` is the only serialiser, and it
 emits variable **names** — a provider token rendered into a record survives in the tracked

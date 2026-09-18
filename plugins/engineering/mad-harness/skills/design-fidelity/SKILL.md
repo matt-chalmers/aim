@@ -1,6 +1,6 @@
 ---
 name: design-fidelity
-description: How to implement or audit a screen against the Claude Design handover package — the handover source is the spec, never a screenshot; the one command that makes both mandatory steps un-skippable; and the evidence a screen must produce before it counts as done. Preloaded by fidelity-auditor (which judges) and fullstack-engineer (which builds).
+description: How to implement or audit a screen against the Claude Design handover package — the handover source is the spec, never a screenshot; the one command that makes both mandatory steps un-skippable; and the evidence a screen must produce before it counts as done. Declared by fidelity-auditor (which judges) and fullstack-engineer (which builds).
 ---
 
 # Design fidelity

@@ -29,8 +29,13 @@ them — a test asserts that **adding a module leaves every agent's preload bill
 
 ## Where a rule belongs
 
-Rules the harness owns are stated *by the harness*, in the three skills that between them
-reach every agent, and pinned byte-identical by `check-conventions-mirror.sh`.
+Rules the harness owns are stated *by the harness*, in the two skills that between them
+reach every agent (`evidence-gathering`, `spec-lifecycle`), and pinned byte-identical by
+`check-conventions-mirror.sh` — which also fails any agent whose preloads include neither.
+The orchestrator's rules take the same shape one level up: `harness/orchestrator-card.md`
+is mirrored into every command by `check-orchestrator-card.sh`, since a session becomes an
+orchestrator by running one, and printed again after every compaction by the plugin's
+`SessionStart` hook. Duplication is safe only when divergence is mechanical.
 
 They were once cited from a consuming project's `CLAUDE.md`, on the reasonable argument
 that duplicating it is pure cost. **That argument inverts once the rule is the harness's**:
@@ -54,8 +59,9 @@ The test: **does it ship, or does it run the agents that build what ships?**
 | `models/` | model routing, the dispatch boundary, permissions, config, telemetry |
 | `tracker/` | the four ports, two backends, graph, locks, events, render, archive |
 | `verify/` | briefs, scoped runs, mutation, fidelity, batched reads and searches |
-| `swarm/` | worktree lifecycle |
+| `swarm/` | worktree lifecycle, resume, the campaign's mechanical steps (pre-flight, apply-plan, close-epic), the hooks |
 | `campaign/` | campaign telemetry |
 | `checks/` | the mechanical gates |
 | `stacks/` `frameworks/` | the two module axes |
-| `wavelab/` | the live differential lab — two repos, two backends, real waves |
+| `wavelab/` | the live differential lab — two repos, two backends, real waves — and the A/B rig that sizes a cost lever |
+| `hooks/` (plugin root) | what the plugin installs into a session: the pinned-state hook and the Agent-tool guard |

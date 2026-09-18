@@ -39,7 +39,13 @@ high-risk work is forced up regardless of an agent's default.
 
 **A dispatch boundary.** Every agent runs through the Claude Agent SDK with a per-dispatch
 model, effort, hard budget ceiling and real token accounting — then the cost series is read
-back, so routing is measured rather than argued.
+back, so routing is measured rather than argued. A hook refuses the Agent tool for the
+plugin's own agents, so nothing runs outside the boundary.
+
+**Cost levers that moved on measurement.** Every lever is a switch recorded on each
+dispatch; a default moves only when an A/B in the lab separates the spreads, and the
+measurement ships in the release note. Two have moved (a told token budget, −32% per run;
+doctrine preloaded into writers, −24%); three measured null and stayed off.
 
 **Isolated parallel workers.** One git worktree per worker, dependencies restored per the
 stack module, a per-worker database so parallel workers cannot corrupt each other's
@@ -69,10 +75,10 @@ never a code change, and never an agent change.
 | | |
 |---|---|
 | [Getting started](docs/getting-started.md) | install → configure → first wave |
-| [Concepts](docs/concepts/) | the loop, agents and tiers, tasks, verification, permissions |
+| [Concepts](docs/concepts/) | the loop, agents and tiers, tasks, verification, permissions, cost |
 | [Reference](docs/reference/) | commands, `harness.yaml`, agents, skills, stacks, checks, scripts, ports |
 | [Customising](docs/guides/customising.md) | fit it to your repo without forking |
-| [Contributing](docs/guides/contributing.md) | add an agent, skill, stack, command, check or backend |
+| [Contributing](docs/guides/contributing.md) | add an agent, skill, stack, command, check, lever, hook or backend |
 | [Troubleshooting](docs/guides/troubleshooting.md) | symptoms and their real causes |
 
 Working on the harness itself: [CLAUDE.md](CLAUDE.md).

@@ -1,6 +1,6 @@
 ---
 name: verification-gate
-description: The rules the verification lenses share — what each lens is allowed to see and why that asymmetry is the point, how to classify a finding as blocking or filed, and the verdict shape. Preloaded by verifier, verifier-tests, verifier-spec and verifier-security.
+description: The rules the verification lenses share — what each lens is allowed to see and why that asymmetry is the point, how to classify a finding as blocking or filed, and the verdict shape. Declared by verifier, verifier-tests, verifier-spec and verifier-security.
 ---
 
 # Verification gate

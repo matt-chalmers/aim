@@ -1,6 +1,6 @@
 ---
 name: worker-protocol
-description: The contract every swarm worker runs under — the isolated worktree and its per-worker database, the commit and merge-slot protocol, the resource bans, and the ten-line return contract. Preloaded by fullstack-engineer and quality-engineer, the two agents that write code inside a worktree.
+description: The contract every swarm worker runs under — the isolated worktree and its per-worker database, the commit and merge-slot protocol, the resource bans, and the ten-line return contract. Declared by fullstack-engineer and quality-engineer, the two agents that write code inside a worktree.
 ---
 
 # Worker protocol

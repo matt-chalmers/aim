@@ -1,6 +1,6 @@
 ---
 name: work-decomposition
-description: How to slice a goal or epic into a reviewable task DAG that a parallel wave can actually execute — the one-task rule, dependency edges over hope, the file-contention matrix, and the split-brain check. Preloaded by planner (which produces the DAG) and architect (which designs the shape it will take).
+description: How to slice a goal or epic into a reviewable task DAG that a parallel wave can actually execute — the one-task rule, dependency edges over hope, the file-contention matrix, and the split-brain check. Declared by planner (which produces the DAG) and architect (which designs the shape it will take).
 ---
 
 # Work decomposition

@@ -70,7 +70,7 @@ attaches a worker to that branch rather than cutting a new one from HEAD.
 
 ## Checks
 
-Twenty, listed in [checks.md](checks.md).
+Listed in [checks.md](checks.md), generated from the directory.
 
 ## Where a script resolves the repository from
 

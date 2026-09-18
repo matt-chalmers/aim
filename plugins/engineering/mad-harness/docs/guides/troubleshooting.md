@@ -22,6 +22,17 @@ refuses up front.
 Pass `--worker N`, which prepares the worktree. A wave that proceeds anyway corrupts the
 main tree in a way no test catches.
 
+**`UPGRADE: harness.yaml carries no harness.version`** (or a version behind the plugin's) —
+`check-project-config.sh --strict` and `preflight.sh` exit 3. The plugin moved on since the
+config was reviewed; the blocks it now reads may not be there. Run `/harness-setup`, which
+applies every note in [upgrading](../upgrading.md) since the stamped version and re-stamps.
+A patch behind is a warning; a minor behind is a stop.
+
+**`<plugin>:<agent> is a mad-harness agent and runs through the dispatcher, not the Agent tool`**
+— the `PreToolUse` hook refused an `Agent(subagent_type=…)` call. Write the prompt to a file
+and run the `dispatch.sh` form it printed as a background Bash call; that is where the
+tier, the ceiling, the sandbox and the cost record live.
+
 ## A worker reports BLOCKED or PASS without doing the work
 
 **Check the denial count first.** It is printed to **stderr**, and recorded in telemetry as
@@ -35,6 +46,17 @@ grep -A6 'permission denial' <the wave's err-*.txt>
 
 **If the command was refused with no remedy**, a `Permission:` record has been filed. Answer
 it with `/decision`.
+
+**`Skill <x> is not in this session's skills allowlist`** — under `dispatch.lean_catalog`
+the worker's Skill catalog is the plugin's skills plus the project's own `.claude/skills/*`.
+A skill outside both was never meant to reach a worker; if it is the project's, its
+directory is missing a `SKILL.md`. This is not a permission denial, so the dispatch is
+still `ok` — `make conformance` asserts the real CLI lists exactly the catalog named.
+
+**A dispatch exited 3** — the budget ceiling killed it. The transcript the run produced and
+its spend are recorded (`terminal: budget`, `kills` in `make models-cost`). Raise the tier's
+`max_budget_usd` only if the work legitimately needs it; the lever that stops a worker
+running into its ceiling is the budget it is *told*, `task_budget_tokens`.
 
 ## Every command in a worker fails with *Operation not permitted*
 
@@ -54,6 +76,21 @@ before the shell expands anything:
 | `VAR=x cmd` | the string starts with `VAR=`, not the command | let the runner supply the environment |
 | `$DIR/script` | matching is textual; the variable is not expanded first | use the absolute path |
 
+## `apply-plan.sh` refused the plan
+
+It validates the whole command block before writing anything and lists every problem: a
+label used before its create, a line that is not `tk.sh`, `create --graph`, the positional
+`close <id> "msg"`, a label whose create was already applied under a different title. Fix
+the plan file and rerun — labels already created are skipped, never re-created. To start an
+epic over, delete `.harness/run/apply-plan-<epic>.json`.
+
+## `close-epic.sh` says GATE FAILED — nothing written
+
+One of three gates: a task blocked in prose only (`check-blocking-prose.sh`), an open row
+in the decision register, or a staged file surviving its epic. The last is the common one:
+regenerate `tasks.md`, fold in, then `archive-epic.sh <epic>` (or delete the folder where
+no archive is declared). `--check` runs the gates alone.
+
 ## The wave says it merged, but nothing landed
 
 **Check the primary checkout is clean.** `/swarm` disables tracker autosync at pre-flight
@@ -62,6 +99,13 @@ commit. A wave that skips that ends dirty and the merge is refused.
 
 **Check `.claude/worktrees/` is gitignored.** Otherwise `git add -A` commits worker
 worktrees as embedded git repositories.
+
+## A stopped run left worktrees with work in them
+
+Ask before dispatching: `resume-point.sh <task>` says MERGE, VERIFY, REATTACH or FRESH,
+and `dispatch.sh --resume <branch>` adopts a REATTACH. `/halt` copies every worktree's diff
+and unmerged commits under `.harness/halted-<date>/` before releasing anything, so nothing
+is lost to the sweep.
 
 ## Worktrees pile up
 
@@ -135,6 +179,19 @@ tk.sh migrate --to <new-backend>
 
 Migrating assigns new ids, so a commit message or doc quoting an old id still names the old
 one. The source store is never modified.
+
+## A tier keeps being killed, or `results%` is high
+
+```bash
+make models-cost                          # kills, results%, large, breaks per tier
+harness/checks/session-cost.sh <session>  # one session's context curve: what grew it, every jump
+```
+
+High `results%` means the agent's own tool results are re-read every turn — whole files
+read in one call, `grep -A 400`. The fix is windowed reads (`peek.sh path:START-END`), not a
+shorter prompt; `evidence-gathering` says so. `breaks` means the prefix was re-written: a
+session left idle over an hour re-writes its whole context at the write rate on the next
+request. See [cost](../concepts/cost.md).
 
 ## The tracker and the docs disagree
 

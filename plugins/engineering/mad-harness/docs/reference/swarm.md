@@ -18,17 +18,21 @@ blocks what — the detail that decides whether a wave lands or stalls.
 
 ## 1. Pre-flight
 
-Five conditions, each of which fails the wave rather than degrading it.
+Each condition fails the wave rather than degrading it.
 
 ```bash
-git status --porcelain                       # must be clean
-tk.sh slot-check                             # merge slot must exist and be free
-tk.sh autosync off                           # step 9 restores it; /halt restores it on a dead run
+harness/swarm/preflight.sh                   # ONE call: clean tree, config current (exit 3 = the plugin moved on
+                                             #   since harness.yaml was reviewed — run /harness-setup), merge slot
+                                             #   free, autosync off, declared ports unbound, disk headroom
 git worktree list && git worktree prune      # forgets worktrees whose directory is gone
 harness/swarm/worktree-sweep.sh              # the real sweep — prune alone is a no-op
 harness/checks/check-stack-commands.sh --repair
 tk.sh memories                               # field-guide index for this wave's subject
 ```
+
+The six checks in `preflight.sh` were six calls, each re-reading the orchestrator's whole
+context — see [cost](../concepts/cost.md). `autosync off` is its only write, and it is
+skipped when a gate before it failed, so a failed pre-flight leaves the tracker untouched.
 
 `git worktree prune` only forgets worktrees whose **directory is already gone**, so it does
 nothing about the ones that actually accumulate — one per dispatched worker. The sweep is
@@ -62,8 +66,14 @@ passed every path-based check.
 
 ## 4–5. Confirm and dispatch
 
-All `n` dispatched **in a single message**, each in its own worktree. One message because
-sequential dispatch serialises the wave by accident.
+Every writer's task is asked `resume-point.sh <id>` first: a run that was stopped mid-wave
+left branches, and MERGE, VERIFY and REATTACH need no new dispatch — REATTACH gets
+`dispatch.sh --resume <branch>`, which adopts the existing worktree. Then all `n` are
+dispatched **in a single message**, each in its own worktree, each through `dispatch.sh`
+with `--digest` so the report's head and file path come back rather than the whole
+report. One message because sequential dispatch serialises the wave by accident;
+`dispatch.sh` because that is where the tier, the ceiling, the sandbox and the cost
+record live — a hook refuses the Agent tool for the plugin's agents.
 
 ## 6. Collect
 
@@ -138,7 +148,9 @@ tk.sh autosync on                                          # restore what pre-fl
 ```
 
 Once per wave, never per worker. Eight workers exporting produces eight conflicting
-versions of one file.
+versions of one file. When the wave closes an **epic**, `close-epic.sh <epic> --reason …`
+is the same sequence with the epic's gates in front of it — nothing is written if the
+blocking-prose, decision-register or staging check fails.
 
 ## 10. Report
 
