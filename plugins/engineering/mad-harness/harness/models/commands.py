@@ -41,7 +41,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .project import Project, Stack, load
-from .resolve import REPO
+from .resolve import CHECKOUT
 
 #: Long enough for a scoped suite, short enough that a hung command is caught
 #: within one agent's patience rather than an orchestrator's.
@@ -217,7 +217,9 @@ def run_key(
             detail=f"stack {stack.name!r} declares no {key!r} command",
         )
 
-    cwd = REPO / stack.commands_cwd
+    # THE CHECKOUT, NOT THE PROJECT. A worker's tests must run in its worktree; run in
+    # REPO they tested the primary and stayed green with the worker's code broken.
+    cwd = CHECKOUT / stack.commands_cwd
     tool = tool_of(command)
     if check_tool and tool and not shutil.which(tool):
         # The free rung. A missing executable
@@ -238,7 +240,7 @@ def run_key(
             status=FAILED,
             command=command,
             cwd=stack.commands_cwd,
-            detail=f"cwd {stack.commands_cwd!r} does not exist under {REPO}",
+            detail=f"cwd {stack.commands_cwd!r} does not exist under {CHECKOUT}",
         )
 
     if probing():
@@ -269,7 +271,10 @@ def run_key(
             # The worker's own isolated resources — its database above all. Without
             # them a worker's suite falls through to the shared default and parallel
             # workers corrupt each other's fixtures WHILE STILL GOING GREEN.
-            env={**os.environ, **_worker_env(cwd), REENTRY_GUARD: "1"},
+            # `.swarm-env` sits at the WORKTREE ROOT, not in the stack's command
+            # directory — for a project whose toolchain lives in `backend/` it was never
+            # found, and the worker's suite ran on the shared default database.
+            env={**os.environ, **_worker_env(CHECKOUT), REENTRY_GUARD: "1"},
         )
     except subprocess.TimeoutExpired:
         return Outcome(

@@ -123,6 +123,44 @@ def _find_repo() -> Path:
 REPO = _find_repo()
 
 
+def _find_checkout() -> Path:
+    """The git working tree the CALLER stands in — which is not always the project.
+
+    REPO is the project: its config, its tracker, its primary checkout. A dispatched
+    worker stands in its own WORKTREE, and that is where the code under test lives. The
+    two were one variable, so `run.sh` ran a worker's tests in the primary checkout — a
+    green that said nothing about the worker's change, and never its own DB — and
+    `peek.sh` showed a worker the primary's copy of a file it had just edited. A worker
+    caught it: it broke its implementation on purpose, run.sh stayed green, and it filed
+    the bug. Falls back to REPO outside any git tree.
+    """
+    import os
+    import subprocess
+
+    caller = os.environ.get("MAD_HARNESS_CALLER_PWD")
+    cwd = Path(caller).resolve() if caller else Path.cwd().resolve()
+    # THE PROJECT ROOT WITHIN THIS CHECKOUT — the nearest harness.yaml above the caller,
+    # the same walk REPO uses without the override. Not the git toplevel: a project that
+    # sits inside a larger repository (this plugin inside its marketplace) has a checkout
+    # root that is not its project root, and every path would miss.
+    for candidate in (cwd, *cwd.parents):
+        if (candidate / "harness.yaml").is_file():
+            return candidate
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=15, cwd=str(cwd),
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return Path(out.stdout.strip()).resolve()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return REPO
+
+
+CHECKOUT = _find_checkout()
+
+
 def repo_root() -> Path:
     """The repository the harness is operating on, re-read rather than cached.
 

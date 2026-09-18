@@ -21,7 +21,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
-from models.resolve import REPO
+from models.resolve import CHECKOUT
 
 #: Per-pattern cap on printed matches. A batch that dumps everything trades call
 #: overhead for output tokens and can be a net loss; the count is always exact,
@@ -47,7 +47,7 @@ def scan_one(pattern: str, rev: str | None, pathspec: list[str], cap: int) -> Re
         cmd.append(rev)
     if pathspec:
         cmd += ["--", *pathspec]
-    proc = subprocess.run(cmd, cwd=str(REPO), capture_output=True, text=True)
+    proc = subprocess.run(cmd, cwd=str(CHECKOUT), capture_output=True, text=True)
     # git grep exits 1 for "no matches" — that is a legitimate answer, not a failure.
     if proc.returncode not in (0, 1):
         return Result(pattern, 0, 0, [], proc.stderr.strip()[:200] or "git grep failed")

@@ -88,6 +88,16 @@ Resolution order, in [`harness/models/resolve.py`](../../harness/models/resolve.
 4. Otherwise it **fails, naming the directory it tried.** The harness's own tree is never
    the answer for a caller outside it.
 
+**Two things are resolved, not one.** `REPO` is the *project* — its `harness.yaml`, its
+tracker, its primary checkout — and is what the rules above find. `CHECKOUT` is the git
+working tree the caller *stands in*, which for a dispatched worker is its own worktree.
+Everything that runs or reads code — `verify/run.sh`, `scan.sh`, `peek.sh`, `brief.sh`, the
+worker's `.swarm-env` — uses `CHECKOUT`; the tracker and config use `REPO`. They were one
+variable, and a worker's `run.sh` tested the primary checkout — green with the worker's
+own code broken — until a worker caught it. The dispatcher hands a worker `MAD_HARNESS_REPO`
+and deliberately *not* its own `MAD_HARNESS_CALLER_PWD`, so each wrapper the worker calls
+records the worktree it was called from.
+
 In practice: run any script from inside the consuming repository and nothing needs
 setting. From anywhere else, set `MAD_HARNESS_REPO=/path/to/repo`. Every check prints
 `project: <name>` so a wrong resolution is visible in the first line.

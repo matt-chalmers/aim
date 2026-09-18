@@ -362,7 +362,7 @@ def test_run_key_loads_the_workers_swarm_env(tmp_path, monkeypatch):
     (tmp_path / ".swarm-env").write_text(
         "# generated\nexport DB_NAME=proj_w3\nexport SWARM_LANE=backend\n"
     )
-    monkeypatch.setattr(mod, "REPO", tmp_path)
+    monkeypatch.setattr(mod, "CHECKOUT", tmp_path)
 
     seen = {}
 
@@ -383,7 +383,7 @@ def test_a_worktree_without_a_swarm_env_still_runs(tmp_path, monkeypatch):
     """The orchestrator's own checkout has no `.swarm-env`; absence is not an error."""
     import models.commands as mod
 
-    monkeypatch.setattr(mod, "REPO", tmp_path)
+    monkeypatch.setattr(mod, "CHECKOUT", tmp_path)
 
     def runner(cmd, **kw):
         class R:

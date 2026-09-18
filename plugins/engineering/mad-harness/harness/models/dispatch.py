@@ -435,7 +435,15 @@ def build_env(r: Resolved, base: dict[str, str] | None = None) -> dict[str, str]
         env[var] = path
         Path(path).mkdir(parents=True, exist_ok=True)
     env["HARNESS_ROOT"] = str(HARNESS)
+    # THE PROJECT IS EXPLICIT; THE CHECKOUT IS THE WORKER'S OWN. `MAD_HARNESS_REPO` names
+    # the project — config, tracker, primary checkout — for everything the worker
+    # invokes. `MAD_HARNESS_CALLER_PWD` must NOT be inherited: it is the dispatcher's
+    # directory, and every wrapper the worker calls would keep it ("already set wins"),
+    # so `run.sh` ran the worker's tests in the primary checkout and `peek.sh` read the
+    # primary's files. Stripped, each wrapper records the worker's own cwd — its
+    # worktree — and CHECKOUT resolves there.
     env.setdefault("MAD_HARNESS_REPO", str(REPO))
+    env.pop("MAD_HARNESS_CALLER_PWD", None)
     # THE CACHE TTL IS A CHOICE, NOT AN ACCIDENT. Nobody had set it: workers through this
     # path wrote cache at the 1-hour rate (2x) while lenses through the Agent tool wrote at
     # 5-minute (1.25x), a difference nobody chose. A worker turns continuously, so the

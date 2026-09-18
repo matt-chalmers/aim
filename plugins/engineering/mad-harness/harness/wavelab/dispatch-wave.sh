@@ -52,7 +52,12 @@ tk backend --json
 # comes next, the primary checkout ends the wave dirty, and the merge is refused.
 tk autosync off
 
-READY=$(tk ready --json | python3 -c '
+# THE SEEDED EPIC'S TASKS ONLY, as /swarm scopes a wave to one epic. A worker filed a bug
+# it found into the tracker mid-task — correctly — and the unscoped ready set dispatched
+# that bug as the next wave's work, where a worker spent the whole ceiling trying to fix
+# the harness from inside the lab repository.
+EPIC=$(tk list --type epic --json | python3 -c 'import json,sys; r=[t for t in json.load(sys.stdin) if t["status"]!="closed"]; print(r[0]["id"] if r else "")')
+READY=$(tk ready --parent "$EPIC" --json | python3 -c '
 import json, sys
 rows = json.load(sys.stdin)
 print(" ".join(t["id"] for t in rows if t["type"] != "epic"))')

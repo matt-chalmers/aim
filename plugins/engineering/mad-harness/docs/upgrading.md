@@ -287,3 +287,28 @@ One measured doctrine fix, and the first two lever measurements. No config chang
   prefix writes alone. **Default stays off** pending the stagger result.
 
 - **mechanical** — re-stamp `harness.version`, when convenient.
+
+### 0.10.3
+
+**A worker's tests were running in the primary checkout, not its worktree.** No config
+change; the most consequential fix since 0.9.4, and a lab worker found it.
+
+`REPO` — the project: config, tracker, primary checkout — was also where every stack command
+ran and every read tool looked. A dispatched worker stands in its own worktree, so
+`verify/run.sh` tested the *primary*'s code: green with the worker's implementation
+deliberately broken (a worker did exactly that, twice, and filed the bug), never its own
+`.swarm-env` (looked up under the toolchain's subdirectory, where it never was), and
+`peek.sh` showed a worker the primary's copy of a file it had just edited. Now there is
+`CHECKOUT` — the project root within the tree the caller stands in — and `run.sh`, `scan.sh`,
+`peek.sh`, `brief.sh` and the worker env use it; the tracker and config keep `REPO`. The
+dispatcher hands a worker the project (`MAD_HARNESS_REPO`) and deliberately not its own
+directory, so each wrapper the worker calls records the worktree it was called from.
+
+**Anything a worker reported as green through `run.sh` before this release was a statement
+about the primary checkout, not about its change.** The wave gate itself (run in the primary
+after merge) was always correct. Re-verify anything that matters.
+
+Also: the lab's wave now dispatches only the seeded epic's tasks — a worker-filed bug was
+dispatched as work and spent a whole ceiling.
+
+- **mechanical** — re-stamp `harness.version`, when convenient.

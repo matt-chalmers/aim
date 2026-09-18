@@ -44,7 +44,7 @@ from models.project import (
     Project,
     load,
 )  # sibling top-level package; harness/ is the root
-from models.resolve import REPO
+from models.resolve import CHECKOUT
 
 #: Where a task's brief is written unless the caller says otherwise.
 #: Briefs are scratch, so they follow SCRATCHPAD/TMPDIR rather than assuming /tmp.
@@ -106,7 +106,7 @@ class Brief:
 
 
 def _git(*args: str) -> str:
-    proc = subprocess.run(["git", *args], cwd=str(REPO), capture_output=True, text=True)
+    proc = subprocess.run(["git", *args], cwd=str(CHECKOUT), capture_output=True, text=True)
     if proc.returncode != 0:
         raise BriefError(f"git {' '.join(args)} failed: {proc.stderr.strip()[:200]}")
     return proc.stdout

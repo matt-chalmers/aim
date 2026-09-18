@@ -22,7 +22,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
-from models.resolve import REPO
+from models.resolve import CHECKOUT
 
 #: Lines shown per spec before eliding. A bare path on a 3,000-line file would
 #: otherwise swamp the batch and turn a saving into a loss.
@@ -51,17 +51,17 @@ def _read(path: str, rev: str | None) -> tuple[list[str], str]:
         # plugin nested inside a larger repository (a marketplace, a monorepo) would
         # look up `<outer-root>/harness/...` and report every file missing at that
         # revision. `<rev>:./<path>` is the cwd-relative form, which agrees with the
-        # working-tree branch below and is identical when REPO *is* the root.
+        # working-tree branch below and is identical when CHECKOUT *is* the root.
         proc = subprocess.run(
             ["git", "show", f"{rev}:./{path}"],
-            cwd=str(REPO),
+            cwd=str(CHECKOUT),
             capture_output=True,
             text=True,
         )
         if proc.returncode != 0:
             return [], f"not found at {rev}"
         return proc.stdout.splitlines(), ""
-    p = REPO / path
+    p = CHECKOUT / path
     try:
         return p.read_text().splitlines(), ""
     except FileNotFoundError:
