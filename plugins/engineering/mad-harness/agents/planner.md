@@ -203,10 +203,27 @@ exists for.
 1. The DAG as an indented tree with edge types, **each task carrying its `SURFACE:` line**.
 2. The file-contention matrix, with every edge resolved and the resolution named.
 3. The wave plan, with per-wave lane counts.
-4. The literal `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create …` / `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh dep …` commands, one per line, ready to paste.
-   Use `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close <id> --reason "…"` form if you emit any close commands — **the positional form
-   `close <id> "msg"` is wrong**: beads parses the message as a second ID.
-5. Open questions as proposed `decision` tasks.
+4. The tracker commands, in fenced `bash` blocks, one `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh` line each, ordered so
+   every create precedes every reference to it. **The main thread applies the blocks with
+   `${CLAUDE_PLUGIN_ROOT}/harness/swarm/apply-plan.sh` — a script, not a model** — so the ids the tracker will hand out
+   are named by label: prefix each `create` with `T1: ` (a letter, then letters, digits, `_` or `-`,
+   a colon, a space) and reference it as a bare token wherever an id goes — `dep T2 T1`, `--parent T1`,
+   `gate create T3`. Nothing but `tk.sh` lines goes in a block. The applier refuses the whole plan and
+   writes nothing on any other line, on a label used before its create, or on the positional form
+   `close <id> "msg"` (beads parses the message as a second ID — write `close <id> --reason "…"`).
+
+   ```bash
+   T1: ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create "Add the model" --parent <epic> --description "…"
+   ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update T1 --acceptance "…"
+   ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh label add T1 <lane>
+   T2: ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create "Expose the endpoint" --parent <epic> --description "…"
+   ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh dep T2 T1
+   ```
+
+5. Open questions as proposed `decision` tasks — as TEXT, outside the command blocks. A decision is
+   not a task's blocker but the epic's: the main thread files it and parks the epic on it (`gate
+   create <epic>` + `--status blocked`, the loop's hard line), and a `dep` from a task onto a decision
+   reads as an orphan to `validate`, because a decision is never one of the epic's children.
 
 Never emit `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create --graph` JSON: `--dry-run` is silently ignored on that path, so a
 malformed plan writes real tasks into a large backlog with no preview.

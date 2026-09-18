@@ -73,17 +73,23 @@ it points at are the rule. Edit it when a rule changes and nowhere else.
 
 ## 0. Pre-flight — once per run
 
+**You are the most expensive caller in the system.** Measured on a field campaign: the
+orchestrator's context averaged ~380k tokens over 237 requests, so every tool call you make
+re-reads that — ~$0.11–0.17 a call, about six times what the same call costs a worker. Two
+rules follow, and they are worth more here than anywhere else: **one call where five would
+do** (the scripts below exist for that), and **artefacts by path, not by content** — a
+design, a plan or an audit goes from the agent that wrote it to the file that holds it to
+the script or agent that consumes it, without passing through your context. Load
+`evidence-gathering` once now (one `Skill` call); its batch primitives were written for
+agents at a sixth of your cost.
+
 ```bash
 # NOT ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh prime — the SessionStart hook already ran it; a second call just duplicates
 # tens of thousands of characters in your context for nothing.
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh memories                               # the field-guide index
-git status --porcelain                    # must be clean
-${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --strict   # exit 3 = the plugin moved on since this config was reviewed
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-check                       # must exist and be free
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh autosync off           # stop beads staging issues.jsonl into a sibling commit
-                                          # §5 restores it; if the run dies first, /halt does
-${CLAUDE_PLUGIN_ROOT}/harness/checks/check-ports.sh   # declared `ports:` already bound — a server left over from a killed run
-df -h . | tail -1                          # disk headroom — worktrees consume it (informational)
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/preflight.sh    # ONE call: clean tree, config current (exit 3 = upgrade needed), merge
+                                                    # slot free, autosync off (§5 restores it; /halt if the run dies),
+                                                    # declared ports unbound, disk headroom. It was six calls.
 git worktree list && git worktree prune   # worktrees stranded by a previous killed run
 ${CLAUDE_PLUGIN_ROOT}/harness/swarm/worktree-sweep.sh                # then the real sweep — see below, prune alone is a no-op
 git log --oneline -200 | grep -ciE '^[0-9a-f]+ (fix|revert)'   # escape-rate baseline
@@ -321,13 +327,21 @@ epic before §5.
 the architect, the planner, the audit and the spec-editor exactly as for a wave's writers:
 
 ```bash
-# prompt to a file, then a BACKGROUND Bash call, then collect its output
-${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh analyst-survey --prompt-file <path> --task <epic>
-${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh architect      --prompt-file <path> --task <epic>
-${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh planner        --prompt-file <path> --task <epic>
-${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh analyst        --prompt-file <path> --task <epic>
-${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh spec-editor    --prompt-file <path> --task <epic>
+# prompt to a file, then a BACKGROUND Bash call, then read the DIGEST it prints
+${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh analyst-survey --prompt-file <path> --task <epic> --digest
+${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh architect      --prompt-file <path> --task <epic> --digest
+${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh planner        --prompt-file <path> --task <epic> --digest
+${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh analyst        --prompt-file <path> --task <epic> --digest
+${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh spec-editor    --prompt-file <path> --task <epic> --digest
 ```
+
+**`--digest` is how an artefact stays out of your context.** Every dispatch writes the
+agent's whole result to a file under `.harness/run/out/` and, with `--digest`, prints only
+its first lines and the path. The verdict line every agent puts first is what you read; the
+body goes where it is consumed — the design to the epic note by path (§3b), the plan to
+`apply-plan.sh` (§3e), the audit's findings to the planner's next prompt by path (§3d).
+Measured: the four largest things injected into one campaign orchestrator's context were
+subagent results of 45k, 43k, 36k and 23k characters, each paid on every later turn.
 
 Measured, five campaign sessions: plugin agents spawned through the Agent tool read 67.2M
 prompt tokens; through the dispatcher, 6.9M. Eighteen of ~22 architect, planner and
@@ -579,12 +593,16 @@ Record the outcome either way — a confirmation is worth as much as a correctio
 run:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <epic> --append-notes "ARCHITECTURE: <design, or SANITY-CHECKED <date>: <what was
-checked and what was confirmed or corrected>>"
+${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <epic> --append-notes-file <the architect's --digest output file>
+# or, for a sanity check with nothing to attach:
+${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <epic> --append-notes "ARCHITECTURE: SANITY-CHECKED <date>: <what was checked, confirmed or corrected>"
 ```
 
-Use `--append-notes`, **never `--design`** — that field is write-only and invisible to
-`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh show`.
+**By file, never by retyping it.** The architect's output already begins with its
+`ARCHITECTURE:` block; attaching the file costs you nothing, where reading it in and
+emitting it again as a note paid for the design twice at your context size. Use
+`--append-notes` / `--append-notes-file`, **never `--design`** — that field is write-only
+and invisible to `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh show`.
 
 **Before the design, take the architect's SPECIFICATION-ADEQUACY VERDICT** — `ADEQUATE`,
 `INFERABLE` or `ABSENT`. It comes first in its output and it changes what you do next:
@@ -730,7 +748,7 @@ boundary written.
 | Outcome | Action |
 |---|---|
 | PASS | proceed to the gate below |
-| FAIL, first time | **send the findings back to `planner`** and re-audit. It has the corpus and the DAG; this is a revision, not a re-plan. |
+| FAIL, first time | **dispatch `planner` afresh with the audit's output file path in its prompt** and re-audit. This is a revision, not a re-plan — but it is a NEW dispatch, never a resumed one: measured, resuming a lens rebuilt its whole prior conversation at the cache-write rate ($1.95 for two round-trips against $0.16), because a resumed prompt does not match the cached prefix. A fresh planner pays one clean prefix and reads the findings from the file. |
 | FAIL, second time | **the epic is underspecified at the epic level.** File a `REQUIREMENT:` task and park — gate **and** `--status blocked`. |
 
 **That second failure is the loop closing.** A plan that cannot be made dispatchable in two
@@ -761,29 +779,35 @@ absence is what a later run reads as "this plan was never audited":
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <epic> --append-notes "AUDIT: PASS|FAIL <date> — <findings, or 'clean'>"
 ```
 
-### 3e. Apply the plan — from the main thread
-
-Run the `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create` / `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update` / `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh dep` / `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh supersede` / `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh delete` lines one at a
-time, echoing each id and what happened to it. Never `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create --graph`: `--dry-run` is
-silently ignored on that path, so a malformed plan writes real tasks with no preview.
-
-**Allocate decision-record numbers here** — list `paths.adrs`, take the next number, and write
-it into the task description. Never leave a worker to pick one; two streams picking
-independently have already collided that way.
-
-### 3f. Validate
+### 3e. Apply the plan — one call
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh validate <epic>
-
-# The epic's readable view, so the staging folder answers "what is the plan and where is
-# it up to" without a tracker query. GENERATED — regenerate it, never edit it.
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/render-epic.sh <epic> --write <paths.proposed>/<epic>-<slug>/tasks.md
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/apply-plan.sh <the planner's --digest output file> --epic <epic> --dry-run   # the preview
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/apply-plan.sh <the planner's --digest output file> --epic <epic> \
+    --render <paths.proposed>/<epic>-<slug>/tasks.md                                                   # the apply
 ```
 
-Confirm no cycles or orphans. Report waves and max parallelism — **and restate that the number
-ignores file contention.** That is precisely how an epic reads as 11-wide when its file graph
-supports about two.
+The planner's command block carries labels (`T1: … create …`, `dep T2 T1`); the script
+validates the whole plan first — an unknown label, a `--graph`, a positional `close` — and
+writes nothing if any line is wrong, then runs the lines in order, resolves every label to
+the id the tracker returned, echoes each, and records the map under `.harness/run/` so a
+rerun after a failure skips what already exists. It ends with `validate` and the render
+(3f), so one call replaces the ten to thirty you made before, each at your context's price.
+Never `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create --graph`: `--dry-run` is silently ignored on that path, so a
+malformed plan writes real tasks with no preview — the script refuses it.
+
+**Decision-record numbers are allocated BEFORE the planner runs, not while applying** — one
+`ls <paths.adrs>` gives the next free number; put it in the planner's prompt so its plan
+carries it. Never leave a worker to pick one; two streams picking independently have already
+collided that way.
+
+### 3f. Validate — done by the apply
+
+`apply-plan.sh` runs `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh validate <epic>` and, with `--render`, regenerates the
+epic's readable view (`tasks.md` in the staging folder — GENERATED, regenerate it, never edit
+it). Read its last lines: no cycles or orphans, the waves and max parallelism — **and restate
+that the number ignores file contention.** That is precisely how an epic reads as 11-wide
+when its file graph supports about two.
 
 ## 3g. Approval precedence — never block while work remains
 
@@ -991,11 +1015,19 @@ Before closing an epic, confirm — do not assume:
   `paths.archive` declared, `ls <archive>/*-<epic>-*` must return the retired folder, so
   "folded in" and "silently discarded" stop being indistinguishable. Nothing to fold in
   is a fine answer; a missing archive entry after a fold-in is not.
-- **`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close <epic> --reason "<what shipped, how verified>"`** — `--reason` is required; the
-  positional form `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close <id> "msg"` errors.
-- Final `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh export`, commit, push.
-- **`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh autosync on`** — restore what §0 disabled. Nothing else does, and
-  left off, `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close` stops keeping the tracked jsonl fresh.
+- **Then one call closes it:**
+
+  ```bash
+  ${CLAUDE_PLUGIN_ROOT}/harness/swarm/close-epic.sh <epic> --check                                   # the three checks above, nothing written
+  ${CLAUDE_PLUGIN_ROOT}/harness/swarm/close-epic.sh <epic> --reason "<what shipped, how verified>"   # checks → close → export → commit → push → autosync on
+  ```
+
+  It runs the blocking-prose check, the decision register and the staging/archive check,
+  and if any fails it writes nothing and says which. Then `tk.sh close --reason`, `export`,
+  the tracker commit, `pull --rebase` + `push`, and `autosync on` — restoring what §0
+  disabled, which nothing else does. Eight calls at your context's price were one; and the
+  order can no longer be got wrong. `--no-push` stops after the commit if the push is not
+  yours to make.
 
 ## 6. Report, then next epic
 

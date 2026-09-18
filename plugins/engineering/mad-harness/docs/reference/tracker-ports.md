@@ -41,6 +41,7 @@ class Capabilities:
     prime: bool = False
     tracked_export: bool = True
     owned_paths: tuple[str, ...] = () # repo-relative prefixes this backend writes
+    export_path: str | None = None    # the one artefact `export()` writes — what a close-out commits
 
 @dataclass(frozen=True)
 class Validation:
@@ -132,6 +133,7 @@ backend's name.
 | `molecules` | `swarm create` is unavailable; the caller falls back rather than failing |
 | `prime` | no curated workflow dump |
 | `owned_paths` | — always present; consumers that must skip the tracker's own files ask instead of hardcoding `.beads/` |
+| `export_path` | no tracked artefact to commit — `close-epic.sh` skips its commit step and says so. Narrower than `owned_paths`: that prefix also holds config the autosync toggle rewrites |
 
 ## Switching backends
 

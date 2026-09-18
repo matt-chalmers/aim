@@ -29,6 +29,11 @@ try:
 except ImportError:  # pragma: no cover - the harness declares PyYAML
     yaml = None
 
+#: Printed beside a register whose `open` table is not empty. The check still exits 0 —
+#: an open decision is a consistent register, not a broken one — so the close-out reads
+#: this marker to tell "clean" from "clean but blocked". One string, imported, not two.
+OPEN_MARKER = "epic cannot fold in or close"
+
 
 def _proposed() -> str:
     """The staging directory, from config.
@@ -141,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
                 fail = True
 
         n_open = len(fm.get("open") or [])
-        tail = "  ← epic cannot fold in or close" if n_open else ""
+        tail = f"  ← {OPEN_MARKER}" if n_open else ""
         print(f"   OK — {n_open} open, {len(fm.get('settled') or [])} settled{tail}")
 
     # Cross-proposal contention: two staged proposals editing the same doc. Cheap because

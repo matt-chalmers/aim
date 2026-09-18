@@ -29,7 +29,7 @@ from typing import Any
 
 import yaml
 
-from .resolve import HARNESS, PLUGIN_ROOT, REPO
+from .resolve import AGENTS_DIR, HARNESS, PLUGIN_ROOT, REPO, load_config
 
 #: The consuming repository's own config. It lives in THAT repo, not beside the
 #: harness code — the harness is shared, the config is not.
@@ -375,6 +375,63 @@ class Project:
             if not 1 <= port <= 65535:
                 raise ProjectError(f"ports.{name} is {port}; a TCP port is 1-65535")
             out[str(name)] = port
+        return out
+
+    def tiers(
+        self, config: dict[str, Any] | None = None, agents_dir: Path | None = None
+    ) -> dict[str, str]:
+        """The `tiers:` block — per-agent tier overrides, agent name -> tier name.
+
+        THE SWITCH FOR TIER-SPLITTING A LENS, and a switch rather than a default on
+        purpose. The field cost analysis (cost_control_orchestration.md, A3) ranked moving
+        `verifier-spec` and `verifier-security` off `strong`: both are largely
+        search-and-cross-reference, the survey work `analyst-survey` already runs on
+        `worker`, and the external evidence points the same way (SWE-bench Verified Mini:
+        Opus 4.1 High $1,599.90 at 54% against Sonnet 4.5 High $463.90 at 72% — 3.4x the
+        cost for 18 points worse). But a verification gate's catch rate is the one thing
+        that document says it did NOT measure, and it cannot be measured in the field
+        while the only way to move a lens's tier is to patch the plugin. So the plugin
+        keeps its default and the project flips the arm here, one A/B under
+        `make models-cost`, with every dispatch record saying which arm it ran on.
+
+        Validated here so a typo fails the config check, not a wave: every key must be an
+        agent the plugin ships and every value a tier tiers.yaml defines. Absent, or an
+        explicit `tiers: {}`, means every agent keeps its own default. A high-risk
+        dispatch is still forced up whatever this block says — see `resolve.resolve`.
+
+        :param config: tiers.yaml already loaded, so a caller holding it does not read it
+            twice and a test can supply its own; None loads the real one
+        :param agents_dir: where the agents live; None means the plugin's own
+        """
+        raw = self.raw.get("tiers")
+        if raw is None:
+            return {}
+        if not isinstance(raw, dict):
+            raise ProjectError(
+                f"tiers must be a map of agent -> tier, got {type(raw).__name__}. "
+                f"For example: tiers: {{verifier-spec: worker, verifier-security: worker}}"
+            )
+        if not raw:
+            return {}
+        known = list((config or load_config())["tiers"])  # declaration order: weakest first
+        agents_dir = agents_dir or AGENTS_DIR
+        shipped = sorted(p.stem for p in agents_dir.glob("*.md"))
+        out: dict[str, str] = {}
+        for agent, tier in raw.items():
+            agent = str(agent)
+            if not (agents_dir / f"{agent}.md").is_file():
+                raise ProjectError(
+                    f"tiers.{agent}: no such agent — the plugin ships {', '.join(shipped)}. "
+                    f"An override names an agent the dispatcher can route; it cannot "
+                    f"invent one."
+                )
+            if not isinstance(tier, str) or tier not in known:
+                raise ProjectError(
+                    f"tiers.{agent} is {tier!r}, which is not a tier; known: "
+                    f"{', '.join(known)}. Tiers are defined in the plugin's tiers.yaml, "
+                    f"never here."
+                )
+            out[agent] = tier
         return out
 
     def tracker(self) -> dict[str, Any]:

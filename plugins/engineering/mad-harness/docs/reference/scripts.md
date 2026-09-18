@@ -8,8 +8,9 @@ rules match the text before the shell expands anything.
 
 | script | does |
 |---|---|
-| `models/dispatch.sh <agent> --prompt-file F` | runs one agent through the boundary and records what it cost |
+| `models/dispatch.sh <agent> --prompt-file F` | runs one agent through the boundary and records what it cost; `--digest [N]` prints the first N lines and the path of the file holding the whole result (`.harness/run/out/`), `--out <path>` names it |
 | `tracker/tk.sh <verb>` | the whole tracker surface, backend-independent |
+| `tracker/tk.sh note <id> --file <path>` / `update <id> --append-notes-file <path>` | a note from a file — a dispatch's `--digest` output attached to the epic without the orchestrator reading it in and emitting it again |
 | `tracker/tk.sh migrate --to <backend>` | copy every record into another backend, rewriting ids and edges |
 | `tracker/tk.sh lease <acquire\|release\|list\|show\|steal> [epic]` | epic leases, so two machines cannot work one epic |
 | `tracker/render-epic.sh <epic>` | the generated, human-readable task view |
@@ -46,6 +47,9 @@ it.
 | `swarm/resume-point.sh <task-id> [--json]` | where a task's work already is — MERGE, VERIFY, REATTACH or FRESH — so a resumed run adopts it instead of redoing it |
 | `swarm/pinned.sh [--always] [--transcript PATH]` | the campaign's pinned state — claims, merge slot, worktrees, the loop's rules — read from disk; the `SessionStart` hook prints it after a compaction, resume or start whenever a campaign is in flight, naming every pinned id the compaction summary dropped |
 | `swarm/guard-agent-tool.sh` | the `PreToolUse` hook: refuses the Agent tool for this plugin's agents and prints the `dispatch.sh` form to use — the tier, ceiling, sandbox and cost record live only there |
+| `swarm/preflight.sh` | campaign-loop §0 as one call: clean tree, config current (exit 3 = upgrade), merge slot free, autosync off, ports unbound, disk — was six calls at the orchestrator's context price |
+| `swarm/apply-plan.sh <plan.md> --epic <id> [--dry-run] [--render <path>]` | applies a planner's labelled command block to the tracker: validates the whole plan first, resolves `T1:` labels to real ids, records the map under `.harness/run/` so a rerun skips what exists, ends with `validate` and the render |
+| `swarm/close-epic.sh <epic> --reason "…" [--check] [--no-push]` | campaign-loop §5 as one call: blocking-prose, decision register and staging/archive checks (nothing written if any fails) → close → export → tracker commit → pull --rebase + push → autosync on |
 
 The sweep detects the default branch rather than assuming `main`. A sweep that dies leaves
 every worktree behind, which is the state it exists to prevent.
@@ -62,6 +66,7 @@ attaches a worker to that branch rather than cutting a new one from HEAD.
 |---|---|
 | `campaign/campaign-telemetry.sh` | the campaign-level series |
 | `make models-cost` / `checks/models-cost.sh` | reads the dispatch cost series back, per agent and tier |
+| `checks/session-cost.sh <transcript.jsonl | session-id> [--json] [--top N]` | one session's context curve in tokens: requests, first/last/average context, what grew it (outputs, injected text, tool results), every jump over 15k and what landed it — the orchestrator-side measurement |
 
 ## Checks
 

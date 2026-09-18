@@ -108,31 +108,35 @@ class MdTaskStore:
             prime=False,
             tracked_export=True,
             owned_paths=self._owned_paths(),
+            export_path=self._rel(self.export_dir) if self.export_dir else None,
         )
+
+    @staticmethod
+    def _rel(path: Path) -> str:
+        """A directory as the repository sees it, trailing slash and all. A path outside
+        the repository — the hot store is addressed absolutely, by design, so every
+        worktree shares one — is reported as-is."""
+        from models.resolve import RepoError, repo_root
+
+        resolved = Path(path).resolve()
+        try:
+            return f"{resolved.relative_to(repo_root())}/"
+        except (ValueError, RepoError):
+            return f"{resolved}/"
 
     def _owned_paths(self) -> tuple[str, ...]:
         """The hot store and the tracked export, repo-relative where they are in the repo.
 
         Both are configured rather than fixed, so they can only be declared by asking the
-        instance. A path outside the repository — the hot store is addressed absolutely,
-        by design, so every worktree shares one — is reported as-is.
+        instance.
         """
         from models.resolve import repo_root
 
         try:
-            repo = repo_root()
+            repo_root()
         except Exception:
             return ()
-        out = []
-        for path in (self.root, self.export_dir):
-            if path is None:
-                continue
-            resolved = Path(path).resolve()
-            try:
-                out.append(f"{resolved.relative_to(repo)}/")
-            except ValueError:
-                out.append(f"{resolved}/")
-        return tuple(sorted(set(out)))
+        return tuple(sorted({self._rel(p) for p in (self.root, self.export_dir) if p is not None}))
 
     # --- storage --------------------------------------------------------------
 

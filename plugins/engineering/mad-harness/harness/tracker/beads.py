@@ -40,6 +40,11 @@ from .port import (
 #: capabilities rather than hardcoding a constant that is false for other backends.
 RECORD_CEILING = 64_000
 
+#: The git-tracked artefact `export()` regenerates. Declared through `capabilities()` so
+#: the close-out commits THIS file and not the `.beads/` prefix, which also holds the
+#: config the autosync toggle rewrites.
+TRACKED_EXPORT = ".beads/issues.jsonl"
+
 TIMEOUT = 60
 
 
@@ -186,6 +191,7 @@ class BeadsTaskStore:
             tracked_export=True,
             # The store, its config and the exported issues.jsonl all live here.
             owned_paths=(".beads/",),
+            export_path=TRACKED_EXPORT,
         )
 
     # --- reads ---------------------------------------------------------------
@@ -355,7 +361,7 @@ class BeadsTaskStore:
 
     # --- the tracked artefact ------------------------------------------------
 
-    def export(self, path: str = ".beads/issues.jsonl") -> None:
+    def export(self, path: str = TRACKED_EXPORT) -> None:
         """Regenerate the git-tracked jsonl.
 
         `-o` IS LOAD-BEARING. Plain `bd export` streams to stdout and writes nothing, so

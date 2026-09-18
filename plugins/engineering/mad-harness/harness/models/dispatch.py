@@ -50,6 +50,18 @@ WHAT WE DO NOT PASS, AND WHAT WE MUST.
   does not have. Nothing new was invented here: what the Agent tool conferred
   implicitly now has to be named explicitly, and every gap found since has been
   one more thing that used to be free.
+
+WHY THE RESULT IS A FILE, AND STDOUT A DIGEST. A dispatch's result lands in the caller's
+context, and the caller is the orchestrator — the fattest context in the system.
+Measured over one field campaign: the orchestrator ran 237 requests with its context
+growing 55k -> 920k tokens, ~380k on average, so every tool call it makes re-reads
+~$0.11-0.17 of context — ~6x what the same call costs a worker. That context was 35%
+its own outputs, 35% injected text and 7% tool results; the four largest injected texts
+were subagent results of 45k, 43k, 36k and 23k chars, and each arrived TWICE — once as
+the tool result and again as the task notification — and was then re-sent on every
+later turn. So every dispatch writes its whole result under `RESULT_DIR` and prints the
+path; `--digest` prints only the first lines. The orchestrator passes the artefact on by
+PATH (`tk.sh note <id> --file`, `peek.sh <path>:START-END`) and pays for it nowhere.
 """
 
 from __future__ import annotations
@@ -66,6 +78,7 @@ from . import levers as _levers
 from . import transcript as _transcript
 from .broker import broker, resolved_requests
 from .context import render_card
+from .project import ProjectError
 from .resolve import (
     HARNESS,
     REPO,
@@ -84,6 +97,16 @@ PLUGIN_ROOT_SKILLS = HARNESS.parent / "skills"
 #: for Agent-tool isolation, so `harness/swarm/worktree-sweep.sh` reclaims ours too
 #: rather than needing a second sweeper that would rot independently.
 WORKTREE_ROOT = REPO / ".claude" / "worktrees"
+
+#: Where every dispatch's full result goes: the project's run directory, beside the
+#: telemetry, ignored by git with the rest of `.harness/run/`. The same directory
+#: `commands.LOG_DIR` names under a worker's checkout, so one `peek.sh` habit covers
+#: both. The project, not the caller's checkout: the orchestrator dispatches from the
+#: primary and the path it prints must survive the worktree the result describes.
+RESULT_DIR = REPO / ".harness" / "run" / "out"
+#: What `--digest` prints when given no number. A verdict, a task list or a design's
+#: summary fits; a 45k-char result does not, and that is the point.
+DIGEST_LINES = 40
 
 
 class DispatchError(RuntimeError):
@@ -658,6 +681,51 @@ def dispatch(
         raw=payload,
         results=_transcript.result_volume_for(cwd or REPO, payload.get("session_id") or ""),
     )
+
+
+def render_result(outcome: Outcome) -> str:
+    """What the dispatch has to say, in the shape stdout carried before it was a file:
+    what arrived before a kill, THEN the result — never the error instead of it."""
+    parts: list[str] = []
+    if outcome.terminal != "success" and outcome.transcript:
+        parts.append(f"-- partial transcript, {len(outcome.transcript)} step(s) before the run ended:")
+        parts += [f"   {step}" for step in outcome.transcript]
+        parts.append("")
+    parts.append(outcome.text)
+    return "\n".join(parts)
+
+
+def keep_result(text: str, agent: str, task: str | None, out: Path | None = None) -> Path | None:
+    """Write the whole result where the caller can pass it on by path.
+
+    Default `RESULT_DIR/dispatch-<agent>-<task or adhoc>-<HHMMSS>.md`; a name already
+    taken gets a numeric suffix rather than being overwritten, because two dispatches of
+    one agent in the same second is exactly a wave. `out` overrides; a relative `out`
+    resolves against the project, the same rule `tracker.render._in_project` holds,
+    because every wrapper `cd`s into the harness before Python starts.
+
+    Never fails the dispatch. An unwritable directory means no path — and the caller
+    then prints in full, because a digest with nowhere to point is a result lost.
+    """
+    try:
+        if out is None:
+            slug = (task or "adhoc").replace("/", "-")
+            stem = f"dispatch-{agent.replace('/', '-')}-{slug}-{time.strftime('%H%M%S')}"
+            RESULT_DIR.mkdir(parents=True, exist_ok=True)
+            path = RESULT_DIR / f"{stem}.md"
+            n = 1
+            while path.exists():
+                n += 1
+                path = RESULT_DIR / f"{stem}-{n}.md"
+        else:
+            path = out if out.is_absolute() else REPO / out
+            path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text if text.endswith("\n") else text + "\n")
+        return path
+    except OSError:
+        return None
+
+
 def record(
     outcome: Outcome,
     task: str | None = None,
@@ -730,6 +798,23 @@ def main(argv: list[str] | None = None) -> int:
         help="print the resolved command and exit without dispatching",
     )
     ap.add_argument("--no-record", action="store_true")
+    ap.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help=f"where the full result is written; default {RESULT_DIR}/dispatch-<agent>-<task>-<HHMMSS>.md",
+    )
+    ap.add_argument(
+        "--digest",
+        nargs="?",
+        const=DIGEST_LINES,
+        type=int,
+        default=None,
+        metavar="N",
+        help=f"print only the first N lines of the result (default {DIGEST_LINES}; the number "
+        "must directly follow the flag) and then `... full: <path> (<M> lines)`; without it "
+        "the whole result is printed, then `full: <path>`",
+    )
     args = ap.parse_args(argv)
 
     try:
@@ -767,20 +852,34 @@ def main(argv: list[str] | None = None) -> int:
             lane=args.lane,
             task=args.task,
         )
-    except (ConfigError, DispatchError) as exc:
+    except (ConfigError, DispatchError, ProjectError) as exc:
+        # ProjectError: the project's `tiers:` block names an agent or tier that does
+        # not exist. Routing on the agent's default instead would run the A/B on the
+        # wrong arm and record it as the right one — so it stops here, like any other
+        # config that cannot be dispatched.
         print(f"FAIL: {exc}", file=sys.stderr)
         return 2
 
     if not args.no_record:
         record(outcome, task=args.task, attempt=args.attempt)
 
-    if outcome.terminal != "success" and outcome.transcript:
-        # What arrived before the kill, THEN the error — never the error instead of it.
-        print(f"-- partial transcript, {len(outcome.transcript)} step(s) before the run ended:")
-        for step in outcome.transcript:
-            print(f"   {step}")
-        print()
-    print(outcome.text)
+    body = render_result(outcome)
+    kept = keep_result(body, args.agent, args.task, out=args.out)
+    if kept is None:
+        print(
+            f"-- result NOT kept: could not write under {args.out or RESULT_DIR}; printed in full",
+            file=sys.stderr,
+        )
+    if args.digest is not None and kept is not None:
+        lines = body.splitlines()
+        shown = lines[: max(0, args.digest)]
+        if shown:
+            print("\n".join(shown))
+        print(f"{'... ' if len(lines) > len(shown) else ''}full: {kept} ({len(lines)} lines)")
+    else:
+        print(body)
+        if kept is not None:
+            print(f"full: {kept}")
     if outcome.budget_exhausted:
         ceiling = outcome.resolved.max_budget_usd
         print(

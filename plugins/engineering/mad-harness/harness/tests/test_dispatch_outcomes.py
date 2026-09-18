@@ -42,8 +42,11 @@ def _runner(payload):
 
 
 @pytest.fixture(autouse=True)
-def _sandboxed(monkeypatch):
+def _sandboxed(monkeypatch, tmp_path):
     monkeypatch.setattr("models.dispatch.require_sandbox", lambda: None)
+    # `main()` keeps every result under RESULT_DIR; in the suite that is the plugin's
+    # own tree. Ignored by git, but a test must not write there at all.
+    monkeypatch.setattr("models.dispatch.RESULT_DIR", tmp_path / "out")
 
 
 def test_a_budget_kill_is_a_recorded_outcome_with_its_spend_and_transcript():

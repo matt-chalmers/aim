@@ -16,7 +16,7 @@ from __future__ import annotations
 import sys
 
 from .project import ProjectError, load, plugin_version, upgrade_status
-from .resolve import HARNESS, REPO, _prompts_dir
+from .resolve import HARNESS, REPO, ConfigError, _prompts_dir
 
 INIT_SCRIPT = HARNESS / "swarm" / "swarm-worktree-init.sh"
 SWARM_DOC = _prompts_dir("commands") / "swarm.md"
@@ -107,6 +107,16 @@ def main(argv: list[str] | None = None) -> int:
         if levers_on:
             print(f"levers:  {', '.join(f'{k}={v}' for k, v in sorted(levers_on.items()))}")
     except ProjectError as exc:
+        failures.append(str(exc))
+
+    # A tier override is a project running an A/B arm; it is shown so a reader of this
+    # output knows which agents are off the plugin's defaults, and named as an override
+    # so nobody mistakes it for the agent's own declaration.
+    try:
+        moved = p.tiers()
+        if moved:
+            print(f"tiers:   {', '.join(f'{k}->{v}' for k, v in sorted(moved.items()))}  (project overrides)")
+    except (ProjectError, ConfigError) as exc:
         failures.append(str(exc))
 
     try:

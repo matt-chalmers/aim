@@ -88,6 +88,12 @@ class Capabilities:
     #: generator — otherwise hardcodes `.beads/` and silently breaks on the next
     #: backend. Trailing slash marks a directory.
     owned_paths: tuple[str, ...] = ()
+    #: The repo-relative path `export()` writes with no argument — the ONE artefact the
+    #: close-out commits — or None when the backend keeps no tracked export. Narrower than
+    #: `owned_paths` on purpose: for beads that prefix also holds `config.yaml`, which the
+    #: autosync toggle rewrites, so `git add .beads/` would commit the wave's
+    #: `export.auto: false` and leave the tree dirty again the moment §5 restores it.
+    export_path: str | None = None
 
 
 @dataclass(frozen=True)

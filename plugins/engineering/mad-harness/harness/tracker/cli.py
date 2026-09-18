@@ -9,6 +9,16 @@ EVERY VERB ANSWERS. A verb a backend cannot serve raises `NotSupported` and exit
 non-zero, never returns empty — the same rule `scan.sh` and `peek.sh` hold, and for the
 same reason: an empty answer that means "not implemented" reads as "searched and found
 nothing".
+
+A NOTE CAN COME FROM A FILE. The loop's §3b has the orchestrator copy an architect's
+design into an epic note: read it into context, then emit it again as output — paid
+twice, at the fattest context in the system (`models.dispatch` has the measurement).
+`note <id> --file PATH` and `update <id> --append-notes-file PATH` read the text here
+instead, so an artefact a dispatch left on disk reaches the record without ever
+passing through the caller. The text and the file are mutually exclusive, a missing
+or empty file is a clean refusal — a note that silently carries nothing is the wrong
+path unnoticed — and a relative path resolves against the project, the same rule
+`render._in_project` holds.
 """
 
 from __future__ import annotations
@@ -92,6 +102,28 @@ def _record(t: Task) -> str:
     if t.notes.strip():
         out += ["", "--- notes ---", t.notes.rstrip()]
     return "\n".join(out)
+
+
+def _note_text(text: str | None, file: str | None, flag: str) -> str:
+    """One note, from exactly one of the two places it may come from."""
+    from pathlib import Path
+
+    if (text is None) == (file is None):
+        raise TrackerError(
+            f"give the note as text or as {flag} <path>, not both and not neither"
+        )
+    if text is not None:
+        return text
+    from models.resolve import REPO
+
+    path = Path(file) if Path(file).is_absolute() else REPO / file
+    try:
+        body = path.read_text()
+    except OSError as exc:
+        raise TrackerError(f"{flag} {file}: {exc.strerror or exc}") from exc
+    if not body.strip():
+        raise TrackerError(f"{flag} {file}: the file is empty; refusing to record a note that says nothing")
+    return body.rstrip("\n")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -182,7 +214,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = add("note", help="append to the audit trail; never replaces")
     p.add_argument("id")
-    p.add_argument("text")
+    p.add_argument("text", nargs="?", default=None)
+    p.add_argument("--file", default=None, help="read the note from this file instead of the argument")
 
     p = add("dep", help="add a dependency edge")
     p.add_argument("dependent")
@@ -200,6 +233,12 @@ def build_parser() -> argparse.ArgumentParser:
     # `--append-notes` is spelled as bd spells it, so the 95 migrated call sites are a
     # substitution rather than a rewrite.
     p.add_argument("--append-notes", dest="append_notes")
+    p.add_argument(
+        "--append-notes-file",
+        dest="append_notes_file",
+        default=None,
+        help="like --append-notes, read from this file",
+    )
 
     p = add("supersede", help="close a record, pointing at its replacement")
     p.add_argument("old")
@@ -511,7 +550,7 @@ def main(argv: list[str] | None = None) -> int:
         elif v == "close":
             store.close(args.id, args.reason)
         elif v == "note":
-            store.note(args.id, args.text)
+            store.note(args.id, _note_text(args.text, args.file, "--file"))
         elif v == "dep":
             store.dep_add(args.dependent, args.blocker)
         elif v == "export":
@@ -522,8 +561,12 @@ def main(argv: list[str] | None = None) -> int:
                 for k in ("status", "title", "description", "acceptance", "priority", "parent", "assignee")
                 if getattr(args, k) is not None
             }
-            if args.append_notes:
-                store.note(args.id, args.append_notes)
+            # Truthiness for the text, as before: `--append-notes ""` stays a no-op.
+            if args.append_notes or args.append_notes_file is not None:
+                store.note(
+                    args.id,
+                    _note_text(args.append_notes, args.append_notes_file, "--append-notes-file"),
+                )
             if fields:
                 store.update(args.id, **fields)
         elif v == "supersede":

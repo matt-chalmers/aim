@@ -8,15 +8,25 @@ implementation of :func:`resolve`, and everything else calls it.
 The precedence, highest first:
 
     1. explicit task override   an operator or an escalation said so outright
-    2. policy                   high-risk work is forced up, whatever step 3 says
-    3. agent default            `model_tier:` in the agent's own frontmatter
-    4. global default           `default_tier:` in tiers.yaml
+    2. policy                   high-risk work is forced up, whatever steps 3-5 say
+    3. project tier override    `tiers:` in the consuming project's harness.yaml
+    4. agent default            `model_tier:` in the agent's own frontmatter
+    5. global default           `default_tier:` in tiers.yaml
 
 Step 2 sits ABOVE the agent default deliberately. An agent's default is a
 statement about its ordinary work; a security-sensitive diff is not ordinary
 work, and the cheap tier must not be reachable for it by forgetting to pass an
 override. Step 1 stays above step 2 so a human can still force a tier down for a
 deliberate experiment — but that requires saying so, which is the point.
+
+Step 3 is the field's switch. A consuming project moves an agent between tiers
+without patching the plugin — the A/B the cost analysis asked for on the
+verifiers (`Project.tiers` has the numbers), which stays a switch and not a
+default because a verification gate's catch rate has to be measured before it
+moves for everyone. It sits BELOW policy so a project cannot lower a high-risk
+dispatch by configuration; lowering one still takes step 1, said outright, per
+dispatch. The reason recorded is :data:`PROJECT_OVERRIDE`, so a telemetry series
+can be split by arm without guessing from the tier.
 
 SECRETS. Provider env may reference ${VAR}. Those are expanded from the
 orchestrator's environment at dispatch time and returned in
@@ -186,6 +196,9 @@ AGENTS_DIR = _prompts_dir("agents")
 
 #: The tier that high-risk work is forced to, regardless of the agent's default.
 POLICY_FORCED_TIER = "strategic"
+#: The reason recorded when a project's `tiers:` block moved the agent. Telemetry
+#: carries it verbatim, which is how an A/B series is split by arm.
+PROJECT_OVERRIDE = "project override (harness.yaml tiers)"
 
 _ENV_REF = re.compile(r"^\$\{([A-Z_][A-Z0-9_]*)\}$")
 _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
@@ -826,11 +839,33 @@ def briefs_root() -> str:
     )
 
 
+def project_tier_overrides(
+    config: dict[str, Any] | None = None, agents_dir: Path | None = None
+) -> dict[str, str]:
+    """The consuming project's `tiers:` overrides, validated — `{}` where there is no
+    harness.yaml to read.
+
+    A missing config is the old behaviour, not an error: the block is optional and a
+    dry-run from outside any project resolved before it existed. A config that IS there
+    but malformed raises, because a misspelt agent or tier that fell through to the
+    agent default would leave an A/B arm silently running on the tier it meant to move
+    off — the series would read as "no effect" and the switch would never be trusted.
+    """
+    # project.py imports this module, so the cycle stays lazy — the same way
+    # `dispatch.py` reaches `declared_skills`.
+    from .project import PROJECT_FILE, load
+
+    if not PROJECT_FILE.is_file():
+        return {}
+    return load().tiers(config=config, agents_dir=agents_dir)
+
+
 def resolve(
     agent: str,
     *,
     override_tier: str | None = None,
     high_risk: bool = False,
+    project_tiers: dict[str, str] | None = None,
     config: dict[str, Any] | None = None,
     agents_dir: Path | None = None,
     environ: dict[str, str] | None = None,
@@ -839,6 +874,8 @@ def resolve(
 
     :param override_tier: an explicit operator or escalation decision (rank 1)
     :param high_risk: the task touches a security-sensitive surface (rank 2)
+    :param project_tiers: the project's per-agent overrides (rank 3); None reads them
+        from harness.yaml, `{}` asks for the plugin's own defaults regardless of it
     """
     config = config or load_config()
     tiers = config["tiers"]
@@ -850,8 +887,21 @@ def resolve(
     elif high_risk:
         tier, reason = POLICY_FORCED_TIER, "policy: high-risk surface"
     else:
+        if project_tiers is None:
+            project_tiers = project_tier_overrides(config=config, agents_dir=agents_dir)
         declared = agent_frontmatter(agent, agents_dir).get("model_tier")
-        if declared is None:
+        if agent in project_tiers:
+            # `Project.tiers` has validated the block by the time it gets here; the
+            # frontmatter is still read above so an agent that does not exist fails the
+            # same way it always has, and the tier is checked once more because this
+            # argument can also be handed in directly.
+            if project_tiers[agent] not in tiers:
+                raise ConfigError(
+                    f"project override routes {agent!r} to unknown tier "
+                    f"{project_tiers[agent]!r}; known: {sorted(tiers)}"
+                )
+            tier, reason = project_tiers[agent], PROJECT_OVERRIDE
+        elif declared is None:
             tier, reason = config["default_tier"], "global default"
         elif declared not in tiers:
             raise ConfigError(

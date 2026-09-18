@@ -191,9 +191,15 @@ prompt to a file, then run all `n` in ONE message as background Bash calls — o
 run sequentially and you have gained nothing.
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh <agent> --prompt-file <path> --task <id> --worker <n> --lane <lane>
-${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh <agent> --prompt-file <path> --task <id> --worker <n> --lane <lane> --resume <branch>   # REATTACH, or VERIFY that failed
+${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh <agent> --prompt-file <path> --task <id> --worker <n> --lane <lane> --digest
+${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh <agent> --prompt-file <path> --task <id> --worker <n> --lane <lane> --digest --resume <branch>   # REATTACH, or VERIFY that failed
 ```
+
+**`--digest`** prints the report's first lines and the path of the file holding all of it
+(`.harness/run/out/`), instead of the whole report. A worker's return line is what you act
+on; the lenses read the diff through `brief.sh`, not the worker's account of it. Measured
+on a campaign orchestrator: whole subagent results were the largest things in its context
+and were re-read on every later turn.
 
 **Why the boundary rather than the Agent tool.** It is what makes the model tier real:
 `tiers.yaml` decides the model, the effort and a hard `--max-budget-usd` ceiling per dispatch,

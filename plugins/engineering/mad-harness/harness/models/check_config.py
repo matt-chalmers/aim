@@ -10,6 +10,13 @@ bug, because both paths work and only the bill and the quality differ.
 This is the same shape of guard as ``check-analyst-mirror.sh``: two files that
 must agree, and a script that says so out loud rather than trusting anyone to
 remember.
+
+THE PLUGIN'S DEFAULTS, NOT A PROJECT'S ARM. Every resolve here passes
+``project_tiers={}``: a consuming project's ``tiers:`` block moves an agent
+deliberately, for a measured A/B, and the frontmatter is meant to keep saying what
+the plugin ships. Run from such a project, the override would otherwise read as
+drift between the two readers and fail a config that is exactly as intended.
+``check-project-config.sh`` is where the overrides are shown.
 """
 
 from __future__ import annotations
@@ -30,7 +37,7 @@ def sync(name: str) -> tuple[str, str] | None:
     that is also the operative one is where a costly mistake hides, so it is
     generated, in the same spirit as any generated-artifact refresh.
     """
-    r = resolve(name)
+    r = resolve(name, project_tiers={})
     path = AGENTS_DIR / f"{name}.md"
     text = path.read_text()
     fm = agent_frontmatter(name)
@@ -70,7 +77,7 @@ def main() -> int:
     for path in agents:
         name = path.stem
         try:
-            r = resolve(name, config=config)
+            r = resolve(name, config=config, project_tiers={})
         except ConfigError as exc:
             failures.append(f"{name}: {exc}")
             continue

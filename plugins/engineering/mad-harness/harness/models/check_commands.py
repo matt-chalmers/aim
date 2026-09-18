@@ -77,6 +77,10 @@ _NORMATIVE = (
     "swarm",
     "slug",
     "name",
+    # Which tier a lens runs on. Moving the lens that is about to judge a worker down
+    # to the cheap tier is a quieter version of switching it off, and it is the owner's
+    # A/B switch — see `Project.tiers`.
+    "tiers",
 )
 
 #: Command keys worth probing. `test_scoped` is the one workers actually use, so

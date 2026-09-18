@@ -29,6 +29,7 @@ not a guard, it is decoration — and this corpus has caught itself shipping thr
 | `domain-report.sh` | Where the harness's prose uses a consuming project's domain vocabulary. |
 | `gating-ratio.sh` | How much of the backlog is buildable at all — open records, how many are decisions or |
 | `models-cost.sh` | The dispatch cost series, read back per agent and tier: cost, turns, cache rate, budget |
+| `session-cost.sh` | What one session cost in context, read from its transcript: requests, context growth, the |
 | `spec-index-status.sh` | Answer campaign-loop §3a's reuse / delta / rebuild decision mechanically, and move the |
 | `stack-card.sh` | Print the technology card for a lane. |
 

@@ -549,3 +549,64 @@ No config change; the hook installs with the plugin. Restart once after `plugin 
 is refused everywhere, interactive included; the denial names the `dispatch.sh` form.
 
 - **mechanical** — re-stamp `harness.version`, when convenient. Nothing to set.
+
+### 0.10.10
+
+**The orchestrator's half of the cost work.** Every earlier lever measured the workers,
+which the field's second cost analysis put at 15% of a campaign; the orchestrator was 52%
+and the planning lenses 34%. Measured on that orchestrator's own transcript: 237
+requests, context 55k → 920k tokens, average ~380k, so every tool call it makes re-reads
+~$0.11–0.17 of context — six times what the same call costs a worker. What filled it:
+35% its own outputs, 35% injected text (subagent results landing in full, and again as
+task-notifications; skill loads), 7% tool results. So the levers at the top are **fewer
+turns** and **artefacts by path**, and that is what this release is. No config change.
+
+- **`dispatch.sh --digest [N]`.** Every dispatch now writes the agent's whole result to
+  `.harness/run/out/dispatch-<agent>-<task>-<time>.md` (`--out` to name it); with
+  `--digest` stdout carries the first N lines (default 40) and the absolute path. The
+  four largest things in the campaign orchestrator's context were subagent results of
+  45k, 43k, 36k and 23k characters, each re-read on every later turn. Without the flag
+  the output is unchanged plus one trailing `full: <path>` line.
+- **`tk.sh note <id> --file <path>`** and `update --append-notes-file`. §3b had the
+  orchestrator copy the architect's design into the epic note — read in, emitted again,
+  paid twice at its context size. Now the digest's file is attached by path.
+- **Three scripts replace three model-driven sequences.** `preflight.sh` is §0's six
+  checks as one call (exit 3 = config needs the upgrade, as before). `apply-plan.sh` is
+  §3e+§3f: the planner's command block now carries labels (`T1: … create …`,
+  `dep T2 T1`); the script validates the whole plan before writing anything, runs it,
+  resolves labels to the ids the tracker returned, records the map under `.harness/run/`
+  so a rerun skips what exists, and ends with `validate` and the render — one call for
+  what was ten to thirty. `close-epic.sh` is §5's mechanics: blocking-prose, decision
+  register and staging/archive checks (nothing written if any fails), then close, export,
+  the tracker commit, `pull --rebase` + `push`, `autosync on` — in an order that can no
+  longer be got wrong; `--check` runs the checks only, `--no-push` stops after the commit.
+  The tracker port gains `export_path` (what the commit stages) — `.beads/issues.jsonl`
+  for beads, the configured directory for mdfiles.
+- **§3d's revision is a fresh dispatch, never a resume.** Measured: resuming a lens
+  rebuilt its whole prior conversation at the cache-write rate — $1.95 for two
+  round-trips against $0.16 — because a resumed prompt does not match the cached prefix.
+  The planner's revision now gets the audit's output file path in a new prompt. (A 1h TTL
+  was the doc's alternative; dispatches already write at 1h, so the miss was the mismatch.)
+- **`tiers:` in harness.yaml** — per-agent tier overrides, e.g. `verifier-spec: worker`.
+  The A/B switch for tier-splitting the verifiers as `analyst-survey`/`analyst` already
+  are; a switch and not a default because a verification gate's catch rate has to be
+  measured in the field before its tier moves for everyone. Policy still forces high-risk
+  up over it; the dispatch record's `reason` says `project override`, so
+  `make models-cost` can split by arm; `check-model-config` judges the plugin's defaults,
+  not a project's overrides; the auto-repair mechanism refuses to write it.
+- **`session-cost.sh <transcript | session-id>`** — the measurement the cost analysis did
+  by hand for $69: one session's context curve in tokens, what grew it, every jump over
+  15k and what landed it. Verified against the field transcript: reproduces the analysis
+  exactly — and adds what the hand analysis missed: that session sat idle for over an
+  hour four times across its three days, and each time the next request re-wrote its
+  ~900k-token prefix at the cache-write rate — 4.16M tokens, more than the campaign's
+  whole orchestrator spend. A fresh session per campaign (the analysis's own O1b) is
+  also the fix for that.
+- **The loop tells the orchestrator what it costs** (§0) and to load `evidence-gathering`
+  once — its batch primitives are worth six times to the orchestrator what they are to
+  the worker they were written for.
+- **Not built, and why:** context editing for the orchestrator (A5) has no CLI or SDK
+  knob (0.10.7); the pinned-state hook is the "pin the rules" half.
+
+- **mechanical** — re-stamp `harness.version`, when convenient. Nothing to set: `tiers:`
+  is off until you write it.

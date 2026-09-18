@@ -267,6 +267,21 @@ def test_every_backend_declares_the_paths_it_owns(store):
         assert path.strip("/"), f"{path!r} would match the entire repository"
 
 
+def test_a_declared_export_path_is_the_narrow_thing_under_what_the_backend_owns(store):
+    """`export_path` is what the close-out hands to `git add`. It may be absent — a
+    store with no export configured has nothing tracked to commit, and the close-out
+    says so — but when declared it must sit inside an owned prefix and be narrower than
+    the repository. Beads' `.beads/` prefix also holds the config the autosync toggle
+    rewrites; committing the prefix would record that toggle."""
+    caps = store.capabilities()
+    if caps.export_path is None:
+        return
+    assert caps.export_path.strip("/"), "would name the entire repository"
+    assert any(caps.export_path.startswith(p) for p in caps.owned_paths), (
+        f"{caps.export_path!r} is outside every owned path {caps.owned_paths}"
+    )
+
+
 def test_a_task_from_any_backend_carries_the_fields_callers_branch_on(store):
     tid = store.create("field coverage", type=TASK, description="d")
     t = store.show(tid)
