@@ -73,15 +73,11 @@ it points at are the rule. Edit it when a rule changes and nowhere else.
 
 ## 0. Pre-flight — once per run
 
-**You are the most expensive caller in the system.** Measured on a field campaign: the
-orchestrator's context averaged ~380k tokens over 237 requests, so every tool call you make
-re-reads that — ~$0.11–0.17 a call, about six times what the same call costs a worker. Two
-rules follow, and they are worth more here than anywhere else: **one call where five would
-do** (the scripts below exist for that), and **artefacts by path, not by content** — a
-design, a plan or an audit goes from the agent that wrote it to the file that holds it to
-the script or agent that consumes it, without passing through your context. Load
-`evidence-gathering` once now (one `Skill` call); its batch primitives were written for
-agents at a sixth of your cost.
+The orchestrator card at the top of the command you ran states the three rules that make
+your context affordable; `pinned.sh` prints it again after every compaction. This loop is
+where they bite hardest — the scripts below exist for rule 2, `--digest` and `--file` for
+rule 3 — and one more thing: load `evidence-gathering` once now (one `Skill` call). Its
+batch primitives were written for agents at a sixth of your cost.
 
 ```bash
 # NOT ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh prime — the SessionStart hook already ran it; a second call just duplicates

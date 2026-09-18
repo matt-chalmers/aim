@@ -34,6 +34,17 @@ END = "<!-- END PINNED -->"
 WORKTREE = re.compile(r"/(?:harness-w\d+-|worktree-agent-)(?P<task>[^/\s]+)$")
 
 
+def card() -> str:
+    """The orchestrator card — the rules that make a large context cheap — from its
+    canonical copy, so it never drifts from what the commands carry."""
+    from .check_card import canonical
+
+    try:
+        return "# ORCHESTRATOR CARD — re-read after compaction\n\n" + canonical()
+    except (OSError, RuntimeError):
+        return ""
+
+
 def invariants() -> str:
     """The loop's post-compaction rules, from the one place they are stated."""
     text = (_prompts_dir("skills") / "campaign-loop" / "SKILL.md").read_text()
@@ -185,10 +196,19 @@ def main(argv: list[str] | None = None) -> int:
 
     state = in_flight()
     busy = bool(state.get("claims") or state.get("worktrees") or state.get("slot"))
-    if not busy and not args.always:
-        return 0
-    summary = last_compact_summary(transcript) if source in ("compact", "") else None
-    print(render(state, summary=summary, source=source))
+    # THE CARD, ON EVERY COMPACTION AND RESUME, CAMPAIGN OR NOT. The orchestrator card's
+    # rules are about a large context, and a session that compacts has one by definition:
+    # the $11.21 reference load that measured rule 1 happened in a session whose campaign
+    # had just ended, so "in flight" would have missed it. ~270 tokens, once per
+    # compaction, in sessions that already carry hundreds of thousands.
+    parts = []
+    if source in ("compact", "resume"):
+        parts.append(card())
+    if busy or args.always:
+        summary = last_compact_summary(transcript) if source in ("compact", "") else None
+        parts.append(render(state, summary=summary, source=source))
+    if parts:
+        print("\n\n".join(parts))
     return 0
 
 

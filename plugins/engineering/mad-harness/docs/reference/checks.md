@@ -19,6 +19,7 @@ not a guard, it is decoration — and this corpus has caught itself shipping thr
 | `check-docs.sh` | Verify the documentation's generated parts against the code they describe. |
 | `check-line-pins.sh` | Which records cite code by line number, and which of those pins have drifted. |
 | `check-model-config.sh` | Verify the model routing config against every agent definition. |
+| `check-orchestrator-card.sh` | The orchestrator card — harness/orchestrator-card.md — byte-identical in every command |
 | `check-ports.sh` | Which of the project's declared ports are already bound, and by what. |
 | `check-project-config.sh` | Verify harness.yaml + harness/stacks/, and that the places still |
 | `check-prose.sh` | Catch prose an edit broke: a sentence whose subject was deleted, a rule stated twice, |

@@ -68,10 +68,12 @@ def test_harness_worktrees_are_recognised_by_both_naming_schemes_and_nothing_els
     ]
 
 
-def test_the_hook_is_silent_when_nothing_is_in_flight_and_loud_when_something_is(monkeypatch, capsys, tmp_path):
+def test_the_hook_prints_no_state_when_nothing_is_in_flight_and_all_of_it_when_something_is(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(mod, "in_flight", lambda: _state())
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps({"source": "compact"})))
-    assert mod.main(["--hook"]) == 0 and capsys.readouterr().out == ""
+    assert mod.main(["--hook"]) == 0
+    out = capsys.readouterr().out
+    assert "# PINNED" not in out and "## Claims held" not in out  # the card alone — see the test below
 
     t = tmp_path / "t.jsonl"
     t.write_text(json.dumps({"type": "user", "isCompactSummary": True, "message": {"content": "summary mentions PROJ-b2 only"}}) + "\n")
@@ -107,3 +109,31 @@ def test_the_hook_is_silent_inside_a_dispatched_agent(monkeypatch, capsys):
     assert mod.main(["--hook"]) == 0 and capsys.readouterr().out == ""
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps({"source": "startup"})))
     assert mod.main(["--hook"]) == 0 and "PROJ-a1" in capsys.readouterr().out
+
+
+def test_the_card_prints_on_every_compaction_and_resume_and_the_state_only_in_flight(monkeypatch, capsys):
+    """Rule 1's $11.21 was measured in a session whose campaign had just ended — a large
+    context is the condition, and a session that compacts has one. The state block is
+    still the campaign's alone."""
+    monkeypatch.setattr(mod, "in_flight", lambda: _state())
+    for source in ("compact", "resume"):
+        monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps({"source": source})))
+        assert mod.main(["--hook"]) == 0
+        out = capsys.readouterr().out
+        assert "ORCHESTRATOR CARD" in out and "most expensive caller" in out and "## Claims held" not in out
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps({"source": "startup"})))
+    assert mod.main(["--hook"]) == 0 and capsys.readouterr().out == ""
+    monkeypatch.setattr(mod, "in_flight", lambda: _state(claims=("PROJ-a1",)))
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps({"source": "compact"})))
+    assert mod.main(["--hook"]) == 0
+    out = capsys.readouterr().out
+    assert out.index("ORCHESTRATOR CARD") < out.index("# PINNED") and "PROJ-a1" in out
+
+
+def test_the_card_the_hook_prints_is_the_one_the_commands_carry():
+    from models.check_card import body, canonical, carriers
+
+    printed = mod.card()
+    assert canonical() in printed
+    for path in carriers():
+        assert body(path.read_text()) == canonical(), path.name

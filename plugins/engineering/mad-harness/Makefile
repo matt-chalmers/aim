@@ -74,9 +74,12 @@ docs:
 conventions:
 	./harness/checks/check-conventions-mirror.sh
 
+card:
+	./harness/checks/check-orchestrator-card.sh
+
 # A REPORT, deliberately not in `check` — a hit needs reading, not failing.
 domain:
 	./harness/checks/domain-report.sh
 
-check: lint test project skills refs models prose commands docs
+check: lint test project skills refs models prose commands docs conventions card
 	@echo "OK — harness green."

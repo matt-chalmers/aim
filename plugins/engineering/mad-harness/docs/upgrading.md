@@ -610,3 +610,38 @@ turns** and **artefacts by path**, and that is what this release is. No config c
 
 - **mechanical** — re-stamp `harness.version`, when convenient. Nothing to set: `tiers:`
   is off until you write it.
+
+### 0.10.11
+
+**The orchestrator card.** From the field: a project had written the orchestrator's cost
+rules into its own `CLAUDE.md` because the plugin stated them in one place (`campaign-loop`
+§0) that only `/campaign` reads, as a message, which is what a compaction discards. That is
+a plugin gap, and the plugin already had the mechanism for it. No config change; the
+project-local copy can go.
+
+- **`harness/orchestrator-card.md`** — ~270 tokens: the three rules (never load reference
+  material into yourself — delegate the read to a built-in agent; one call where five
+  would do; artefacts by path), each with its measurement, plus the dispatcher rule. It is
+  the stack-card pattern one level up: a budgeted block in the prompt, doctrine on demand.
+- **Every command carries it**, byte-identical, mirrored by `check-orchestrator-card.sh
+  --write` and verified by `make check` — ten copies are only safe when divergence is
+  mechanical. A session becomes an orchestrator by running a command, so the command text
+  is where the rules are loaded.
+- **`pinned.sh` prints it after every compaction and resume, campaign or not.** The
+  $11.21 reference load that measured rule 1 happened in a session whose campaign had
+  just ended, so gating the card on "in flight" would have missed it; a session that
+  compacts has a large context by definition, and that is the condition of the rules.
+  The pinned *state* stays the campaign's alone.
+- **Not built: a hook denying large reads (the field's proposed third mechanism).** Two
+  numbers decide it. The orchestrator's tool results were 7% of its context and its
+  largest single read ~3k tokens — the 28% figure was the workers', measured per dispatch
+  since 0.10.6 and addressed by the doctrine they now carry. And rule 1's measured event
+  was a Skill load, whose size a hook cannot learn (bundled skills sit under a hashed
+  temporary path), so a category refusal would deny a 200-token skill at the price of a
+  30k-token subagent. Rule 1 is therefore a card rule with its number, as rules 2 and 3
+  are; the one mechanically enforceable orchestrator rule — plugin agents go through the
+  dispatcher — already is a hook (0.10.9).
+
+- **mechanical** — re-stamp `harness.version`, when convenient. If your `CLAUDE.md`
+  restates these rules, trim it to a pointer: the card applies to any long session in a
+  plugin-enabled repository, not only a campaign.
