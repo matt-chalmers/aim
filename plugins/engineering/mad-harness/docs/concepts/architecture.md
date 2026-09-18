@@ -34,8 +34,8 @@ reach every agent (`evidence-gathering`, `spec-lifecycle`), and pinned byte-iden
 `check-conventions-mirror.sh` — which also fails any agent whose preloads include neither.
 The orchestrator's rules take the same shape one level up: `harness/orchestrator-card.md`
 is mirrored into every command by `check-orchestrator-card.sh`, since a session becomes an
-orchestrator by running one, and printed again after every compaction by the plugin's
-`SessionStart` hook. Duplication is safe only when divergence is mechanical.
+orchestrator by running one, and printed at every session start, resume and compaction by the
+plugin's `SessionStart` hook. Duplication is safe only when divergence is mechanical.
 
 They were once cited from a consuming project's `CLAUDE.md`, on the reasonable argument
 that duplicating it is pure cost. **That argument inverts once the rule is the harness's**:

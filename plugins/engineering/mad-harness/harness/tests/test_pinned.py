@@ -108,20 +108,23 @@ def test_the_hook_is_silent_inside_a_dispatched_agent(monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps({"source": "startup", "agent_type": "mad-harness:fullstack-engineer"})))
     assert mod.main(["--hook"]) == 0 and capsys.readouterr().out == ""
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps({"source": "startup"})))
-    assert mod.main(["--hook"]) == 0 and "PROJ-a1" in capsys.readouterr().out
+    assert mod.main(["--hook"]) == 0
+    out = capsys.readouterr().out
+    assert "ORCHESTRATOR CARD" in out and "PROJ-a1" in out
 
 
-def test_the_card_prints_on_every_compaction_and_resume_and_the_state_only_in_flight(monkeypatch, capsys):
-    """Rule 1's $11.21 was measured in a session whose campaign had just ended — a large
-    context is the condition, and a session that compacts has one. The state block is
-    still the campaign's alone."""
+def test_the_card_prints_at_start_resume_and_compaction_and_the_state_only_in_flight(monkeypatch, capsys):
+    """The session the rules were measured on never compacted (55k -> 839k over 225
+    requests), so a compaction-only trigger would fire zero times on that shape; the
+    residual is a long session that runs no plugin command, and its first request is the
+    cheapest moment. The state block is still the campaign's alone."""
     monkeypatch.setattr(mod, "in_flight", lambda: _state())
-    for source in ("compact", "resume"):
+    for source in ("startup", "compact", "resume"):
         monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps({"source": source})))
         assert mod.main(["--hook"]) == 0
         out = capsys.readouterr().out
         assert "ORCHESTRATOR CARD" in out and "most expensive caller" in out and "## Claims held" not in out
-    monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps({"source": "startup"})))
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps({"source": "clear"})))
     assert mod.main(["--hook"]) == 0 and capsys.readouterr().out == ""
     monkeypatch.setattr(mod, "in_flight", lambda: _state(claims=("PROJ-a1",)))
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps({"source": "compact"})))

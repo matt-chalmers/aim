@@ -23,7 +23,7 @@ def test_a_missing_or_diverged_copy_fails_and_write_repairs_it(tmp_path, monkeyp
     card = mod.canonical()
     d = _fake_commands(tmp_path, monkeypatch, {
         "good": _with_card(card),
-        "stale": _with_card(card.replace("Three rules", "Two rules")),
+        "stale": _with_card(card.replace("Four rules", "Two rules")),
         "bare": "---\nname: bare\n---\n\nno card here\n",
     })
     bad = mod.problems()

@@ -40,7 +40,7 @@ def card() -> str:
     from .check_card import canonical
 
     try:
-        return "# ORCHESTRATOR CARD — re-read after compaction\n\n" + canonical()
+        return "# ORCHESTRATOR CARD\n\n" + canonical()
     except (OSError, RuntimeError):
         return ""
 
@@ -196,13 +196,14 @@ def main(argv: list[str] | None = None) -> int:
 
     state = in_flight()
     busy = bool(state.get("claims") or state.get("worktrees") or state.get("slot"))
-    # THE CARD, ON EVERY COMPACTION AND RESUME, CAMPAIGN OR NOT. The orchestrator card's
-    # rules are about a large context, and a session that compacts has one by definition:
-    # the $11.21 reference load that measured rule 1 happened in a session whose campaign
-    # had just ended, so "in flight" would have missed it. ~270 tokens, once per
-    # compaction, in sessions that already carry hundreds of thousands.
+    # THE CARD, AT EVERY START, RESUME AND COMPACTION, CAMPAIGN OR NOT. The rules are about
+    # a large context, and the session they were measured on — 55k to 839k over 225
+    # requests — never compacted at all, so a compaction-only trigger fires zero times on
+    # that shape. A command session gets the card from the command text; the residual is a
+    # long session that runs no plugin command, and its cheapest moment is its first
+    # request. ~300 tokens; silent inside a dispatched agent, which returned above.
     parts = []
-    if source in ("compact", "resume"):
+    if source in ("startup", "compact", "resume"):
         parts.append(card())
     if busy or args.always:
         summary = last_compact_summary(transcript) if source in ("compact", "") else None

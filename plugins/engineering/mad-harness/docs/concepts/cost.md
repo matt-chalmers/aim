@@ -35,9 +35,11 @@ harness/checks/session-cost.sh <id>      # one session's context curve, in token
 ```
 
 `results%` is the share of a tier's prompt that was its own tool results. Two field workers
-ran at 28%; the lab's run at ~7%. `breaks` counts prefix re-writes: one field orchestrator
-session sat idle over an hour four times and re-wrote a ~900k-token prefix each time —
-4.16M tokens, more than its campaign's whole orchestrator spend.
+ran at 28%; the lab's run at ~7%. `breaks` counts prefix re-writes: in one field
+orchestrator session, four idle gaps of over an hour each made the next request re-write
+its 700–920k-token context at the write rate — 3.5M tokens, plus a 700k mutation break —
+more than its campaign's whole orchestrator spend, and the largest single cost in either
+field analysis. It has no mechanical fix: the TTL was already an hour. It is rule 4.
 
 ## The levers
 
@@ -68,21 +70,27 @@ analysis that motivated the series measured 30× token variance on identical tas
 Measured on a field campaign: the orchestrator 52%, the planning lenses 34%, the workers
 15%. The orchestrator's context averaged ~210k tokens during the campaign and ~380k over
 its session, so every tool call it makes re-reads that — three to six times what the same
-call costs a worker. What filled it: 35% its own outputs, 35% injected text (subagent
-results landing in full, and again as task-notifications; reference skills), 7% tool
-results.
+call costs a worker. What filled it: 35% its own outputs, 35% injected text — built-in
+research agents' returns arriving whole (36–45k characters each, as the task-notification
+of a background run), a 230k-token reference skill, the loop skill — and 7% tool results.
 
-Three rules follow, stated once in [`harness/orchestrator-card.md`](../../harness/orchestrator-card.md),
-carried by every command, and printed again by `swarm/pinned.sh` after every compaction:
+Four rules follow, stated once in [`harness/orchestrator-card.md`](../../harness/orchestrator-card.md),
+carried by every command, and printed by `swarm/pinned.sh` at every session start, resume
+and compaction — the session they were measured on never compacted, so a compaction-only
+trigger would have fired zero times on it:
 
 1. **Never load reference material into the orchestrator** — a built-in agent loads it,
-   answers, and dies with it. One reference skill loaded in an orchestrator cost $11.21
+   answers, and dies with it; and because nothing bounds a built-in agent's return, ask it
+   for a few lines or a path. One reference skill loaded in an orchestrator cost $11.21
    re-sent over the 64 turns that followed; ~$2 in a subagent.
 2. **One call where five would do** — `preflight.sh`, `apply-plan.sh`, `close-epic.sh`
    are whole sequences; `scan.sh`, `peek.sh`, `run.sh` batch reads and runs.
-3. **Artefacts by path** — `dispatch.sh --digest` keeps a result in a file and prints its
-   head and path; `tk.sh note --file` attaches it; a subagent's result never passes
+3. **Artefacts by path** — `dispatch.sh --digest` keeps a plugin agent's result in a file
+   and prints its head and path; `tk.sh note --file` attaches it; the result never passes
    through the orchestrator's context.
+4. **An hour idle re-writes the whole context** — the next request pays the write rate on
+   every token. Back at a large session, weigh what its context is worth against that, or
+   start fresh; a campaign gets a fresh session of its own.
 
 And two more that are mechanisms rather than rules: every plugin agent goes through
 `dispatch.sh` (a `PreToolUse` hook refuses the Agent tool for them — 67.2M tokens went

@@ -196,7 +196,7 @@ The plugin installs two (`hooks/hooks.json`), both silent unless they have somet
 
 | event | script | does |
 |---|---|---|
-| `SessionStart` (`compact`, `resume`, `startup`) | `swarm/pinned.sh --hook` | prints the orchestrator card after a compaction or resume; when a campaign is in flight, also the pinned state — claims, merge slot, worktrees, the loop's rules, read from disk — and names every pinned id the compaction summary dropped. Silent inside a dispatched agent |
+| `SessionStart` (`startup`, `compact`, `resume`) | `swarm/pinned.sh --hook` | prints the orchestrator card; when a campaign is in flight, also the pinned state — claims, merge slot, worktrees, the loop's rules, read from disk — and names every pinned id the compaction summary dropped. Silent inside a dispatched agent |
 | `PreToolUse` (`Agent`, `Task`) | `swarm/guard-agent-tool.sh` | refuses `Agent(subagent_type: <plugin>:<agent>)` with the `dispatch.sh` form to use instead; built-in and other plugins' agents pass |
 
 `--dry-run` prints the tier, model, budget, permission mode, grants, deny list and

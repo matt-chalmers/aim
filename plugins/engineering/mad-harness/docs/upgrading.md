@@ -645,3 +645,41 @@ project-local copy can go.
 - **mechanical** — re-stamp `harness.version`, when convenient. If your `CLAUDE.md`
   restates these rules, trim it to a pointer: the card applies to any long session in a
   plugin-enabled repository, not only a campaign.
+
+### 0.10.12
+
+**The card, corrected by the field.** A consuming project verified 0.10.11 against its
+transcripts and sent three points and three corrections; all six were right. No config
+change; restart once so the hook picks up its wider trigger.
+
+- **The card prints at session start too.** The session the rules were measured on grew
+  55k → 839k over 225 requests and never compacted, so a compaction-or-resume trigger
+  fires zero times on that shape. A command session gets the card from the command text;
+  the residual is a long session that runs no plugin command, and its first request is the
+  cheapest moment on the curve. ~300 tokens, silent inside dispatched agents.
+- **Rule 1 asks for a bounded return.** Nothing caps what a built-in agent sends back, and
+  the biggest things in the measured orchestrator's context were exactly those: research
+  agents' returns of 36–45k characters. `--digest` bounds plugin agents only. The card now
+  says: ask for a few lines, or a path.
+- **Rule 4 is new: an hour idle re-writes the whole context.** The break measurement in
+  0.10.10 had no rule attached. In the measured session four idle gaps of over an hour each
+  made the next request re-write its 700–920k-token context at the write rate — 3.5M
+  tokens, more than the campaign's orchestrator spend and the largest single cost in either
+  field analysis. The TTL was already an hour, so the lever is behavioural: back at a large
+  session, weigh its context against that or start fresh. The card fires on `resume`, which
+  is the moment.
+- **Corrections to earlier notes.** (1) 0.10.10 said subagent results "landed in full, and
+  again as task-notifications": they arrive once — a background agent's as the
+  notification, a foreground agent's as the tool result — the claim was wrong, the size was
+  not. (2) 0.10.10's "four idle gaps re-wrote 4.16M tokens" was five breaks: four gaps
+  (3.46M) and one 700k mutation. (3) 0.10.11 said a hook could not size a bundled skill
+  load; it can — bundled skills sit at a globbable path. A read-size hook is still not
+  built, on 0.10.9's own rule: doctrine becomes a mechanism when it is measured to have
+  failed, and the card is the doctrine; `session-cost.sh` is what would show it failing.
+  (4) The 225-vs-237-request discrepancy between the two analyses was neither side's
+  dedup: the session kept being used between the two readings (241 now).
+
+- **mechanical** — re-stamp `harness.version`, when convenient. A `CLAUDE.md` that
+  restates the rules trims to a pointer; the one sentence worth keeping there is the
+  standing authorisation to delegate reads to a built-in agent, since some sessions carry a
+  rule that only a user, `CLAUDE.md` or a skill may grant it.
