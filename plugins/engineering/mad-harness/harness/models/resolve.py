@@ -311,6 +311,7 @@ class Resolved:
             "model": self.model,
             "effort": self.effort,
             "max_budget_usd": self.max_budget_usd,
+            "task_budget_tokens": self.task_budget_tokens,
             "env_names": sorted(self.env),
             "missing_env": list(self.missing_env),
         }
@@ -503,10 +504,13 @@ def qualified(agent: str) -> str:
 
 
 def _task_budget(spec: dict[str, Any]) -> int | None:
-    """The tier's `task_budget_tokens`, or the A/B rig's per-arm override."""
+    """Env (the rig's per-arm value), else the project's `dispatch.task_budget_tokens`,
+    else the tier's `task_budget_tokens`. Measured: told its budget, a worker paced —
+    -32% per run with the spreads separated — so the worker tier carries a default; a
+    project whose tasks are larger than the lab's raises it in harness.yaml."""
     from .levers import lever
 
-    override = lever("task_budget", block={})
+    override = lever("task_budget")
     if override:
         return int(override)
     return int(spec["task_budget_tokens"]) if spec.get("task_budget_tokens") else None

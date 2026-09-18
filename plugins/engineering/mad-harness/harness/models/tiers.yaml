@@ -51,10 +51,15 @@ tiers:
     # circuit breaker for a runaway, not a target. Sized against the recorded series
     # (`make models-cost` now shows kills and cache rates per tier); revisit from that.
     max_budget_usd: 3.00
-    # Optional: an API-side token budget the model is TOLD about, so it can pace its
-    # tool use and wrap up rather than being cut off by the ceiling above, which it never
-    # sees. Unset until the recorded series says what a worker actually consumes.
-    # task_budget_tokens: 400000
+    # An API-side token budget the model is TOLD about, so it paces its tool use and
+    # wraps up rather than being cut off by the ceiling above, which it never sees.
+    # Measured (0.10.4): the same three-task epic, five runs per arm, two workers —
+    # cost per run $2.67 -> $1.80 (-32%) with the interquartile ranges apart
+    # ($2.43-2.74 vs $1.69-2.11), turns 43 -> 36, no seeded task killed on either arm.
+    # 400k is ~5x the median worker's total prompt+output, so it is a pace, not a wall.
+    # A project whose tasks are larger than the lab's raises it in harness.yaml
+    # (`dispatch.task_budget_tokens`) rather than here.
+    task_budget_tokens: 400000
 
   # Real reasoning over a codebase, where being wrong is expensive to detect.
   # On the [1m] variant because the context window is the binding constraint for

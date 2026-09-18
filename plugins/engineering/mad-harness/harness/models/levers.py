@@ -14,13 +14,14 @@ has decided), then the default.
     cache_ttl        MAD_HARNESS_CACHE_TTL      dispatch.cache_ttl      unset (the CLI's rule)
     static_prefix    MAD_HARNESS_STATIC_PREFIX  dispatch.static_prefix  false
     stagger_seconds  MAD_HARNESS_STAGGER_SECONDS dispatch.stagger_seconds 0
-    task_budget      MAD_HARNESS_TASK_BUDGET_TOKENS  tiers.yaml <tier>.task_budget_tokens  unset
+    task_budget      MAD_HARNESS_TASK_BUDGET_TOKENS  dispatch.task_budget_tokens, else tiers.yaml <tier>.task_budget_tokens
     preload          MAD_HARNESS_PRELOAD        —  (agents/<name>.md skills:)  none
     experiment       MAD_HARNESS_EXPERIMENT     —                       — (a label, recorded)
 
-`task_budget` and `preload` are env-only because in production they are a tier field and
-an agent's frontmatter respectively; the env form exists so an A/B can flip them per arm
-without editing either. `preload` names skills whose SKILL.md is appended to the prompt —
+`preload` is env-only because in production it is an agent's frontmatter; `task_budget`
+has a tier default the project may override in `harness.yaml` — a project whose tasks
+carry 34KB records needs more room than the lab's — and the env form exists so an A/B can
+flip either per arm without editing anything. `preload` names skills whose SKILL.md is appended to the prompt —
 the same text a frontmatter preload puts in the system prompt, arriving one message later.
 """
 
@@ -41,6 +42,8 @@ _ENV = {
 _DEFAULT: dict[str, Any] = {
     "cache_ttl": None, "static_prefix": False, "stagger_seconds": 0, "task_budget": None, "preload": (),
 }
+#: The harness.yaml key each lever reads, where it differs from the lever's name.
+_KEY = {"task_budget": "task_budget_tokens"}
 _TRUE = ("1", "true", "yes", "on")
 
 
@@ -59,7 +62,8 @@ def lever(name: str, block: dict[str, Any] | None = None) -> Any:
     raw = os.environ.get(_ENV[name])
     if raw is None or raw == "":
         block = _project_block() if block is None else block
-        return block.get(name, _DEFAULT[name]) if name in block else _DEFAULT[name]
+        key = _KEY.get(name, name)
+        return block[key] if key in block else _DEFAULT[name]
     if name == "static_prefix":
         return raw.strip().lower() in _TRUE
     if name == "stagger_seconds":

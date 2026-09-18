@@ -333,7 +333,15 @@ class Project:
             if secs < 0:
                 raise ProjectError("dispatch.stagger_seconds cannot be negative")
             out["stagger_seconds"] = secs
-        unknown = set(raw) - {"cache_ttl", "static_prefix", "stagger_seconds"}
+        if "task_budget_tokens" in raw and raw["task_budget_tokens"] is not None:
+            try:
+                budget = int(raw["task_budget_tokens"])
+            except (TypeError, ValueError) as exc:
+                raise ProjectError("dispatch.task_budget_tokens must be a whole number of tokens") from exc
+            if budget < 50_000:
+                raise ProjectError(f"dispatch.task_budget_tokens is {budget}; below 50000 a worker cannot read its own task")
+            out["task_budget_tokens"] = budget
+        unknown = set(raw) - {"cache_ttl", "static_prefix", "stagger_seconds", "task_budget_tokens"}
         if unknown:
             raise ProjectError(f"dispatch: unknown key(s) {', '.join(sorted(unknown))}")
         return out

@@ -312,3 +312,29 @@ Also: the lab's wave now dispatches only the seeded epic's tasks — a worker-fi
 dispatched as work and spent a whole ceiling.
 
 - **mechanical** — re-stamp `harness.version`, when convenient.
+
+### 0.10.4
+
+**The first measured default moves: every worker-tier dispatch is now told a token budget.**
+Two more lever measurements. No config change required.
+
+- **`task_budget` measured: -32% per run, spreads apart.** 5 runs per arm, 2 workers, the
+  full three-task epic, on frozen code. Cost per run $2.67 → $1.80 (IQR $2.43–2.74 vs
+  $1.69–2.11 — the first lever whose spreads separate), turns 43 → 36 and cost per dispatch
+  $0.72 → $0.59 (both overlap). No seeded task was killed on either arm; the one budget
+  kill on the `on` arm was the worker-filed bug the unscoped lab wave dispatched as work,
+  fixed in 0.10.3, and is excluded. The mechanism is that the model paces against a budget
+  it can see, where `max_budget_usd` cuts it off from behind. **Default now set:** the
+  worker tier carries `task_budget_tokens: 400000`, ~5× the median worker's total
+  prompt+output. A project whose tasks are larger than the lab's raises it with a new
+  `dispatch.task_budget_tokens` in `harness.yaml`; the environment override still beats
+  both for a series. Every dispatch record now carries `task_budget_tokens` — the budget
+  that applied — beside `levers`, which records only what was flipped.
+- **`stagger` measured at the request level: ≈$0.09 per 8-worker wave.** The series was
+  stopped after two `on` runs once the transcripts showed the mechanism: with the flag off,
+  7 of 8 simultaneously-started workers already read the shared prefix (~15k tokens) from
+  cache on their first request; one loses the race and writes it. A stagger saves that one
+  write. **Default stays 0**; `dispatch.stagger_seconds: 8` is harmless on wide waves and
+  not worth a default.
+- **mechanical** — re-stamp `harness.version`, when convenient. Nothing else: the new
+  default applies on the next dispatch.

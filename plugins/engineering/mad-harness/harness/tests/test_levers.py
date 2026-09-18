@@ -121,16 +121,6 @@ def test_every_dispatch_event_says_which_levers_were_on_and_which_experiment(mon
     }
 
 
-def test_the_task_budget_override_beats_the_tier_and_absence_leaves_the_tier(monkeypatch):
-    from models import resolve as mod
-
-    monkeypatch.delenv("MAD_HARNESS_TASK_BUDGET_TOKENS", raising=False)
-    assert mod._task_budget({"task_budget_tokens": 250_000}) == 250_000
-    assert mod._task_budget({}) is None
-    monkeypatch.setenv("MAD_HARNESS_TASK_BUDGET_TOKENS", "400000")
-    assert mod._task_budget({"task_budget_tokens": 250_000}) == 400_000
-
-
 def test_a_preloaded_skill_is_appended_to_the_prompt_in_full_and_a_missing_one_is_an_error(monkeypatch):
     from models import dispatch as mod
 
@@ -144,3 +134,35 @@ def test_a_preloaded_skill_is_appended_to_the_prompt_in_full_and_a_missing_one_i
     monkeypatch.setenv("MAD_HARNESS_PRELOAD", "no-such-skill")
     with pytest.raises(mod.DispatchError, match="no-such-skill"):
         mod.with_context("do x", None)
+
+
+def test_the_projects_task_budget_beats_the_tier_and_the_env_beats_both(monkeypatch):
+    from models import resolve as mod
+
+    monkeypatch.delenv("MAD_HARNESS_TASK_BUDGET_TOKENS", raising=False)
+    monkeypatch.setattr("models.levers._project_block", lambda: {})
+    assert mod._task_budget({"task_budget_tokens": 250_000}) == 250_000
+    assert mod._task_budget({}) is None
+    monkeypatch.setattr("models.levers._project_block", lambda: {"task_budget_tokens": 900_000})
+    assert mod._task_budget({"task_budget_tokens": 250_000}) == 900_000
+    monkeypatch.setenv("MAD_HARNESS_TASK_BUDGET_TOKENS", "123456")
+    assert mod._task_budget({"task_budget_tokens": 250_000}) == 123_456
+
+
+def test_the_worker_tier_carries_the_measured_budget_and_the_record_says_so(monkeypatch):
+    """0.10.4: cost per run -32% with the spreads apart. The tier default is the finding;
+    a dispatch record must show the budget that applied, not only whether one was flipped."""
+    from models import resolve as mod
+
+    monkeypatch.delenv("MAD_HARNESS_TASK_BUDGET_TOKENS", raising=False)
+    monkeypatch.setattr("models.levers._project_block", lambda: {})
+    r = mod.resolve("fullstack-engineer")
+    assert r.tier == "worker" and r.task_budget_tokens == 400_000
+    assert r.sdk_options(cwd=".").task_budget == {"total": 400_000}
+    assert r.redacted()["task_budget_tokens"] == 400_000
+
+
+def test_a_task_budget_too_small_to_read_the_task_fails_the_config_check():
+    with pytest.raises(ProjectError, match="50000"):
+        _project({"dispatch": {"task_budget_tokens": 1000}}).dispatch()
+    assert _project({"dispatch": {"task_budget_tokens": 900000}}).dispatch() == {"task_budget_tokens": 900000}
