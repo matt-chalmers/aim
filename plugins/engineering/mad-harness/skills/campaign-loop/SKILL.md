@@ -317,6 +317,27 @@ epic before §5.
 
 ## 3. Design and plan — THE EPIC YOU ARE CURRENTLY ON
 
+**"Dispatch" in this section means `dispatch.sh`, never the Agent tool** — for the survey,
+the architect, the planner, the audit and the spec-editor exactly as for a wave's writers:
+
+```bash
+# prompt to a file, then a BACKGROUND Bash call, then collect its output
+${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh analyst-survey --prompt-file <path> --task <epic>
+${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh architect      --prompt-file <path> --task <epic>
+${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh planner        --prompt-file <path> --task <epic>
+${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh analyst        --prompt-file <path> --task <epic>
+${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh spec-editor    --prompt-file <path> --task <epic>
+```
+
+Measured, five campaign sessions: plugin agents spawned through the Agent tool read 67.2M
+prompt tokens; through the dispatcher, 6.9M. Eighteen of ~22 architect, planner and
+analyst runs took the Agent-tool path — with no `--max-budget-usd` ceiling, no tier, no
+sandbox, no cost record, and none of the measured levers. This section said "dispatch"
+without saying how, and that is how it drifted. A `PreToolUse` hook now refuses the Agent
+tool for any of this plugin's agents and prints the form above, so the rule holds
+without you remembering it. Read-only agents need no `--worker`; they run in the primary
+checkout and write nothing.
+
 ### 3a. Adequacy — is this epic specified well enough to design against? (analyst-survey)
 
 **Before the architect runs at all.** Dispatch **`analyst-survey`** on the epic. That is a separate agent from `analyst`, pinned at `effort: high` rather than `xhigh`, because the survey is a breadth-first corpus sweep and the audit at §3d is the sharper task.
@@ -510,10 +531,11 @@ ${CLAUDE_PLUGIN_ROOT}/harness/checks/spec-index-status.sh <epic-id> --stamp [--c
 **The adequacy VERDICT still has to be current** — if the epic's children changed, the verdict
 is stale even when the corpus has not, because adequacy is judged against what is being built.
 
-**Effort IS tiered between the two, and the split is deliberate.** `analyst-survey` runs at
-`effort: high`; `analyst` (AUDIT, §3d) stays at `xhigh` because it has caught a false premise
-in every plan it has read. Effort is one value per agent file and the Agent tool has no
-per-dispatch override, so two files are the only way to tier them.
+**Effort IS tiered between the two, and the split is deliberate.** `analyst-survey` runs on
+the `worker` tier (`effort: high`); `analyst` (AUDIT, §3d) stays on `strong` (`xhigh`) because
+it has caught a false premise in every plan it has read. The tier is one value per agent
+file (`model_tier:`), resolved by the dispatcher against `tiers.yaml`, so two files are the
+only way to tier them.
 
 **The cost of that split is drift**, and it is contained rather than hoped away. The two files
 share a 42-line block of *guardrails* — "you never write requirements, and you never enhance
@@ -993,6 +1015,12 @@ the epic predated the flow and had nothing staged — and the **four health sign
 | ③ | Changed lines per satisfied acceptance criterion | any task over ~400 lines = the slicing rule slipped |
 | ④ | Wave yield + merge conflicts | <60% yield, or any conflict (a conflict is a step-3 miss by definition) |
 | ⑤ | **Dispatchable-per-epic on entry** — how many tasks were actually ready when you entered each epic | **1 or 2 is the number that explains a bad cost ratio.** Per-epic planning (survey + architect + planner + audit) costs 500–800k tokens and is designed to amortise across a wave of six. Amortised across one task it is 6× the intended cost per landed task, and no pipeline tuning fixes that — the epic is decision-blocked, not the process |
+
+**And what it cost.** `make models-cost` (`${CLAUDE_PLUGIN_ROOT}/harness/checks/models-cost.sh`)
+reads the `harness.dispatch` series: cost, turns, cache rate, kills and `results%` per
+tier. Every agent in this loop goes through the dispatcher, so that figure IS the
+campaign's agent spend — it was 3% of it while the read-only agents went through the
+Agent tool. Report the total, the kills, and any tier whose fail% or escalations moved.
 
 **The epic is not a log.** Wave and campaign narrative goes to
 the epic's staged `run-log.md`, not to the epic's notes. Only a pointer and current

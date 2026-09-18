@@ -520,3 +520,32 @@ and says so.
 
 - **mechanical** — re-stamp `harness.version`, when convenient. Nothing to set:
   `lean_catalog` applies on the next dispatch; `preload_declared` waits for its number.
+
+### 0.10.9
+
+**Every plugin agent goes through the dispatcher — now as a mechanism, not a sentence.**
+No config change; the hook installs with the plugin. Restart once after `plugin update`.
+
+- **The Agent tool is refused for this plugin's agents.** A `PreToolUse` hook
+  (`swarm/guard-agent-tool.sh`) denies `Agent(subagent_type: mad-harness:<agent>)` and
+  prints the form to use instead: `dispatch.sh <agent> --prompt-file <path>` as a
+  background Bash call. Only this plugin's agents are refused; built-in agents and other
+  plugins' pass. 0.10.8 measured why: in five field campaign sessions, plugin agents
+  through the Agent tool read 67.2M prompt tokens against 6.9M through the dispatcher —
+  eighteen of ~22 architect, planner and analyst runs — with no `--max-budget-usd`
+  ceiling, no tier, no sandbox, no cost record and none of the levers. `/swarm` step 5
+  had said "not the Agent tool" all along; doctrine failed once, so the rule is now a
+  hook with a companion test that proves it can fail.
+- **`campaign-loop` §3 says how to dispatch.** It said "dispatch the survey / the
+  architect / the planner / the audit" without ever naming the command, which is how the
+  drift happened; the section now opens with the five `dispatch.sh` forms and the reason.
+  The "Agent tool has no per-dispatch override" line, which half-assumed the wrong path,
+  is gone: the tier is `model_tier:` per agent file, resolved against `tiers.yaml`.
+- **§6 reports what the campaign cost.** With every agent on the recorded path, `make
+  models-cost` (`checks/models-cost.sh`, new wrapper) is the campaign's agent spend rather
+  than 3% of it: total, kills, and any tier whose fail% or escalations moved.
+
+**What this changes in your own sessions:** with the plugin enabled, `Agent(mad-harness:…)`
+is refused everywhere, interactive included; the denial names the `dispatch.sh` form.
+
+- **mechanical** — re-stamp `harness.version`, when convenient. Nothing to set.

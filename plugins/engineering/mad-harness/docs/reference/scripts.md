@@ -45,6 +45,7 @@ it.
 | `swarm/preserve-worktrees.sh [--to DIR]` | writes every worker worktree's uncommitted diff, untracked files and unmerged commits to a dated folder — `/halt`'s first step, before anything is removed |
 | `swarm/resume-point.sh <task-id> [--json]` | where a task's work already is — MERGE, VERIFY, REATTACH or FRESH — so a resumed run adopts it instead of redoing it |
 | `swarm/pinned.sh [--always] [--transcript PATH]` | the campaign's pinned state — claims, merge slot, worktrees, the loop's rules — read from disk; the `SessionStart` hook prints it after a compaction, resume or start whenever a campaign is in flight, naming every pinned id the compaction summary dropped |
+| `swarm/guard-agent-tool.sh` | the `PreToolUse` hook: refuses the Agent tool for this plugin's agents and prints the `dispatch.sh` form to use — the tier, ceiling, sandbox and cost record live only there |
 
 The sweep detects the default branch rather than assuming `main`. A sweep that dies leaves
 every worktree behind, which is the state it exists to prevent.
@@ -60,7 +61,7 @@ attaches a worker to that branch rather than cutting a new one from HEAD.
 | script | does |
 |---|---|
 | `campaign/campaign-telemetry.sh` | the campaign-level series |
-| `make models-cost` | reads the dispatch cost series back, per agent and tier |
+| `make models-cost` / `checks/models-cost.sh` | reads the dispatch cost series back, per agent and tier |
 
 ## Checks
 
