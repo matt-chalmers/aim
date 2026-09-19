@@ -57,9 +57,11 @@ note rather than the path.
     └── full.patch
 ```
 
-Default root follows `SCRATCHPAD`/`TMPDIR` — briefs are scratch, and deliberately outside
-the repository. A dispatched lens therefore cannot read one without `add_dirs` carrying the
-briefs root, which is why a `Read(<dir>/**)` grant does not work here.
+Default root is `.harness/run/briefs/` **inside the project** — scratch, gitignored, and a
+lens's own working directory, so no grant is involved. Briefs followed `SCRATCHPAD`/`TMPDIR`
+once and the lens was handed that directory through `add_dirs`; the moment the brief's
+writer and the lens's dispatcher ran in different environments (a sandbox sets its own
+`TMPDIR`), every lens in a headless epic was denied `Read` on its own brief.
 
 ## Verdicts
 

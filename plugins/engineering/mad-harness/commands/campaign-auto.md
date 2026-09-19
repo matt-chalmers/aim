@@ -24,7 +24,11 @@ already in your context — it is the whole procedure, and it is shared with `/c
 two cannot drift.
 
 `MODE=auto` means you approve your own designs and DAGs and keep going. That is the point,
-and it is also the risk: **the architecture you accept is what every worker then follows for
+and it is also the risk — and there is a cheaper way to run it across many epics: the
+session you are in carries every finished epic's context into the next one, re-read on
+every request, while `${CLAUDE_PLUGIN_ROOT}/harness/swarm/campaign.sh` runs each epic in
+a fresh headless session through the dispatcher. Use this command for one epic, or a
+few; use the script for the queue. The risk below is the same either way: **the architecture you accept is what every worker then follows for
 the rest of the epic.** So the guardrails below are not optional.
 
 ## What you must still never do

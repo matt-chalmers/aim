@@ -50,6 +50,12 @@ bootstrap:
 env:
   SOME_VAR: "{slug}_w{worker}"
 
+# Hosts this toolchain fetches from (its package index). A worker never reaches them —
+# its worktree is initialised outside the sandbox — but an orchestrator dispatching from
+# inside its own sandbox opens exactly these for the init that then runs inside it.
+# network:
+#   - example.org
+
 commands:
   test: <whole suite>
   test_scoped: <suite for one path> {path}

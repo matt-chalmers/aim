@@ -36,6 +36,10 @@ env:                               # per-worker isolation; {slug} and {worker} s
 cache_env:                         # cache path INSIDE the sandbox boundary, repo-relative
   UV_CACHE_DIR: .harness/cache/uv
 
+network:                           # the package index — reachable only from an orchestrator's sandbox
+  - pypi.org
+  - files.pythonhosted.org
+
 commands:
   test: uv run pytest
   test_scoped: uv run pytest {path}
@@ -65,6 +69,7 @@ card: |
 | `bootstrap` | `dict` | yes | `swarm-worktree-init.sh` |
 | `env` | `dict[str,str]` | no | `.swarm-env`, per worker |
 | `cache_env` | `dict[str,str]` | no | dispatch env **and** the sandbox write policy |
+| `network` | `list[str]` | no | the sandbox egress policy of an **orchestrator** dispatch — a worker's worktree init runs inside it there; a worker itself gets no egress |
 | `commands` | `dict[str,str]` | yes | `verify/run.sh`, the wave gate, `check-stack-commands.sh` |
 | `banned_forms` | `list[dict]` | no | worker guidance |
 | `card` | `str` | yes | injected into every dispatch in this lane |

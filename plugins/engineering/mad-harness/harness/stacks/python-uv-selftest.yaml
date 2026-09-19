@@ -30,6 +30,11 @@ test_output:
 cache_env:
   UV_CACHE_DIR: .harness/cache/uv
 
+# The index uv fetches from — reachable only from an orchestrator's sandbox.
+network:
+  - pypi.org
+  - files.pythonhosted.org
+
 commands:
   test: pytest
   test_scoped: pytest {path}

@@ -425,8 +425,12 @@ def test_the_repo_is_found_by_its_config_not_by_the_git_root(tmp_path):
 
     probe = "from models.resolve import REPO; print(REPO)"
     env = {k: v for k, v in __import__("os").environ.items() if k != "MAD_HARNESS_REPO"}
+    # THE SUITE'S OWN INTERPRETER, not `uv run python`: from a tmp dir uv has no project
+    # and falls back to whatever VIRTUAL_ENV names — this test passed for weeks on the
+    # operator's unrelated virtualenv happening to carry yaml, and failed the moment the
+    # dispatcher stopped inheriting that variable.
     out = subprocess.run(
-        ["uv", "run", "python", "-c", probe],
+        [__import__("sys").executable, "-c", probe],
         cwd=str(plugin),
         env={**env, "PYTHONPATH": str(Path(__file__).resolve().parents[1])},
         capture_output=True,

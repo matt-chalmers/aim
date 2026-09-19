@@ -25,6 +25,7 @@ go stale the first time an agent changed shape.
 | `analyst-survey` | worker | reader |
 | `analyst` | strong | reader |
 | `architect` | strategic | reader |
+| `campaign-orchestrator` | strong | writer |
 | `fidelity-auditor` | strong | reader |
 | `fullstack-engineer` | worker | writer · worktree |
 | `planner` | strong | reader |

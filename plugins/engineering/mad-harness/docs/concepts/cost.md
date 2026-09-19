@@ -98,8 +98,10 @@ carry that for ~33M tokens — about the whole orchestrator cost of the measured
 and the next epic is loaded from the tracker anyway. The epic boundary is the one moment
 where disk equals truth (everything pushed, no claims, no worktrees, no slot), so the loop
 ends the invocation there with `/clear`, never `/compact`: a summary is the only thing that
-can be wrong. `/campaign-auto` cannot end its own session; one fresh headless session per
-epic is the structural fix, and it is a lab project because it has untested parts.
+can be wrong. `/campaign-auto` in a terminal cannot end its own session; `swarm/campaign.sh`
+runs each epic as a fresh headless `campaign-orchestrator` session through the dispatcher —
+measured first: from inside its sandbox it ran pre-flight, tracker writes, a nested worker,
+the merge, the gate and the push with zero denials.
 
 And two more that are mechanisms rather than rules: every plugin agent goes through
 `dispatch.sh` (a `PreToolUse` hook refuses the Agent tool for them — 67.2M tokens went
@@ -109,8 +111,13 @@ lens re-wrote its whole prior conversation at the write rate: $1.95 against $0.1
 
 ## Workers
 
-`worker-protocol` and `evidence-gathering` — which every writer and lens declares — carry
-the worker-side rules: read in windows (`peek.sh path:START-END`, never a whole file; a
+The single largest worker cost found so far was not a rule but a leak: every worker
+inherited the dispatcher's `MAD_HARNESS_CALLER_PWD` through the SDK's environment merge,
+so its `run.sh` tested the primary checkout, and it spent the turns finding out why — the
+same task ran 77 turns and $1.35 before the scrub, 23 turns and $0.24 after, and the
+denials it collected along the way (19 of 21 workers went reading the wrappers) went to
+zero. `worker-protocol` and `evidence-gathering` — which every writer and lens declares —
+carry the worker-side rules: read in windows (`peek.sh path:START-END`, never a whole file; a
 100-line window resolved 5.3 points more than whole-file reads on SWE-bench Lite), send
 long output to a file first, and never re-run a suite raw to see output `run.sh` already
 kept at `.harness/run/out/<stack>-<key>.log`. `results%` is how you know.

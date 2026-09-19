@@ -137,7 +137,11 @@ done
 MAIN="$(git rev-parse --show-toplevel)"
 MAIN="$(git -C "$MAIN" worktree list --porcelain | awk '/^worktree /{print $2; exit}')"
 SLUG="$(printf '%s' "$TASK" | tr -c 'A-Za-z0-9' '-' | tr -s '-' | sed 's/^-//;s/-$//')"
-ROOT="${SCRATCHPAD:-/tmp}/${SLUG}-mut"
+# INSIDE THE CHECKOUT BY DEFAULT. Under `/tmp` a sandboxed worker could not read its own
+# mutations file back (measured: "Path is outside allowed working directories"), and the
+# doctrine's "with SCRATCHPAD set" had workers prefixing this call with `env SCRATCHPAD=…`,
+# which no rule matches. `.harness/run/` is gitignored and always writable.
+ROOT="${SCRATCHPAD:-$PWD/.harness/run/mut}/${SLUG}-mut"
 TREE="$ROOT/tree"
 LOG="$ROOT/${SLUG}-mutants.txt"
 

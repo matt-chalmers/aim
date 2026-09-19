@@ -51,7 +51,7 @@ def test_the_guard_can_fail_and_the_hook_is_registered(monkeypatch, capsys):
     assert mod.main() == 0 and capsys.readouterr().out == ""
 
     spec = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text())
-    [entry] = spec["hooks"]["PreToolUse"]
+    [entry] = [e for e in spec["hooks"]["PreToolUse"] if e["matcher"] == "Agent|Task"]
     assert entry["matcher"] == "Agent|Task"
     assert entry["hooks"][0]["command"].startswith('"${CLAUDE_PLUGIN_ROOT}/harness/swarm/guard-agent-tool.sh"')
     # And the wrapper the hook names really denies, end to end.

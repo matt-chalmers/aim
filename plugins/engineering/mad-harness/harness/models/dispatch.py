@@ -450,6 +450,28 @@ def _preloaded_skills(agent: str | None = None) -> str:
     return "\n\n".join(parts)
 
 
+#: WHAT A CHILD MUST NOT INHERIT FROM THE DISPATCHER. The SDK builds the child's
+#: environment as `{**os.environ, **options.env}` — the dispatcher's own process
+#: environment, with the options merged OVER it — so a variable merely absent from
+#: `build_env`'s result is inherited anyway. Measured (0.10.14): every worker got the
+#: dispatcher's `MAD_HARNESS_CALLER_PWD` — `dispatch.sh`'s wrapper exports it before it
+#: exec's — so `run.sh` in a worktree still resolved CHECKOUT to the primary checkout,
+#: kept its log there, and 19 of 21 lab workers went reading the wrappers to find out why.
+#: 0.10.3 fixed this in the tests and not in a dispatch. And `VIRTUAL_ENV` from the
+#: operator's shell made every `uv run` warn, which is what started the reading.
+#: The only fix the merge allows is to remove them from THIS process before the SDK
+#: spawns; `build_env` pops them too, for the copy it returns.
+STRIPPED_FROM_CHILDREN: tuple[str, ...] = ("MAD_HARNESS_CALLER_PWD", "VIRTUAL_ENV")
+
+
+def scrub_process_env() -> None:
+    """Remove from the dispatcher's own environment what no child may inherit. Safe here:
+    REPO and CHECKOUT were resolved from `MAD_HARNESS_CALLER_PWD` at import, and nothing
+    in this process reads it again."""
+    for key in STRIPPED_FROM_CHILDREN:
+        os.environ.pop(key, None)
+
+
 def build_env(r: Resolved, base: dict[str, str] | None = None) -> dict[str, str]:
     """The subprocess environment: inherited, plus this provider's overrides.
 
@@ -481,7 +503,10 @@ def build_env(r: Resolved, base: dict[str, str] | None = None) -> dict[str, str]
     # primary's files. Stripped, each wrapper records the worker's own cwd — its
     # worktree — and CHECKOUT resolves there.
     env.setdefault("MAD_HARNESS_REPO", str(REPO))
-    env.pop("MAD_HARNESS_CALLER_PWD", None)
+    # See STRIPPED_FROM_CHILDREN: popping here covers the returned copy; the process
+    # itself is scrubbed in `_run_sdk`, which is the pop that reaches a child.
+    for key in STRIPPED_FROM_CHILDREN:
+        env.pop(key, None)
     # THE CACHE TTL IS A CHOICE, NOT AN ACCIDENT. Nobody had set it: workers through this
     # path wrote cache at the 1-hour rate (2x) while lenses through the Agent tool wrote at
     # 5-minute (1.25x), a difference nobody chose. A worker turns continuously, so the
@@ -522,6 +547,8 @@ def _run_sdk(
     record and the tests keep the shape they already read.
     """
     import asyncio
+
+    scrub_process_env()
 
     from claude_agent_sdk import (
         AssistantMessage,

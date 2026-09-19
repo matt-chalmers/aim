@@ -35,6 +35,16 @@ default_tier: strong
 # is both expensive and invisible.
 ladder: [worker, strong, strategic]
 
+# THE ORCHESTRATOR'S CEILING IS PER EPIC, NOT PER TASK. `role: orchestrator` agents run
+# the whole loop for one epic — every survey, design, plan, audit, wave and lens goes
+# through them — so their tier's per-task ceiling stops them mid-epic. Measured: the
+# first headless lab epic (three tasks, one wave of two, six lenses) had spent $3.19 on
+# the orchestrator when it judged the strong tier's $4.00 would not cover a remediation
+# round and stopped, correctly, with the epic open. A field orchestrator spent $16 on one
+# epic in a terminal. A circuit breaker for a runaway epic, not a target.
+orchestrator:
+  max_budget_usd: 25.00
+
 tiers:
 
   # Routine, well-specified work with a cheap recovery path: the acceptance

@@ -190,6 +190,23 @@ harness/models/dispatch.sh <agent> --prompt-file F [options]
 Exit codes: 0 ok, 1 ran and not-ok, 2 a config or dispatch refusal, 3 killed by the
 budget ceiling.
 
+## The orchestrator role
+
+An agent whose frontmatter says `role: orchestrator` (today `campaign-orchestrator`) runs
+the loop rather than a task in it, and the boundary differs in exactly three ways: the
+`git push` deny does not apply and `Bash(git:*)`, `Bash(make:*)` are granted; the sandbox's
+egress opens to the remote and to each declared stack's `network:` (its package index);
+and `dispatch.sh` itself is in `excludedCommands`, so a worker it dispatches gets today's
+topology — an unsandboxed dispatcher, a sandboxed worker — rather than a nested sandbox
+in which the CLI cannot reach the keychain to log in (measured: `Not logged in`). Every
+sandbox field goes in the SDK's `sandbox` option, never the settings JSON: the transport
+replaces the settings' sandbox block with the option wholesale.
+
+**What a child never inherits.** The SDK spawns with `{**os.environ, **options.env}`, so
+`_run_sdk` scrubs `MAD_HARNESS_CALLER_PWD` and `VIRTUAL_ENV` from the dispatcher's own
+process first — a variable merely absent from `build_env`'s result was inherited anyway,
+which is how every worker's `run.sh` kept resolving to the primary checkout after 0.10.3.
+
 ## Hooks
 
 The plugin installs two (`hooks/hooks.json`), both silent unless they have something to say:
@@ -198,6 +215,7 @@ The plugin installs two (`hooks/hooks.json`), both silent unless they have somet
 |---|---|---|
 | `SessionStart` (`startup`, `compact`, `resume`) | `swarm/pinned.sh --hook` | prints the orchestrator card; when a campaign is in flight, also the pinned state — claims, merge slot, worktrees, the loop's rules, read from disk — and names every pinned id the compaction summary dropped. Silent inside a dispatched agent |
 | `PreToolUse` (`Agent`, `Task`) | `swarm/guard-agent-tool.sh` | refuses `Agent(subagent_type: <plugin>:<agent>)` with the `dispatch.sh` form to use instead; built-in and other plugins' agents pass |
+| `PreToolUse` (`Bash`) | `swarm/allow-prefixed-wrapper.py` | in a dispatched session only: allows a harness wrapper called with an env-assignment prefix (`VAR=x …/tk.sh …`, `env -u X …/run.sh …`) — one simple call, never a pipe, substitution or `git push`; the commonest denial shape, and innocuous under the sandbox. Plain python3, not the uv wrapper, because it runs on every Bash call |
 
 `--dry-run` prints the tier, model, budget, permission mode, grants, deny list and
 readable directories. Use it before believing anything on this page.

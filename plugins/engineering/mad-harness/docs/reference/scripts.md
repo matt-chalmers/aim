@@ -49,6 +49,7 @@ it.
 | `swarm/guard-agent-tool.sh` | the `PreToolUse` hook: refuses the Agent tool for this plugin's agents and prints the `dispatch.sh` form to use — the tier, ceiling, sandbox and cost record live only there |
 | `swarm/preflight.sh` | campaign-loop §0 as one call: clean tree, config current (exit 3 = upgrade), merge slot free, autosync off, ports unbound, disk — was six calls at the orchestrator's context price |
 | `swarm/apply-plan.sh <plan.md> --epic <id> [--dry-run] [--render <path>]` | applies a planner's labelled command block to the tracker: validates the whole plan first, resolves `T1:` labels to real ids, records the map under `.harness/run/` so a rerun skips what exists, ends with `validate` and the render |
+| `swarm/campaign.sh [--max-epics N] [--epic ID]` | `/campaign-auto` as one fresh headless orchestrator session per epic: pre-flight once, then `dispatch.sh campaign-orchestrator` per open epic, reading its digest; exit 5 when the usage window closes |
 | `swarm/close-epic.sh <epic> --reason "…" [--check] [--no-push]` | campaign-loop §5 as one call: blocking-prose, decision register and staging/archive checks (nothing written if any fails) → close → export → tracker commit → pull --rebase + push → autosync on |
 
 The sweep detects the default branch rather than assuming `main`. A sweep that dies leaves

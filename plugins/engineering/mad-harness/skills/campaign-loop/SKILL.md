@@ -1139,8 +1139,10 @@ compaction there loses in-flight ids (measured: 2 of 9 kept), and the pinned-sta
 exists to recover from it, never as the plan. The cost of starting fresh is one ~60k-token
 prefix and re-reading this skill: under a dollar against ~$17 an epic of carried context.
 
-`MODE=auto` cannot end its own session, so it continues — and pays the carrying cost. The
-fix there is structural, an outer script that starts one fresh headless session per epic,
-and it is being built in the lab because it has untested parts: the orchestrator becomes a
-dispatched agent, sandboxed, dispatching sandboxed workers from inside its sandbox, and
-pushing from a boundary the worker sandbox deliberately keeps off the network.
+`MODE=auto` in a terminal cannot end its own session, so it continues and pays the
+carrying cost. **Unattended across epics, run it as `swarm/campaign.sh` instead**: one
+fresh `campaign-orchestrator` session per epic through the dispatcher, with a tier, a
+ceiling, a sandbox and a cost record, and the tracker as the only state that crosses the
+boundary. Measured before it shipped: from inside its sandbox the orchestrator ran this
+loop's pre-flight, tracker writes, a nested worker, the merge, the gate and the push with
+zero denials.

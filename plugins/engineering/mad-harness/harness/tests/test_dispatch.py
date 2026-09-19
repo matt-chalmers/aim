@@ -660,7 +660,6 @@ def test_the_toolchain_cache_lives_inside_the_sandbox_boundary():
     hole at all. This pins that the env var and the sandbox grant agree — if they drift,
     a worker gets a cache path it is not allowed to write.
     """
-    import json
 
     from models.resolve import cache_paths, resolve
 
@@ -668,8 +667,10 @@ def test_the_toolchain_cache_lives_inside_the_sandbox_boundary():
     if not caches:
         pytest.skip("this project's stacks declare no toolchain cache")
 
-    settings = json.loads(resolve("fullstack-engineer").sdk_options().settings)
-    allowed = settings["sandbox"]["filesystem"]["allowWrite"]
+    # IN THE SANDBOX OPTION, not the settings: the SDK transport replaces the settings'
+    # sandbox block with the option wholesale, so a policy written into settings never
+    # reached the CLI.
+    allowed = resolve("fullstack-engineer").sdk_options().sandbox["filesystem"]["allowWrite"]
     for var, path in caches.items():
         assert path in allowed, f"{var} points at {path}, which the sandbox does not allow"
         assert not path.startswith("~"), "must be absolute"
@@ -682,7 +683,6 @@ def test_the_sandbox_filesystem_policy_comes_from_the_declared_stacks():
     and every test command fails with "Operation not permitted" — measured, and the
     reason `sandbox_write` exists on the stack module rather than as a constant here.
     """
-    import json
 
     from models.project import load
     from models.resolve import resolve
@@ -691,8 +691,10 @@ def test_the_sandbox_filesystem_policy_comes_from_the_declared_stacks():
     if not declared:
         pytest.skip("this project's stacks declare no toolchain cache")
 
-    settings = json.loads(resolve("fullstack-engineer").sdk_options().settings)
-    allowed = settings["sandbox"]["filesystem"]["allowWrite"]
+    # IN THE SANDBOX OPTION, not the settings: the SDK transport replaces the settings'
+    # sandbox block with the option wholesale, so a policy written into settings never
+    # reached the CLI.
+    allowed = resolve("fullstack-engineer").sdk_options().sandbox["filesystem"]["allowWrite"]
     for rel in declared:
         assert any(a.endswith(rel) for a in allowed), f"{rel} is not granted: {allowed}"
 
@@ -933,3 +935,67 @@ def test_a_fresh_dispatch_onto_an_existing_path_now_names_the_resume_flag(tmp_pa
     g("worktree", "add", "-q", str(repo / ".claude" / "worktrees" / "harness-w1-T-1"), "harness-w1-T-1")
     with pytest.raises(mod.DispatchError, match="--resume harness-w1-T-1"):
         mod.prepare_worktree("fullstack-engineer", 1, None, "T-1")
+
+
+def test_what_a_child_must_not_inherit_is_gone_the_way_the_sdk_actually_builds_its_env(monkeypatch):
+    """The SDK spawns with `{**os.environ, **options.env}`, so a key merely absent from
+    build_env's result is inherited anyway. Measured: every worker got the dispatcher's
+    MAD_HARNESS_CALLER_PWD and resolved CHECKOUT to the primary — 0.10.3's fix, undone by
+    the merge — and the operator's VIRTUAL_ENV made every `uv run` warn, which sent 19 of
+    21 lab workers reading the wrappers. This test composes the env as the SDK does."""
+    import os
+
+    from models.dispatch import build_env, scrub_process_env
+    from models.resolve import resolve
+
+    monkeypatch.setenv("VIRTUAL_ENV", "/Users/someone/Envs/unrelated")
+    monkeypatch.setenv("MAD_HARNESS_CALLER_PWD", "/the/dispatchers/cwd")
+    options_env = build_env(resolve("verifier"))
+    assert "VIRTUAL_ENV" not in options_env and "MAD_HARNESS_CALLER_PWD" not in options_env
+    scrub_process_env()  # what _run_sdk does before the SDK spawns
+    child_env = {**os.environ, **options_env}
+    assert "VIRTUAL_ENV" not in child_env and "MAD_HARNESS_CALLER_PWD" not in child_env
+    assert child_env["MAD_HARNESS_REPO"]
+
+
+def test_the_sandbox_option_carries_the_whole_policy_and_the_settings_carry_none(monkeypatch):
+    """The SDK does `settings_obj["sandbox"] = options.sandbox`, replacing whatever the
+    settings JSON said. Measured: an orchestrator's allowedDomains in settings left
+    github.com denied. So filesystem and network live in the option, and the settings
+    JSON has no sandbox key to lose."""
+    import json
+
+    from models import resolve as mod
+
+    sandbox, settings = mod.sandbox_for(network=("github.com", "pypi.org"))
+    assert sandbox["network"] == {"allowedDomains": ["github.com", "pypi.org"]}
+    assert sandbox["enabled"] and not sandbox["allowUnsandboxedCommands"]
+    assert "sandbox" not in json.loads(settings)
+    sandbox, _ = mod.sandbox_for()
+    assert "network" not in sandbox
+
+
+def test_an_orchestrator_may_push_and_reach_the_remote_and_the_stacks_index_and_a_worker_may_not(monkeypatch):
+    """`role: orchestrator`: no push deny, git and make granted, the sandbox open to the
+    remote and to each stack's package index — because nested, a worktree's init runs
+    inside the orchestrator's sandbox (measured: a nested worker died at `uv sync`)."""
+    from models import resolve as mod
+
+    o = mod.resolve("campaign-orchestrator")
+    assert o.disallowed_tools == () and "Bash(git:*)" in o.allowed_tools and "Bash(make:*)" in o.allowed_tools
+    domains = o.sandbox["network"]["allowedDomains"]
+    assert "github.com" in domains and "pypi.org" in domains and "files.pythonhosted.org" in domains
+    w = mod.resolve("fullstack-engineer")
+    assert "Bash(git push:*)" in w.disallowed_tools and "Bash(git:*)" not in w.allowed_tools
+    assert "network" not in w.sandbox
+
+
+def test_an_orchestrators_ceiling_is_the_roles_not_its_tiers():
+    """Measured: a headless lab epic stopped itself at $3.19 of the strong tier's $4.00
+    with the epic open — the ceiling is per task and an orchestrator runs a whole epic."""
+    from models import resolve as mod
+
+    o = mod.resolve("campaign-orchestrator")
+    v = mod.resolve("verifier")
+    assert o.tier == v.tier == "strong"
+    assert o.max_budget_usd == 25.0 and v.max_budget_usd == 4.0

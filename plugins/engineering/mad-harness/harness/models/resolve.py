@@ -600,7 +600,7 @@ def permission_for(agent: str, agents_dir: Path | None = None) -> tuple[str, tup
     if not ({"Edit", "Write"} & tools):
         # A READER IS NOT AN UNGRANTED AGENT. "Reads are auto-approved" holds only inside
         # the working directory, and the two things a lens most needs are outside it: the
-        # brief the harness generated for it, which lands under SCRATCHPAD/TMPDIR, and the
+        # brief the harness generated for it (now under the project's run dir), and the
         # harness scripts themselves. A live run measured 4-13 denials per lens, including
         # `Read` on the brief and `uv run pytest` — so the lens fell back to judging the
         # worker's claims by reading them, which is the one thing a verification gate
@@ -630,6 +630,11 @@ def permission_for(agent: str, agents_dir: Path | None = None) -> tuple[str, tup
     ]
     grants.extend(_toolchain_grants(grants))
     grants.extend(g for g in _operator_grants() if g not in grants)
+    if is_orchestrator(agent, agents_dir):
+        # The loop's own verbs, outside any worktree: git in the primary checkout (merge,
+        # commit the export, pull, push) and the project's make targets. A worker gets
+        # neither: its git is auto-approved inside its worktree and it never pushes.
+        grants.extend(g for g in ("Bash(git:*)", "Bash(make:*)") if g not in grants)
     return "acceptEdits", tuple(grants)
 
 
@@ -703,6 +708,46 @@ def _operator_grants() -> tuple[str, ...]:
 #: applies to every profile rather than only to writers.
 FORBIDDEN: tuple[str, ...] = ("Bash(git push:*)",)
 
+#: The domains a dispatched ORCHESTRATOR may reach. The sandbox confines every child
+#: process's egress to `sandbox.network.allowedDomains`, and the harness sets none for a
+#: worker — its toolchain caches sit inside the boundary, and a worker never pushes. An
+#: orchestrator pushes, so the boundary opens for exactly the remote and nothing else.
+ORCHESTRATOR_DOMAINS: tuple[str, ...] = ("github.com",)
+
+
+#: THE DISPATCHER RUNS OUTSIDE AN ORCHESTRATOR'S SANDBOX. Nested inside it, the worker it
+#: spawns cannot log in: the CLI keeps the OAuth credential in the macOS keychain, which
+#: Seatbelt does not reach — measured, "Not logged in · Please run /login" on every nested
+#: worker, and keychain errors on the orchestrator's own git. Excluding exactly the
+#: dispatch wrapper gives a nested worker today's topology — an unsandboxed dispatcher
+#: (which also runs the worktree init) and its own sandbox around the worker. Both
+#: spellings the loader produces, as for the grants.
+DISPATCHER_OUTSIDE: tuple[str, ...] = (
+    f"{HARNESS}/models/dispatch.sh:*",
+    f"{HARNESS.parent}//{HARNESS.name}/models/dispatch.sh:*",
+)
+
+
+def orchestrator_domains() -> tuple[str, ...]:
+    """The remote, plus each declared stack's package index (`network:` in the module) —
+    because nested under an orchestrator, a worktree's init runs inside its sandbox.
+    Measured: a nested worker died at `uv sync`, files.pythonhosted.org denied."""
+    out = list(ORCHESTRATOR_DOMAINS)
+    try:
+        from .project import load
+
+        for stack in load().stacks:
+            out.extend(h for h in stack.network if h not in out)
+    except Exception:  # noqa: BLE001 — an unconfigured project still gets the remote
+        pass
+    return tuple(out)
+
+
+def is_orchestrator(agent: str, agents_dir: Path | None = None) -> bool:
+    """`role: orchestrator` in the agent's frontmatter — the one agent that runs the loop
+    rather than a task in it: it merges into the primary checkout and pushes."""
+    return str(agent_frontmatter(agent, agents_dir).get("role") or "").strip() == "orchestrator"
+
 
 def _harness_grants() -> list[str]:
     """The harness scripts, by absolute path — IN BOTH SPELLINGS THE LOADER PRODUCES.
@@ -737,7 +782,7 @@ def cache_paths() -> dict[str, str]:
     return out
 
 
-def sandbox_for() -> tuple[dict[str, Any], str]:
+def sandbox_for(network: tuple[str, ...] = (), excluded: tuple[str, ...] = ()) -> tuple[dict[str, Any], str]:
     """The OS containment for a dispatch, and the settings that complete it.
 
     WHY THE SANDBOX IS THE BOUNDARY AND THE GRANTS ARE NOT. Permission rules match command
@@ -766,19 +811,27 @@ def sandbox_for() -> tuple[dict[str, Any], str]:
     """
     writable = list(cache_paths().values())
 
-    sandbox = {
+    # EVERYTHING SANDBOX GOES IN THE SANDBOX OPTION. The SDK transport builds the child's
+    # settings as `settings_obj["sandbox"] = options.sandbox` — it REPLACES the settings
+    # file's sandbox block, so a `filesystem` or `network` key written into `settings`
+    # never reached the CLI. Measured (0.10.14): an orchestrator's `allowedDomains` in
+    # `settings` left github.com denied; the same key here opens it.
+    sandbox: dict[str, Any] = {
         "enabled": True,
         "autoAllowBashIfSandboxed": True,
         "allowUnsandboxedCommands": False,
     }
+    if writable:
+        sandbox["filesystem"] = {"allowWrite": writable}
+    if network:
+        sandbox["network"] = {"allowedDomains": list(network)}
+    if excluded:
+        sandbox["excludedCommands"] = list(excluded)
     # NO CLOUD CONNECTORS FOR A DISPATCH. The CLI attaches the account's claude.ai MCP
     # connectors to every session: measured, a "Claude Docs" connector connected on every
     # worker dispatch (~1.2s) and put ~500 tokens of its instructions into every worker's
     # first message — for tools the agent's `tools:` ceiling never lets it call.
-    extra: dict[str, Any] = {"disableClaudeAiConnectors": True}
-    if writable:
-        extra["sandbox"] = {"filesystem": {"allowWrite": writable}}
-    return sandbox, json.dumps(extra)
+    return sandbox, json.dumps({"disableClaudeAiConnectors": True})
 
 
 class SandboxUnavailable(RuntimeError):
@@ -826,17 +879,12 @@ def require_sandbox() -> None:
 
 
 def briefs_root() -> str:
-    """Where `verify/brief.py` writes, which is outside the repository by design.
-
-    Briefs are scratch, so they follow SCRATCHPAD/TMPDIR — and a lens dispatched into a
-    repo cannot read them without being handed the directory.
-    """
-    return str(
-        (
-            Path(os.environ.get("SCRATCHPAD") or os.environ.get("TMPDIR") or "/tmp")
-            / "harness-briefs"
-        ).resolve()
-    )
+    """Where `verify/brief.py` writes: inside the project, under its gitignored run
+    directory. It followed SCRATCHPAD/TMPDIR once, and a lens had to be handed the
+    directory — which broke the moment the writer and the dispatcher ran in different
+    environments (a sandbox sets its own TMPDIR); every lens in a headless epic was denied
+    `Read` on its own brief. A lens's working directory needs no grant."""
+    return str((REPO / ".harness" / "run" / "briefs").resolve())
 
 
 def project_tier_overrides(
@@ -914,7 +962,11 @@ def resolve(
     spec = tiers[tier]
     env, missing = provider_env(spec["provider"], config, environ)
     mode, grants = permission_for(agent, agents_dir)
-    _sandbox, _settings = sandbox_for()
+    orchestrator = is_orchestrator(agent, agents_dir)
+    _sandbox, _settings = sandbox_for(
+        network=orchestrator_domains() if orchestrator else (),
+        excluded=DISPATCHER_OUTSIDE if orchestrator else (),
+    )
     return Resolved(
         agent=agent,
         tier=tier,
@@ -922,7 +974,12 @@ def resolve(
         provider=spec["provider"],
         model=spec["model"],
         effort=spec["effort"],
-        max_budget_usd=float(spec["max_budget_usd"]),
+        # The role's own ceiling, when it has one: an orchestrator's is per epic.
+        max_budget_usd=float(
+            (config.get("orchestrator") or {}).get("max_budget_usd", spec["max_budget_usd"])
+            if orchestrator
+            else spec["max_budget_usd"]
+        ),
         task_budget_tokens=_task_budget(spec),
         env=env,
         missing_env=missing,
@@ -946,7 +1003,7 @@ def resolve(
             if mode == "acceptEdits"
             else (briefs_root(), str(HARNESS), str(REPO))
         ),
-        disallowed_tools=FORBIDDEN,
+        disallowed_tools=() if orchestrator else FORBIDDEN,
         plugin_dir=str(PLUGIN_ROOT),
         sandbox=_sandbox,
         settings=_settings,

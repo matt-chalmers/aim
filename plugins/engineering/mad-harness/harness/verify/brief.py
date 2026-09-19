@@ -34,7 +34,6 @@ whoever edits this next.
 
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 from dataclasses import dataclass, field
@@ -44,14 +43,16 @@ from models.project import (
     Project,
     load,
 )  # sibling top-level package; harness/ is the root
-from models.resolve import CHECKOUT
+from models.resolve import CHECKOUT, REPO
 
-#: Where a task's brief is written unless the caller says otherwise.
-#: Briefs are scratch, so they follow SCRATCHPAD/TMPDIR rather than assuming /tmp.
-DEFAULT_ROOT = (
-    Path(os.environ.get("SCRATCHPAD") or os.environ.get("TMPDIR") or "/tmp")
-    / "harness-briefs"
-)
+#: Where a task's brief is written unless the caller says otherwise: INSIDE THE PROJECT,
+#: under its gitignored run directory, which every lens can read because it is the lens's
+#: own working directory. Briefs used to follow SCRATCHPAD/TMPDIR, and a lens was handed
+#: that directory — but the two sides computed it in different environments once the
+#: dispatcher ran outside the orchestrator's sandbox (the sandbox points TMPDIR at its own
+#: tmp), and every lens in a headless epic was denied `Read` on its own brief. Measured:
+#: six denials, six operator questions filed, one task close blocked by them.
+DEFAULT_ROOT = REPO / ".harness" / "run" / "briefs"
 
 #: The area map now lives in `harness.yaml`, not here. Grouping changed
 #: paths is a fact about *this repository's layout*, and the same map drives which

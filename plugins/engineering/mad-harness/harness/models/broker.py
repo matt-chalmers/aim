@@ -180,7 +180,10 @@ def broker(agent: str, task: str | None = None, sink: Path | None = None):
                 "task": task,
                 "tool": tool_name,
                 "command": command[:600],
-                "reason": getattr(context, "decision_reason", None),
+                # The CLI's own diagnosis when it has one ("cannot be statically
+                # analyzed", "requires approval"); when it has none the denial is the
+                # plain case, and a record should say so rather than carry a null.
+                "reason": getattr(context, "decision_reason", None) or "no rule matched",
                 "remedy": remedy,
                 "request": request,
             },

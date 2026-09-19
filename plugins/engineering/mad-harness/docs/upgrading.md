@@ -710,3 +710,82 @@ config change.
 
 - **mechanical** — re-stamp `harness.version`, when convenient. An interactive campaign
   now needs `/clear` + `/campaign` between epics; the loop says when.
+
+### 0.10.14
+
+**`/campaign-auto` as one fresh headless session per epic — and the denial engine it
+uncovered.** Researched by running it: five probes of a headless orchestrator inside the
+harness boundary, then a whole epic. No config change; one new `network:` field on stack
+modules, already set on the shipped ones.
+
+- **A leak, not a doctrine failure, was behind most worker denials.** The SDK builds a
+  child's environment as `{**os.environ, **options.env}`, so a variable merely absent from
+  `build_env`'s result is inherited from the dispatcher's own process. Every worker
+  therefore got the dispatcher's `MAD_HARNESS_CALLER_PWD` — `dispatch.sh`'s wrapper exports
+  it — and its `run.sh` resolved `CHECKOUT` to the primary checkout: 0.10.3's fix worked in
+  its tests and in no real dispatch. It also got the operator's `VIRTUAL_ENV`, so its every
+  `uv run` warned. Measured on 76 denials across 43 lab tasks: ~50 were a worker prefixing
+  a harness wrapper with those variables or reproducing the wrapper's body, and 19 of the
+  21 workers that did had first seen the warning and read the wrapper's source to learn why
+  its test log was in the wrong tree. `_run_sdk` now scrubs both from the process before
+  the SDK spawns. **Same task, before and after: 77 turns, $1.35, 2 denials → 23 turns,
+  $0.24, none.** One pair; the next series sizes it.
+- **The remaining innocuous shape is allowed by a hook.** `VAR=x …/tk.sh …` and
+  `env -u X …/run.sh …` are the wrapper, and are allowed as the wrapper is — one simple
+  call, an executable under the harness root, never a pipe, a substitution or `git push`,
+  in dispatched sessions only. Plain python3 rather than the uv wrapper, because it runs on
+  every Bash call. `mutate.sh` keeps its trees under `.harness/run/` in the checkout instead
+  of `/tmp` (a sandboxed worker could not read its own mutations file back) and the
+  doctrine no longer asks for an env prefix. The lab's seeded config no longer teaches
+  `env -u VIRTUAL_ENV`.
+- **An `orchestrator` role.** `campaign-orchestrator` (`role: orchestrator` in frontmatter)
+  runs one epic of the loop headless, through the dispatcher. The role changes the boundary
+  in three ways, each measured: the `git push` deny does not apply and `git`/`make` are
+  granted; the sandbox's egress opens to the remote and to each stack's `network:` (its
+  package index — nested, a worktree's init runs inside that sandbox, and a nested worker
+  died at `uv sync` with `files.pythonhosted.org` denied); and `dispatch.sh` is excluded
+  from the sandbox, because a worker spawned inside it could not log in — the CLI's OAuth
+  credential is in the keychain, which Seatbelt does not reach. Every sandbox field now
+  goes in the SDK's `sandbox` option: the transport replaces the settings' sandbox block
+  wholesale, which is why the toolchain-cache write policy in `settings` had never reached
+  the CLI either.
+- **`swarm/campaign.sh [--max-epics N] [--epic ID]`** is the outer loop: pre-flight once,
+  then per open epic a fresh `campaign-orchestrator` dispatch with `--digest` and `--out`,
+  stopping on a refused dispatch or a closed usage window (exit 5, as the A/B rig). The
+  agent carries the two rules a terminal never needed: a headless session ends the moment
+  the model stops calling tools (one probe's orchestrator "waited for a notification" and
+  simply ended, killing its worker), so it waits for background dispatches in the foreground
+  with `until` loops; and every dispatch names its result file up front.
+- **Probes, in order.** (1) Nested dispatch inside the orchestrator's sandbox, a merge, the
+  gate, tracker writes: allowed; push and all egress denied — the network key in
+  `settings` never reached the CLI. (2) Network fixed: `github.com` and `pypi.org`
+  reachable, `example.com` blocked, push ok; the nested worker: `Not logged in`. (3)
+  Dispatcher excluded; the orchestrator yielded mid-wave. (4) Foreground wait: the worker
+  ran 77 turns, committed, merged, gated, pushed — with the leak above still live. (5) The
+  scrub: 23 turns, no denials, the log in the worker's own worktree.
+- **Then one whole epic through `campaign.sh`.** A fresh lab, three seeded tasks. The
+  orchestrator ran §1–§2 for the epic, the survey (INFERABLE, $0.18), the architect
+  ($0.69), the planner ($0.62), the audit (PASS, $1.07), `apply-plan --dry-run` then the
+  apply with render, `resume-point` per task, two workers in the background with `--out`
+  (25 and 33 turns, $0.29 and $0.39, **zero denials each**), waited in the foreground,
+  built both briefs, dispatched six lenses, merged the task all three passed, held the one
+  L2 failed (a real finding: unpinned assertions — branch kept, claim released, fixes named
+  on the epic), synced the tracker and pushed. Every artefact moved by path. Then it
+  stopped itself: 74 turns and $3.19 against the strong tier's $4.00 ceiling, judged not
+  enough for a remediation round, the epic left open and honest. Three things came out
+  of it, all fixed here:
+  - **Every lens was denied `Read` on its own brief.** Briefs followed `TMPDIR`, and the
+    lens was handed that directory — but `brief.sh` ran inside the orchestrator's sandbox
+    (which sets its own `TMPDIR`) while the excluded `dispatch.sh` computed the grant
+    outside it. Six denials, six operator questions filed, and one of those then blocked
+    the task's close, which the orchestrator escaped with `bd close --force`. Briefs now
+    live at `.harness/run/briefs/` **inside the project** — a lens's own working directory,
+    no grant involved.
+  - **The orchestrator's ceiling is per epic.** `tiers.yaml` gains `orchestrator:
+    max_budget_usd: 25.00` for the role; a field orchestrator spent $16 on one epic.
+  - **`campaign.sh` restores `autosync on` however a session ends** — a session that stops
+    before §5 restores nothing, and this one left `export.auto: false` behind.
+
+- **mechanical** — re-stamp `harness.version`, when convenient. Restart once so the new
+  hook registers. If you run unattended campaigns, `swarm/campaign.sh` is the form; if a
+  stack module of your own fetches from a registry, declare it under `network:`.

@@ -160,6 +160,9 @@ class Stack:
     #: is better anyway: it pokes no hole into the home directory. The path resolves
     #: against the primary checkout so every worktree shares one cache.
     cache_env: dict[str, str] = field(default_factory=dict)
+    #: Hosts the toolchain fetches from — its package index. Read only for an
+    #: orchestrator's sandbox, where a worktree's init runs inside the boundary.
+    network: tuple[str, ...] = ()
     #: The module's own YAML, so the card can be read without reparsing.
     raw: dict = field(default_factory=dict)
 
@@ -660,6 +663,7 @@ def _load_stack(entry: str | dict) -> Stack:
         commands=d.get("commands") or {},
         banned_forms=tuple(d.get("banned_forms") or ()),
         cache_env=dict(d.get("cache_env") or {}),
+        network=tuple(str(h) for h in (d.get("network") or [])),
         raw=d,
     )
 

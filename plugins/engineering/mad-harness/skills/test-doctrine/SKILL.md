@@ -107,8 +107,9 @@ deleted the implementation, would this go red?* Mutation testing is that questio
 precisely, one behaviour at a time. Where §4 was not possible or was not done, this is the only
 thing that tells you a test discriminates rather than merely passes.
 
-**Use `${CLAUDE_PLUGIN_ROOT}/harness/verify/mutate.sh <task-id> <commit-ish> <mutations-file> [test-args]`** with
-`SCRATCHPAD` and your per-worker environment set. Read its header. It builds each tree with `git archive` so a
+**Use `${CLAUDE_PLUGIN_ROOT}/harness/verify/mutate.sh <task-id> <commit-ish> <mutations-file> [test-args]`** — a plain
+call, no environment prefix; put the mutations file under `.harness/run/` in your checkout,
+where the script keeps its own trees. Read its header. It builds each tree with `git archive` so a
 a stale compiled artefact is impossible, never writes to your worktree, **aborts if a mutation does not match
 exactly once**, restores by re-extracting rather than undoing, records failing test *names*, and
 re-runs mutant 1 last to prove the batch is reproducible. If it prints `FATAL`, it is telling

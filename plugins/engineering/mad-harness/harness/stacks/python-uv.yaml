@@ -75,6 +75,14 @@ test_output:
 cache_env:
   UV_CACHE_DIR: .harness/cache/uv
 
+# Where uv fetches from. A worker never needs it — its worktree is initialised by the
+# dispatcher, outside the boundary — but an ORCHESTRATOR dispatching from inside its own
+# sandbox does, because the init then runs inside it. Measured: a nested worker died at
+# `uv sync` with files.pythonhosted.org denied.
+network:
+  - pypi.org
+  - files.pythonhosted.org
+
 commands:
   test: uv run pytest
   test_scoped: uv run pytest {path}

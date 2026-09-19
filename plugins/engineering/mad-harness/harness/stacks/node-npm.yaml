@@ -37,6 +37,11 @@ card: |
 
 doctrine_skill: stack-node-npm
 
+# The registry npm fetches from — reachable only from an orchestrator's sandbox, where
+# a worktree's init runs inside the boundary.
+network:
+  - registry.npmjs.org
+
 commands:
   test: npm test
   test_scoped: npm test -- {path}
