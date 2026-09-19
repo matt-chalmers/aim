@@ -29,7 +29,7 @@ def test_defaults_are_off_except_the_one_that_only_removes(monkeypatch):
         monkeypatch.delenv(v, raising=False)
     assert levers.snapshot(block={}) == {
         "cache_ttl": None, "static_prefix": False, "stagger_seconds": 0, "task_budget": None, "preload": (),
-        "lean_catalog": True, "preload_declared": False,
+        "lean_catalog": True, "preload_declared": True,
     }
 
 
@@ -122,7 +122,7 @@ def test_every_dispatch_event_says_which_levers_were_on_and_which_experiment(mon
     assert t["experiment"] == "static_prefix:on:3"
     assert t["levers"] == {
         "cache_ttl": None, "static_prefix": True, "stagger_seconds": 0, "task_budget": None, "preload": (),
-        "lean_catalog": True, "preload_declared": False,
+        "lean_catalog": True, "preload_declared": True,
     }
 
 
@@ -237,7 +237,7 @@ def test_preload_declared_appends_the_agents_frontmatter_skills_and_off_appends_
 
     monkeypatch.setattr("models.levers._project_block", lambda: {})
     monkeypatch.delenv("MAD_HARNESS_PRELOAD", raising=False)
-    monkeypatch.setenv("MAD_HARNESS_PRELOAD_DECLARED", "1")
+    monkeypatch.delenv("MAD_HARNESS_PRELOAD_DECLARED", raising=False)  # the default is on
     text = mod.with_context("do x", None, agent="fullstack-engineer")
     for name in ("test-doctrine", "worker-protocol", "evidence-gathering"):
         assert f"## Preloaded skill: {name}" in text

@@ -9,7 +9,7 @@ from models import ab_report
 
 def _events(root, lever, arm, run, rows):
     p = root / f"{lever}-{arm}-{run}" / "beads" / ".harness" / "run" / "events"
-    p.mkdir(parents=True)
+    p.mkdir(parents=True, exist_ok=True)
     with (p / "harness.dispatch.jsonl").open("w") as fh:
         for r in rows:
             fh.write(json.dumps({"payload": {**r, "experiment": f"{lever}:{arm}:{run}"}}) + "\n")
@@ -52,3 +52,27 @@ def test_kills_are_counted_per_arm(tmp_path, capsys):
 def test_no_series_is_said_plainly(tmp_path, capsys):
     assert ab_report.main(["preload", "--root", str(tmp_path)]) == 1
     assert "no events for lever 'preload'" in capsys.readouterr().out
+
+
+def test_lens_verdicts_are_read_per_arm_and_reported_as_first_pass_rates(tmp_path, capsys):
+    """A lever that makes workers cheaper by doing less of the doctrine reads as a win on
+    cost alone. Measured: the arm carrying test-doctrine ran mutation testing 4x as often
+    and cost 61% more; only the lenses can say which arm's tests were worth having."""
+    from models import ab_report
+    from models.ab_report import load_verdicts, pass_rates
+
+    for arm, rows in (("off", [("T1", "verifier", "PASS"), ("T1", "verifier-tests", "FAIL"), ("T1", "verifier-spec", "PASS")]),
+                      ("on", [("T1", "verifier", "PASS"), ("T1", "verifier-tests", "PASS"), ("T1", "verifier-spec", "NONE")])):
+        d = tmp_path / f"lever-{arm}-1" / "beads" / ".harness" / "run"
+        (d / "events").mkdir(parents=True)
+        (d / "lens-verdicts.txt").write_text("".join(f"{t}\t{a}\t{v}\n" for t, a, v in rows))
+        _events(tmp_path, "lever", arm, 1, [
+            {"cost_usd": 1.0, "ok": True, "terminal": "success", "turns": 10, "agent": "fullstack-engineer"},
+            {"cost_usd": 0.5, "ok": True, "terminal": "success", "turns": 5, "agent": "verifier-tests"},
+        ])
+    v = load_verdicts(tmp_path, "lever")
+    assert pass_rates(v["off"])["L2"] == (0, 1, 0) and pass_rates(v["on"])["L3"] == (0, 0, 1)
+    assert ab_report.main(["lever", "--root", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "writers / run     $1.00" in out and "writers AND lenses" in out
+    assert "L2 first-pass     0% → 100%" in out

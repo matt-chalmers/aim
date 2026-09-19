@@ -54,6 +54,10 @@ fi
 
 echo "== verification lenses: $NAME =="
 VERDICTS="$SCRATCH/verdicts.txt"; : > "$VERDICTS"
+# A COPY THE RIG CAN READ. The scratch copy goes with the scratch; the A/B report reads
+# this one, beside the run's dispatch events, so a lever can be judged on what its
+# workers' tests were WORTH and not only on what they cost.
+KEPT="$REPO/.harness/run/lens-verdicts.txt"; mkdir -p "$(dirname "$KEPT")"
 
 for TASK in "${TASKS[@]}"; do
   SHA=$(cd "$REPO" && git log --all --oneline --grep="$TASK" -1 --format=%H || true)
@@ -76,10 +80,17 @@ for TASK in "${TASKS[@]}"; do
   printf 'Judge task %s against the SPEC and the repository at HEAD, which is your\nworking directory. Read %s — the brief BODY only. Do NOT open its diff/\ndirectory: you are judging what the repository now claims, not how it changed.\nCheck docs, docstrings and callers for anything the change left contradicted.\nReturn VERDICT: PASS or FAIL on the first line, then located findings.\n' \
     "$TASK" "$BRIEF" > "$SCRATCH/lens3-$TASK.txt"
 
-  for AGENT in verifier verifier-spec; do
+  # L2 JUDGES WHAT THE DOCTRINE CHANGES. A worker that carries test-doctrine writes
+  # adversarial tests and runs mutations; one that does not writes tests that pass. Only
+  # verifier-tests can tell the two apart, so a cost lever cannot be judged without it.
+  printf 'Judge the TESTS of task %s. Its brief is at %s; read the brief and the per-file\npatches under its diff/ directory, then run the suite. Are the new tests adversarial or\ndecorative — do they pin behaviour that a plausible wrong implementation would fail?\nReturn VERDICT: PASS or FAIL on the first line, then located findings.\n' \
+    "$TASK" "$BRIEF" > "$SCRATCH/lens2-$TASK.txt"
+
+  for AGENT in verifier verifier-tests verifier-spec; do
     case "$AGENT" in
-      verifier) LP="$SCRATCH/lens1-$TASK.txt"; LABEL="L1 correctness" ;;
-      *)        LP="$SCRATCH/lens3-$TASK.txt"; LABEL="L3 spec" ;;
+      verifier)       LP="$SCRATCH/lens1-$TASK.txt"; LABEL="L1 correctness" ;;
+      verifier-tests) LP="$SCRATCH/lens2-$TASK.txt"; LABEL="L2 tests" ;;
+      *)              LP="$SCRATCH/lens3-$TASK.txt"; LABEL="L3 spec" ;;
     esac
     OUT="$SCRATCH/${AGENT}-$TASK.txt"
     "$HARNESS/models/dispatch.sh" "$AGENT" --prompt-file "$LP" --task "$TASK" \
@@ -87,6 +98,7 @@ for TASK in "${TASKS[@]}"; do
     V=$(grep -oiE '\bVERDICT:?[[:space:]]*(PASS|FAIL)' "$OUT" | head -1 \
         | grep -oiE '(PASS|FAIL)' | tr 'a-z' 'A-Z')
     printf '  %-16s %-14s %s\n' "$TASK" "$LABEL" "${V:-<no verdict>}" | tee -a "$VERDICTS"
+    printf '%s\t%s\t%s\n' "$TASK" "$AGENT" "${V:-NONE}" >> "$KEPT"
   done
 done
 

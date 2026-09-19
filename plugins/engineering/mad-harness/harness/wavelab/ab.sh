@@ -2,7 +2,7 @@
 # A/B one cost lever: the same seeded epic, N runs with the lever off and N with it on.
 #
 #   harness/wavelab/ab.sh <lever> [--runs N] [--fanout N] [--root DIR] [--backend beads|mdfiles]
-#                          [--wave1-only] [--arms off,on|baseline|on]
+#                          [--wave1-only] [--lenses] [--arms off,on|baseline|on]
 #
 #   levers:  cache_ttl        off = the CLI's default (1h on a subscription)   on = 5m
 #            static_prefix    off = today's system prompt                      on = static prefix
@@ -24,9 +24,9 @@
 # parallel wave.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LEVER="${1:?usage: ab.sh <lever> [--runs N] [--fanout N] [--root DIR] [--backend B] [--wave1-only] [--arms LIST]}"
+LEVER="${1:?usage: ab.sh <lever> [--runs N] [--fanout N] [--root DIR] [--backend B] [--wave1-only] [--lenses] [--arms LIST]}"
 shift
-RUNS=5; FANOUT=2; ROOT="${WAVELAB_AB_ROOT:-$HOME/harness-wavelab-ab}"; BACKEND=beads; WAVE1_ONLY=0; ARMS="off,on"
+RUNS=5; FANOUT=2; ROOT="${WAVELAB_AB_ROOT:-$HOME/harness-wavelab-ab}"; BACKEND=beads; WAVE1_ONLY=0; ARMS="off,on"; LENSES=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --runs) RUNS="${2:?}"; shift ;;
@@ -34,6 +34,7 @@ while [ $# -gt 0 ]; do
     --root) ROOT="${2:?}"; shift ;;
     --backend) BACKEND="${2:?}"; shift ;;
     --wave1-only) WAVE1_ONLY=1 ;;
+    --lenses) LENSES=1 ;;
     --arms) ARMS="${2:?}"; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -101,6 +102,13 @@ for ARM in "${ARM_LIST[@]}"; do
     if [ "$WAVE1_ONLY" = "0" ]; then
       env "${ENVS[@]}" "$FLAB/dispatch-wave.sh" --root "$RUN_ROOT" "$BACKEND" || true
       env "${ENVS[@]}" "$FLAB/merge-wave.sh" --root "$RUN_ROOT" "$BACKEND" || true
+    fi
+    # WHAT THE WORK WAS WORTH, NOT ONLY WHAT IT COST. A lever that makes workers cheaper
+    # by making them do less of the doctrine reads as a win on cost alone; the three
+    # lenses over every landed task are the measure that catches it. Measured: the arm
+    # that carried test-doctrine ran mutation testing 4x as often and cost 61% more.
+    if [ "$LENSES" = "1" ]; then
+      env "${ENVS[@]}" "$FLAB/lens-wave.sh" --root "$RUN_ROOT" "$BACKEND" || true
     fi
     # A LIMITED ACCOUNT IS NOT A SAMPLE. When the usage window closes the CLI returns
     # "You've hit your session limit" in one turn at $0 for every dispatch; a series that

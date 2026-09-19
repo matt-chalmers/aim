@@ -17,7 +17,7 @@ has decided), then the default.
     task_budget      MAD_HARNESS_TASK_BUDGET_TOKENS  dispatch.task_budget_tokens, else tiers.yaml <tier>.task_budget_tokens
     preload          MAD_HARNESS_PRELOAD        —  (agents/<name>.md skills:)  none
     lean_catalog     MAD_HARNESS_LEAN_CATALOG   dispatch.lean_catalog   true  (the exception — see below)
-    preload_declared MAD_HARNESS_PRELOAD_DECLARED dispatch.preload_declared false
+    preload_declared MAD_HARNESS_PRELOAD_DECLARED dispatch.preload_declared true
     experiment       MAD_HARNESS_EXPERIMENT     —                       — (a label, recorded)
 
 `preload` names skills whose SKILL.md is appended to the prompt, env-only, for an arm.
@@ -60,7 +60,11 @@ _DEFAULT: dict[str, Any] = {
     # its Skill catalog held the plugin's own skills instead of those plus 17 bundled
     # CLI skills and 10 orchestrator commands a headless worker can never use.
     "lean_catalog": True,
-    "preload_declared": False,
+    # ON: the doctrine an agent declares reaches it. Measured cost-only it lost — +61% per
+    # run — but the arm that carried test-doctrine ran mutation testing 4x as often, and
+    # "cheaper" meant "did less of what the doctrine demands" (a headless epic without it
+    # failed L2 for decorative assertions). Behaviour first; the fidelity series decides.
+    "preload_declared": True,
 }
 #: The harness.yaml key each lever reads, where it differs from the lever's name.
 _KEY = {"task_budget": "task_budget_tokens"}

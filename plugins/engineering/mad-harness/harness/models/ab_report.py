@@ -57,6 +57,34 @@ def load(root: Path, lever: str) -> dict[str, list[dict[str, Any]]]:
     return dict(by_arm)
 
 
+#: Writers, whose cost a lever is about; everything else in a run is the judging of it.
+WRITERS = ("fullstack-engineer", "quality-engineer")
+LENS_LABEL = {"verifier": "L1", "verifier-tests": "L2", "verifier-spec": "L3", "verifier-security": "L4"}
+
+
+def load_verdicts(root: Path, lever: str) -> dict[str, list[tuple[str, str, str]]]:
+    """arm -> (task, lens agent, PASS|FAIL|NONE) for every judged task, from the
+    `lens-verdicts.txt` lens-wave.sh keeps beside a run's events."""
+    out: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
+    for path in sorted(root.glob(f"{lever}-*/*/.harness/run/lens-verdicts.txt")):
+        run_dir = path.parents[3].name  # <lever>-<arm>-<run>
+        arm = run_dir[len(lever) + 1 :].rsplit("-", 1)[0]
+        for line in path.read_text().splitlines():
+            parts = line.split("\t")
+            if len(parts) == 3:
+                out[arm].append((parts[0], parts[1], parts[2]))
+    return dict(out)
+
+
+def pass_rates(rows: list[tuple[str, str, str]]) -> dict[str, tuple[int, int, int]]:
+    """lens -> (pass, fail, no verdict)."""
+    by: dict[str, list[int]] = defaultdict(lambda: [0, 0, 0])
+    for _, agent, v in rows:
+        i = 0 if v == "PASS" else 1 if v == "FAIL" else 2
+        by[LENS_LABEL.get(agent, agent)][i] += 1
+    return {k: (v[0], v[1], v[2]) for k, v in by.items()}
+
+
 def _quartiles(xs: list[float]) -> tuple[float, float, float]:
     xs = sorted(xs)
     if len(xs) == 1:
@@ -77,9 +105,16 @@ def summarise(by_arm: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, An
             "not_ok": sum(1 for r in rows if not r.get("ok")),
         }
         per_run: dict[str, float] = defaultdict(float)
+        writers_per_run: dict[str, float] = defaultdict(float)
         for r in rows:
             per_run[r["_run"]] += float(r.get("cost_usd") or 0)
+            if r.get("agent") in WRITERS:
+                writers_per_run[r["_run"]] += float(r.get("cost_usd") or 0)
         s["cost_per_run"] = _quartiles(list(per_run.values()))
+        # With --lenses a run's cost includes the judging; the writers' share is what the
+        # earlier series measured, so both are kept.
+        s["writer_cost_per_run"] = _quartiles(list(writers_per_run.values())) if writers_per_run else None
+        s["judged"] = any(r.get("agent") in LENS_LABEL for r in rows)
         for key, *_ in METRICS:
             xs = [float(r[key]) for r in rows if r.get(key) is not None]
             s[key] = _quartiles(xs) if xs else None
@@ -112,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     s = summarise(by_arm)
     off, on = s.get("off"), s.get("on")
+    verdicts = load_verdicts(root, lever)
     print(f"A/B {lever} — root {root}")
     for arm in ("off", "on"):
         if arm not in s:
@@ -120,7 +156,14 @@ def main(argv: list[str] | None = None) -> int:
         q1, med, q3 = a["cost_per_run"]
         code = ", ".join(a["shas"]) + ("  ← MIXED CODE across runs; do not read this arm as one sample" if len(a["shas"]) > 1 else "")
         print(f"\n[{arm}]  {a['n_runs']} run(s), {a['n_dispatches']} dispatch(es), {a['kills']} budget kill(s), {a['not_ok']} not-ok, code {code}")
-        print(f"  cost / run        ${med:.2f}   (IQR ${q1:.2f}–${q3:.2f})")
+        print(f"  cost / run        ${med:.2f}   (IQR ${q1:.2f}–${q3:.2f}){'   — writers AND lenses' if a.get('judged') else ''}")
+        if a.get("judged") and a.get("writer_cost_per_run"):
+            wq1, wmed, wq3 = a["writer_cost_per_run"]
+            print(f"  writers / run     ${wmed:.2f}   (IQR ${wq1:.2f}–${wq3:.2f})")
+        if arm in verdicts:
+            rates = pass_rates(verdicts[arm])
+            cells = "   ".join(f"{k} {p}/{p + f} pass" + (f" ({n} no verdict)" if n else "") for k, (p, f, n) in sorted(rates.items()))
+            print(f"  first-pass lenses {cells}")
         for key, label, unit, _ in METRICS:
             v = a.get(key)
             if v:
@@ -133,6 +176,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {label:<18}{verdict(off.get(key), on.get(key), lower)}")
         if on["kills"] != off["kills"]:
             print(f"  {'budget kills':<18}{off['kills']} → {on['kills']}")
+        if "off" in verdicts and "on" in verdicts:
+            ro, rn = pass_rates(verdicts["off"]), pass_rates(verdicts["on"])
+            for lens in sorted(set(ro) | set(rn)):
+                po, fo, _ = ro.get(lens, (0, 0, 0))
+                pn, fn, _ = rn.get(lens, (0, 0, 0))
+                so = f"{100 * po // max(1, po + fo)}%"
+                sn = f"{100 * pn // max(1, pn + fn)}%"
+                print(f"  {lens + ' first-pass':<18}{so} → {sn}   (a lever that costs less by doing less of the doctrine shows here, not above)")
     return 0
 
 

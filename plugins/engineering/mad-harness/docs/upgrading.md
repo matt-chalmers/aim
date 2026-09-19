@@ -829,3 +829,29 @@ agent loads its doctrine when its body says to, and the numbers say that is the 
 path. 0.10.8 called the on-demand path a gap; it is the default because it measured best.
 
 - **mechanical** — re-stamp `harness.version`, when convenient. Nothing to set.
+
+### 0.10.17
+
+**0.10.16 was wrong to call the on-demand path "best": cheaper is not the same as
+better, and the rig could not tell them apart.** No config change; `preload_declared` is
+now on by default, and the rig measures fidelity.
+
+- **What the +61% was.** The arm that carried the doctrine ran mutation testing in 22% of
+  sessions against 6% on demand — where only 26% of workers ever loaded `test-doctrine`
+  and none loaded `worker-protocol`. Per dispatch, carrying ~9k tokens of doctrine over 60
+  turns at the cache-read rate is ≈$0.16 of the +$0.59; the rest is 18 more turns of
+  work the doctrine demands. And the headless epic that ran without it failed L2 for
+  decorative assertions and had a worker close its own task before the gate — the two
+  rules the two skills exist for. "Cheaper" meant "did less".
+- **Default flipped: `preload_declared` on.** Behaviour first. The doctrine an agent
+  declares reaches it, at the measured cost, until a measurement that sees quality says
+  otherwise. Projects may set it `false` to measure without.
+- **The rig now sees quality.** `ab.sh --lenses` runs the three lenses over every landed
+  task after each run (`lens-wave.sh` gains L2, `verifier-tests`, the lens that judges
+  exactly what the doctrine changes) and keeps the verdicts beside the run's events;
+  `ab-report.sh` reports first-pass PASS rate per lens per arm, and splits a judged run's
+  cost into writers and lenses so it still compares with the earlier series. The rule for
+  moving a default now has the second half it always needed: cost with spreads apart,
+  **and** first-pass rate not worse.
+
+- **mechanical** — re-stamp `harness.version`, when convenient. Nothing to set.
