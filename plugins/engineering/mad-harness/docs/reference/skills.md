@@ -33,14 +33,17 @@ cost of supporting many technologies at zero for the ones not in use.
 
 ## How a skill reaches a dispatched agent
 
-An agent *declares* its skills in frontmatter; what delivers them depends on the path. The
-CLI preloads them only when it spawns the agent through the Agent tool, which the harness
-never does. Through `dispatch.sh` the harness appends them to the prompt under
-`dispatch.preload_declared` (on by default: the arm that carried the doctrine did what it
-says — mutation testing 4× as often — at ~+60% per worker run in the lab), and with it off
-the agent loads them on demand through the Skill tool, which measured at 26% for
-`test-doctrine` and never for `worker-protocol`. `check-skills.sh` prints each agent's bill: the size
-of that append, paid once into cache per dispatch and read back every turn.
+An agent *declares* its skills in frontmatter, and the declaration is the delivery: on
+every dispatch the harness puts every declared skill, in full, into the agent's **system
+prompt** — the region a compaction never touches, cached from the first request and
+identical for every dispatch of that agent — and refuses to dispatch an agent whose
+declared skill cannot be found (`resolve.doctrine`). The CLI does not do this itself on
+the `--agent` path (it preloads frontmatter skills only when spawning through the Agent
+tool), and when delivery was a switch the switch measured what it cost to turn off: with
+the doctrine absent, workers loaded `test-doctrine` on demand in 26% of sessions,
+`worker-protocol` never, and ran mutation testing a quarter as often. `check-skills.sh`
+prints each agent's bill: the size of that append, written to cache once per dispatch and
+read back every turn.
 
 The catalog a dispatched agent can load from is the plugin's skills plus the project's own
 `.claude/skills/*` (`dispatch.lean_catalog`); the CLI's bundled skills and the plugin's

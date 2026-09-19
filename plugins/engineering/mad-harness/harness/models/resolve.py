@@ -235,6 +235,8 @@ class Resolved:
     #: Which settings files the dispatched agent loads. See :func:`cli_args`.
     setting_sources: str = "project"
     #: An API-side token budget the model is told about so it can pace and wrap up, from
+    #: The skills this agent declares, in full — its doctrine, part of its system prompt.
+    doctrine: str = ""
     #: the tier's `task_budget_tokens`. None = not set. Distinct from `max_budget_usd`,
     #: which is a circuit breaker the model never sees.
     task_budget_tokens: int | None = None
@@ -280,11 +282,16 @@ class Resolved:
         # worktree is a different directory — so eight workers on identical doctrine are
         # eight cold prefixes. With the dynamic sections moved into the first user message
         # the system prompt is byte-identical across the wave. Measured before default.
-        system_prompt = (
-            {"type": "preset", "preset": "claude_code", "exclude_dynamic_sections": True}
-            if lever("static_prefix")
-            else None
-        )
+        system_prompt: dict[str, Any] = {"type": "preset", "preset": "claude_code"}
+        if lever("static_prefix"):
+            system_prompt["exclude_dynamic_sections"] = True
+        # THE DOCTRINE IS PART OF THE SYSTEM PROMPT. Not a message — a message is what a
+        # compaction summarises away and what a lever once switched off — and not left to
+        # the CLI, which does not preload frontmatter skills on the `--agent` path
+        # (measured 0.10.8). The append is cached from the first request and identical
+        # for every dispatch of the same agent.
+        if self.doctrine:
+            system_prompt["append"] = self.doctrine
         # THE SKILL CATALOG IS PAID ON EVERY REQUEST. The Skill tool lists every skill the
         # session can see — the plugin's, the CLI's 17 bundled ones (dataviz, claude-api,
         # keybindings-help...) and the plugin's slash commands, which a dispatched worker
@@ -334,6 +341,7 @@ class Resolved:
             "effort": self.effort,
             "max_budget_usd": self.max_budget_usd,
             "task_budget_tokens": self.task_budget_tokens,
+            "doctrine_chars": len(self.doctrine),
             "env_names": sorted(self.env),
             "missing_env": list(self.missing_env),
         }
@@ -540,6 +548,29 @@ def catalog_skills(repo: Path | None = None) -> list[str]:
     rejected as `not in this session's skills allowlist`, which is not a permission
     denial and so never reached the dispatcher. The union is what makes this safe."""
     return plugin_skills() + project_skills(repo)
+
+
+def _lever(name: str, block: dict[str, Any] | None = None) -> Any:
+    from .levers import lever
+
+    return lever(name, block)
+
+
+def doctrine(agent: str, agents_dir: Path | None = None, extra: tuple[str, ...] = ()) -> str:
+    """Every skill the agent declares (and any the `preload` arm adds), in full, as one
+    block for the system prompt. A declared skill that does not exist is a config error
+    and the dispatch does not start: doctrine that cannot be delivered is not optional."""
+    names = list(declared_skills(agent, agents_dir))
+    names += [n for n in extra if n not in names]
+    parts = []
+    for name in names:
+        path = _prompts_dir("skills") / name / "SKILL.md"
+        if not path.is_file():
+            raise ConfigError(f"{agent} declares skill {name!r}, but {path} does not exist")
+        body = path.read_text()
+        body = body.split("---", 2)[2] if body.startswith("---") else body
+        parts.append(f"# Skill: {name}\n\n{body.strip()}")
+    return "\n\n".join(parts)
 
 
 def declared_skills(agent: str, agents_dir: Path | None = None) -> list[str]:
@@ -981,6 +1012,7 @@ def resolve(
             else spec["max_budget_usd"]
         ),
         task_budget_tokens=_task_budget(spec),
+        doctrine=doctrine(agent, agents_dir, extra=tuple(_lever("preload", block={}))),
         env=env,
         missing_env=missing,
         permission_mode=mode,

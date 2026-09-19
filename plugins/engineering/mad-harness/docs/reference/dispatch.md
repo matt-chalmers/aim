@@ -17,6 +17,7 @@ class Resolved:
     provider: str; model: str; effort: str
     max_budget_usd: float                        # the ceiling the CLI enforces between calls
     task_budget_tokens: int | None               # the budget the model is TOLD — env > harness.yaml > tier
+    doctrine: str                                # every declared skill, in full — the system prompt's append
     env: dict[str, str]                          # provider credentials
     missing_env: tuple[str, ...]                 # unset -> refuse to dispatch
     permission_mode: str = "default"             # or "acceptEdits"
@@ -97,16 +98,18 @@ the caller decides whether the task still completed.
 | Where you are | cwd, project root, harness root, and the absolute script paths (why not `$VAR`) | `cwd` arg, `REPO`, `HARNESS` |
 | Permission requests already answered | operator rulings for this task | `broker.resolved_requests(task)` |
 | Harness conventions | task glosses, cite-by-symbol — belt and braces for an agent that preloads no carrier skill | inline |
-| Preloaded skills | the `preload` lever's skills, and under `preload_declared` the agent's own frontmatter `skills:` | `_preloaded_skills(agent)` |
 
 `cwd` is the **worktree** for an isolated agent, not the project root. Passing the project
 root caused workers to go looking for their own location — 17 denials in one wave.
 
-**Frontmatter `skills:` do not preload on their own under `--agent` dispatch.** The CLI
-preloads an agent's declared skills only when it spawns that agent through the Agent tool,
-which the harness never does; a dispatched writer and lens both reported every declared
-skill absent. `dispatch.preload_declared` appends them here instead; until it is on, an
-agent loads its doctrine on demand through the Skill tool, which its body tells it to do.
+**The agent's doctrine is in its system prompt, not the message.** The CLI preloads an
+agent's frontmatter `skills:` only when it spawns that agent through the Agent tool, which
+the harness never does — a dispatched writer and lens both reported every declared skill
+absent. So `resolve()` assembles every declared skill into `Resolved.doctrine` and
+`sdk_options` delivers it as the system prompt's `append`: cached from the first request,
+identical for every dispatch of that agent, untouched by compaction, and never a switch — a
+declared skill that cannot be found refuses the dispatch. `doctrine_chars` is recorded on
+every dispatch event.
 
 ## The catalog and the connectors
 
@@ -143,7 +146,7 @@ if needs_worktree(agent) and cwd == REPO: raise DispatchError
 
 ```python
 {"agent", "task", "attempt", "tier", "reason", "model", "effort", "max_budget_usd",
- "task_budget_tokens", "cost_usd", "input_tokens", "output_tokens",
+ "task_budget_tokens", "doctrine_chars", "cost_usd", "input_tokens", "output_tokens",
  "cache_read_tokens", "cache_creation_tokens", "cache_hit_pct", "cache_write_pct",
  "models", "turns", "duration_ms", "ok", "terminal", "experiment", "levers",
  "permission_denials", "denied_tools", "env_names", "missing_env", "escalated_from",

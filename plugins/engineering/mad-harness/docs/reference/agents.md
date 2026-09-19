@@ -10,7 +10,7 @@ what it is, the body is its prompt.
 | `description` | when the orchestrator should reach for it |
 | `tools` | the tool set. **Containing `Edit` or `Write` makes it a writer** — that is how the harness classifies it, not a name list |
 | `model_tier` | `worker`, `strong` or `strategic`; never a model name |
-| `skills` | the doctrine the agent declares. Delivered to a dispatched agent by the harness under `dispatch.preload_declared` (the CLI does not preload frontmatter skills on the `--agent` path); otherwise loaded on demand — the body says to |
+| `skills` | the doctrine the agent declares — delivered, in full, as part of its system prompt on every dispatch (the CLI does not preload frontmatter skills on the `--agent` path, so the harness does); a declared skill that cannot be found refuses the dispatch |
 | `isolation` | `worktree` means it must never run in the primary checkout — dispatch refuses |
 
 Everything the harness decides about an agent derives from those fields. A name list would

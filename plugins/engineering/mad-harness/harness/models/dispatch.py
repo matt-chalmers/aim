@@ -91,7 +91,6 @@ from .resolve import (
 )
 
 #: The plugin's shipped skills, for the `preload` lever.
-PLUGIN_ROOT_SKILLS = HARNESS.parent / "skills"
 
 #: Where worktrees this module creates are placed. Same directory Claude Code uses
 #: for Agent-tool isolation, so `harness/swarm/worktree-sweep.sh` reclaims ours too
@@ -348,7 +347,7 @@ class Outcome:
             ),
         }
 def with_context(
-    prompt: str, lane: str | None, cwd: str | None = None, task: str | None = None, agent: str | None = None
+    prompt: str, lane: str | None, cwd: str | None = None, task: str | None = None
 ) -> str:
     """The prompt plus the technology card for this lane.
 
@@ -418,36 +417,9 @@ def with_context(
         "Line numbers are fine in your report and in chat.\n"
     )
     card = render_card(lane)
-    preload = _preloaded_skills(agent)
-    return "\n\n".join(x for x in (prompt, card, where, answered, conventions, preload) if x)
-
-
-def _preloaded_skills(agent: str | None = None) -> str:
-    """Skills appended to the prompt in full: those the `preload` lever names for an
-    arm, and — under `preload_declared` — the agent's own frontmatter `skills:`.
-
-    THE FRONTMATTER ALONE DOES NOT PRELOAD UNDER DISPATCH. Measured (0.10.8): a writer
-    and a lens dispatched through this module both reported every declared skill ABSENT
-    from context; the CLI preloads an agent's `skills:` only on the Agent-tool subagent
-    path, which this harness never uses. So the −24% that 0.10.5 measured came from THIS
-    path (the lever appending evidence-gathering), not from the frontmatter line it then
-    shipped — and the 82% of writers that never invoked test-doctrine on demand had
-    never read it. `preload_declared` is what makes a frontmatter declaration true."""
-    from .levers import lever
-    from .resolve import declared_skills
-
-    names = list(lever("preload", block={}))
-    if agent and lever("preload_declared"):
-        names += [n for n in declared_skills(agent) if n not in names]
-    parts = []
-    for name in names:
-        path = PLUGIN_ROOT_SKILLS / name / "SKILL.md"
-        if not path.is_file():
-            raise DispatchError(f"MAD_HARNESS_PRELOAD names {name!r}, but {path} does not exist")
-        body = path.read_text()
-        body = body.split("---", 2)[2] if body.startswith("---") else body  # drop frontmatter
-        parts.append(f"## Preloaded skill: {name}\n\n{body.strip()}")
-    return "\n\n".join(parts)
+    # The agent's doctrine is in its SYSTEM PROMPT (resolve.doctrine), not here: a message
+    # is what a compaction summarises and what a lever once switched off.
+    return "\n\n".join(x for x in (prompt, card, where, answered, conventions) if x)
 
 
 #: WHAT A CHILD MUST NOT INHERIT FROM THE DISPATCHER. The SDK builds the child's
@@ -671,7 +643,7 @@ def dispatch(
     started = time.monotonic()
     payload = (runner or _run_sdk)(
         r,
-        with_context(prompt, lane, cwd=str(cwd or REPO), task=task, agent=agent),
+        with_context(prompt, lane, cwd=str(cwd or REPO), task=task),
         cwd=str(cwd or REPO),
         env=build_env(r),
         timeout=timeout,

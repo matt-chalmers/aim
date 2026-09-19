@@ -17,16 +17,17 @@ has decided), then the default.
     task_budget      MAD_HARNESS_TASK_BUDGET_TOKENS  dispatch.task_budget_tokens, else tiers.yaml <tier>.task_budget_tokens
     preload          MAD_HARNESS_PRELOAD        —  (agents/<name>.md skills:)  none
     lean_catalog     MAD_HARNESS_LEAN_CATALOG   dispatch.lean_catalog   true  (the exception — see below)
-    preload_declared MAD_HARNESS_PRELOAD_DECLARED dispatch.preload_declared true
     experiment       MAD_HARNESS_EXPERIMENT     —                       — (a label, recorded)
 
-`preload` names skills whose SKILL.md is appended to the prompt, env-only, for an arm.
-`preload_declared` appends the agent's own frontmatter `skills:` the same way — because
-under `--agent` dispatch the CLI does NOT preload them (measured 0.10.8: a dispatched
-writer and lens both answered ABSENT for every declared skill; the CLI preloads
-frontmatter skills only when it spawns a subagent through the Agent tool, which this
-harness never does). `task_budget` has a tier default the project may override in
-`harness.yaml` — a project whose tasks carry 34KB records needs more room than the lab's.
+DOCTRINE IS NOT A LEVER. The skills an agent declares in its frontmatter are part of its
+system prompt on every dispatch — `resolve.doctrine()`, delivered through the SDK's
+system-prompt append, refused if a declared skill is missing — because the CLI does not
+preload them on the `--agent` path (measured 0.10.8) and a switch that could turn them
+off was measured turning them off: "cheaper" meant "did less" (0.10.17). `preload` is
+the rig's arm for measuring an ADDITIONAL skill before an agent declares it, delivered
+the same way so the arm measures exactly what declaring would do. `task_budget` has a
+tier default the project may override in `harness.yaml` — a project whose tasks carry
+34KB records needs more room than the lab's.
 
 THE ONE LEVER THAT DEFAULTS ON is `lean_catalog`, and it is the exception to "off until
 the lab has sized it" because it removes rather than changes: the Skill catalog a worker
@@ -51,7 +52,6 @@ _ENV = {
     "task_budget": "MAD_HARNESS_TASK_BUDGET_TOKENS",
     "preload": "MAD_HARNESS_PRELOAD",
     "lean_catalog": "MAD_HARNESS_LEAN_CATALOG",
-    "preload_declared": "MAD_HARNESS_PRELOAD_DECLARED",
 }
 _DEFAULT: dict[str, Any] = {
     "cache_ttl": None, "static_prefix": False, "stagger_seconds": 0, "task_budget": None, "preload": (),
@@ -60,11 +60,6 @@ _DEFAULT: dict[str, Any] = {
     # its Skill catalog held the plugin's own skills instead of those plus 17 bundled
     # CLI skills and 10 orchestrator commands a headless worker can never use.
     "lean_catalog": True,
-    # ON: the doctrine an agent declares reaches it. Measured cost-only it lost — +61% per
-    # run — but the arm that carried test-doctrine ran mutation testing 4x as often, and
-    # "cheaper" meant "did less of what the doctrine demands" (a headless epic without it
-    # failed L2 for decorative assertions). Behaviour first; the fidelity series decides.
-    "preload_declared": True,
 }
 #: The harness.yaml key each lever reads, where it differs from the lever's name.
 _KEY = {"task_budget": "task_budget_tokens"}
@@ -88,7 +83,7 @@ def lever(name: str, block: dict[str, Any] | None = None) -> Any:
         block = _project_block() if block is None else block
         key = _KEY.get(name, name)
         return block[key] if key in block else _DEFAULT[name]
-    if name in ("static_prefix", "lean_catalog", "preload_declared"):
+    if name in ("static_prefix", "lean_catalog"):
         return raw.strip().lower() in _TRUE
     if name == "stagger_seconds":
         return max(0, int(raw))

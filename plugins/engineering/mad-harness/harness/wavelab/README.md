@@ -84,12 +84,14 @@ each in a fresh repository, every dispatch event tagged `lever:arm:run`.
 harness/wavelab/ab.sh static_prefix --runs 5 --fanout 8 --wave1-only   # the fan-out lever, at the size the analysis computed
 harness/wavelab/ab.sh cache_ttl     --runs 5 --wave1-only
 harness/wavelab/ab.sh task_budget   --runs 5                            # needs the whole epic: it is about finishing
-harness/wavelab/ab.sh preload_declared --runs 5                         # doctrine appended to every writer's prompt
+harness/wavelab/ab.sh preload --runs 5 --lenses                       # a candidate skill in the writers' system prompt, judged
 harness/wavelab/ab-report.sh static_prefix                              # medians, IQRs, and whether the spreads separate
 ```
 
 Levers the rig knows: `cache_ttl`, `static_prefix`, `stagger`, `task_budget`, `preload`,
-`lean_catalog`, `preload_declared` — the arms are in `ab.sh`'s header. What each measured,
+`lean_catalog` — the arms are in `ab.sh`'s header. `--lenses` judges every landed task
+with the three lenses so an arm that is cheaper by doing less of the doctrine shows as a
+lower first-pass rate. What each measured,
 and which defaults moved on it, is the lever table in [cost](../../docs/concepts/cost.md).
 
 **Frozen code.** `ab.sh` checks the plugin out at HEAD into a worktree under the series

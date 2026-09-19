@@ -29,7 +29,7 @@ def test_defaults_are_off_except_the_one_that_only_removes(monkeypatch):
         monkeypatch.delenv(v, raising=False)
     assert levers.snapshot(block={}) == {
         "cache_ttl": None, "static_prefix": False, "stagger_seconds": 0, "task_budget": None, "preload": (),
-        "lean_catalog": True, "preload_declared": True,
+        "lean_catalog": True,
     }
 
 
@@ -94,10 +94,11 @@ def test_the_static_prefix_reaches_the_sdk_as_the_preset_with_dynamic_sections_e
 
     monkeypatch.setattr("models.levers._project_block", lambda: {})
     monkeypatch.delenv("MAD_HARNESS_STATIC_PREFIX", raising=False)
-    assert resolve("verifier").sdk_options(cwd=".").system_prompt is None, "off is today's behaviour"
+    sp = resolve("verifier").sdk_options(cwd=".").system_prompt
+    assert "exclude_dynamic_sections" not in sp and sp["append"], "off is the preset plus the doctrine"
     monkeypatch.setenv("MAD_HARNESS_STATIC_PREFIX", "1")
     sp = resolve("verifier").sdk_options(cwd=".").system_prompt
-    assert sp == {"type": "preset", "preset": "claude_code", "exclude_dynamic_sections": True}
+    assert sp["exclude_dynamic_sections"] is True and sp["preset"] == "claude_code" and sp["append"]
 
 
 def test_a_tier_task_budget_reaches_the_sdk_and_its_absence_is_none(monkeypatch):
@@ -122,23 +123,25 @@ def test_every_dispatch_event_says_which_levers_were_on_and_which_experiment(mon
     assert t["experiment"] == "static_prefix:on:3"
     assert t["levers"] == {
         "cache_ttl": None, "static_prefix": True, "stagger_seconds": 0, "task_budget": None, "preload": (),
-        "lean_catalog": True, "preload_declared": True,
+        "lean_catalog": True,
     }
 
 
-def test_a_preloaded_skill_is_appended_to_the_prompt_in_full_and_a_missing_one_is_an_error(monkeypatch):
-    from models import dispatch as mod
+def test_the_rigs_preload_arm_adds_a_skill_to_the_system_prompt_in_full_and_a_missing_one_is_an_error(monkeypatch):
+    """The arm measures exactly what declaring the skill would do: same place, same form."""
+    from models import resolve as mod
 
+    monkeypatch.setattr("models.levers._project_block", lambda: {})
     monkeypatch.delenv("MAD_HARNESS_PRELOAD", raising=False)
-    assert "Preloaded skill" not in mod.with_context("do x", None)
-    monkeypatch.setenv("MAD_HARNESS_PRELOAD", "evidence-gathering")
-    out = mod.with_context("do x", None)
-    assert "## Preloaded skill: evidence-gathering" in out
-    assert "scan.sh" in out, "the skill's body, not its frontmatter"
-    assert not out.split("## Preloaded skill: evidence-gathering")[1].lstrip().startswith("---")
+    base = mod.resolve("verifier").sdk_options(cwd=".").system_prompt["append"]
+    assert "# Skill: spec-lifecycle" not in base and "# Skill: evidence-gathering" in base
+    monkeypatch.setenv("MAD_HARNESS_PRELOAD", "spec-lifecycle")
+    out = mod.resolve("verifier").sdk_options(cwd=".").system_prompt["append"]
+    assert "# Skill: spec-lifecycle" in out and "fold-in" in out, "the skill's body, not its frontmatter"
+    assert not out.split("# Skill: spec-lifecycle")[1].lstrip().startswith("---")
     monkeypatch.setenv("MAD_HARNESS_PRELOAD", "no-such-skill")
-    with pytest.raises(mod.DispatchError, match="no-such-skill"):
-        mod.with_context("do x", None)
+    with pytest.raises(mod.ConfigError, match="no-such-skill"):
+        mod.resolve("verifier")
 
 
 def test_the_projects_task_budget_beats_the_tier_and_the_env_beats_both(monkeypatch):
@@ -196,10 +199,12 @@ def test_the_lean_catalog_names_exactly_the_plugins_skills_and_switches_off_clea
     assert r.sdk_options(cwd=".").skills is None
 
 
-def test_lean_catalog_is_validated_as_a_boolean():
+def test_lean_catalog_is_validated_as_a_boolean_and_doctrine_is_not_a_key():
     with pytest.raises(ProjectError, match="lean_catalog must be true or false"):
         _project({"dispatch": {"lean_catalog": "no"}}).dispatch()
     assert _project({"dispatch": {"lean_catalog": False}}).dispatch() == {"lean_catalog": False}
+    with pytest.raises(ProjectError, match="unknown key"):
+        _project({"dispatch": {"preload_declared": True}}).dispatch()
 
 
 def test_a_projects_own_skills_stay_in_the_lean_catalog(tmp_path, monkeypatch):
@@ -229,28 +234,32 @@ def test_declared_skills_are_read_even_from_frontmatter_that_is_not_strict_yaml(
     assert mod.declared_skills("fullstack-engineer") == ["test-doctrine", "worker-protocol", "evidence-gathering"]
 
 
-def test_preload_declared_appends_the_agents_frontmatter_skills_and_off_appends_nothing(monkeypatch):
-    """Measured (0.10.8): under --agent dispatch the CLI preloads none of an agent's
-    frontmatter skills — a writer and a lens both reported them ABSENT. This lever is the
-    path that was measured to work (0.10.5's -24% came from it)."""
-    from models import dispatch as mod
+def test_an_agents_declared_doctrine_is_its_system_prompt_and_a_missing_skill_refuses_the_dispatch(tmp_path, monkeypatch):
+    """Not a lever. The CLI does not preload frontmatter skills on the --agent path
+    (measured 0.10.8); a switch that could turn them off was measured turning them off —
+    "cheaper" meant "did less" (0.10.17). The declaration is the delivery: every declared
+    skill, in full, in the system prompt, cached from the first request."""
+    from models import resolve as mod
 
     monkeypatch.setattr("models.levers._project_block", lambda: {})
     monkeypatch.delenv("MAD_HARNESS_PRELOAD", raising=False)
-    monkeypatch.delenv("MAD_HARNESS_PRELOAD_DECLARED", raising=False)  # the default is on
-    text = mod.with_context("do x", None, agent="fullstack-engineer")
+    r = mod.resolve("fullstack-engineer")
+    sp = r.sdk_options(cwd=".").system_prompt
+    assert sp["type"] == "preset" and sp["preset"] == "claude_code"
     for name in ("test-doctrine", "worker-protocol", "evidence-gathering"):
-        assert f"## Preloaded skill: {name}" in text
-    assert "## Preloaded skill: campaign-loop" not in text
-    # An arm's explicit preload is not doubled when it is also declared.
-    monkeypatch.setenv("MAD_HARNESS_PRELOAD", "evidence-gathering")
-    assert mod.with_context("do x", None, agent="fullstack-engineer").count("## Preloaded skill: evidence-gathering") == 1
-    monkeypatch.delenv("MAD_HARNESS_PRELOAD")
-    monkeypatch.setenv("MAD_HARNESS_PRELOAD_DECLARED", "0")
-    assert "## Preloaded skill" not in mod.with_context("do x", None, agent="fullstack-engineer")
-    assert "## Preloaded skill" not in mod.with_context("do x", None)
-
-
+        assert f"# Skill: {name}" in sp["append"]
+    assert "# Skill: campaign-loop" not in sp["append"]
+    assert r.redacted()["doctrine_chars"] == len(r.doctrine) > 30_000
+    # The rig's arm adds a skill the same way, once.
+    monkeypatch.setenv("MAD_HARNESS_PRELOAD", "evidence-gathering,spec-lifecycle")
+    sp = mod.resolve("fullstack-engineer").sdk_options(cwd=".").system_prompt
+    assert sp["append"].count("# Skill: evidence-gathering") == 1 and "# Skill: spec-lifecycle" in sp["append"]
+    # A declared skill that does not exist is a config error, not a silent omission.
+    agents = tmp_path / "agents"
+    agents.mkdir()
+    (agents / "ghost.md").write_text("---\nname: ghost\ntools: Read\nskills:\n  - no-such-skill\nmodel_tier: worker\n---\nbody\n")
+    with pytest.raises(mod.ConfigError, match="no-such-skill"):
+        mod.doctrine("ghost", agents)
 def test_a_dispatch_disables_cloud_connectors():
     """Measured: a claude.ai connector attached to every worker (~1.2s) and put ~500
     tokens of its instructions into every first message, for tools the agent's ceiling

@@ -17,7 +17,7 @@ slug: acme                    # lowercase, no hyphens — names per-worker resou
 # stop until /harness-setup has applied the upgrade notes (docs/upgrading.md) and
 # re-stamped. Leave it out and every pre-flight treats the config as unreviewed.
 harness:
-  version: 0.10.17
+  version: 0.10.18
 
 # Toolchains: how to RUN things. See harness/stacks/ for shipped modules, and add
 # your own under .harness/stacks/ to shadow or extend them.
@@ -112,18 +112,12 @@ swarm:
 #                                plus your own .claude/skills/, not the CLI's 17 bundled skills and
 #                                the orchestrator commands. ON by default (measured -3.4k tokens per
 #                                request); false restores the CLI's full catalog.
-#   preload_declared true      — append each agent's frontmatter `skills:` to its prompt. The CLI
-#                                does not preload them for a dispatched agent (measured); this is
-#                                how the doctrine an agent declares reaches it. Costs ~+60% per
-#                                worker run in the lab, of which most is the doctrine being
-#                                FOLLOWED (mutation testing 4x as often); false to measure without.
 # dispatch:
 #   cache_ttl: 5m
 #   static_prefix: true
 #   stagger_seconds: 8
 #   task_budget_tokens: 400000
 #   lean_catalog: true
-#   preload_declared: true
 
 # Per-agent tier overrides — the A/B switch for moving an agent between tiers without
 # patching the plugin. Keys are agents the plugin ships, values are tiers from tiers.yaml.

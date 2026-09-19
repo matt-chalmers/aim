@@ -855,3 +855,30 @@ now on by default, and the rig measures fidelity.
   **and** first-pass rate not worse.
 
 - **mechanical** — re-stamp `harness.version`, when convenient. Nothing to set.
+
+### 0.10.18
+
+**Doctrine is not optional. The skills an agent declares are part of its system prompt on
+every dispatch — not a lever, not a message.** No config change; `dispatch.preload_declared`
+is gone (a config that still sets it fails the check, so nothing is silently ignored).
+
+- **Why it was a switch, and why that was wrong.** The prompt-append existed first as the
+  A/B rig's instrument (0.10.0), built on the belief that the frontmatter loaded skills
+  into the system prompt in production. When 0.10.8 found the CLI does no such thing on
+  the `--agent` path, the instrument was wrapped in a switch under the "off until sized"
+  rule — a rule for optimisations, misapplied to a correctness fact the agents themselves
+  declare. 0.10.16 then read the switch's cost as a verdict and 0.10.17 corrected it; this
+  release removes the switch.
+- **Where the doctrine lives now.** `resolve()` assembles every declared skill, in full,
+  into `Resolved.doctrine`, and `sdk_options` delivers it as the system prompt's `append`
+  (verified live on the `--agent` path). The system prompt is re-sent unchanged on every
+  request, so the cache serves it after the first write; a compaction never touches it;
+  and nothing an agent does can skip it. A declared skill that cannot be found refuses the
+  dispatch, as a missing credential does. `doctrine_chars` is recorded on every dispatch
+  event. `check-skills.sh`'s per-agent bill is now literally the size of that append.
+- **The rig's `preload` arm** still exists — for measuring a *candidate* skill before an
+  agent declares it — and now delivers it the same way, so the arm measures exactly what
+  declaring would do. The judged series (`--lenses`) is the measure that matters.
+
+- **mechanical** — remove `dispatch.preload_declared` from `harness.yaml` if you set it;
+  re-stamp `harness.version`, when convenient.

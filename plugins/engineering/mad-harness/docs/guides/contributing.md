@@ -79,10 +79,10 @@ edit, and fails any agent whose preloads include neither.
 
 **Skills cost tokens on every dispatch that preloads them.** A test asserts that adding a
 module leaves every agent's preload bill unchanged; keep a skill to the rules that are
-wrong often enough to be worth the budget. Note what "preload" means under dispatch:
-the CLI does not deliver an agent's frontmatter `skills:` to a `--agent` session; the
-harness appends them when `dispatch.preload_declared` is on, and otherwise the agent
-loads them on demand. The bill `check-skills.sh` prints is the size of that append.
+wrong often enough to be worth the budget. Under dispatch the harness puts every declared
+skill into the agent's system prompt itself — the CLI does not on the `--agent` path — so
+the bill `check-skills.sh` prints is the size of that append, written to cache once per
+dispatch and read back on every turn.
 
 ---
 
