@@ -13,6 +13,8 @@ rules match the text before the shell expands anything.
 | `tracker/tk.sh note <id> --file <path>` / `update <id> --append-notes-file <path>` | a note from a file — a dispatch's `--digest` output attached to the epic without the orchestrator reading it in and emitting it again |
 | `tracker/tk.sh migrate --to <backend>` | copy every record into another backend, rewriting ids and edges |
 | `tracker/tk.sh lease <acquire\|release\|list\|show\|steal> [epic]` | epic leases, so two machines cannot work one epic |
+| `tracker/tk.sh park <epic> --reason …` / `unpark <epic> [--gate]` | park an epic — the gate AND `status: blocked`, one verb — and its mirror. A gate alone never removed an epic from the queue; this was a two-step rule stated in four places and drifted in one |
+| `tracker/tk.sh ready --label <lane>` | the ready set filtered to one lane's label |
 | `tracker/render-epic.sh <epic>` | the generated, human-readable task view |
 
 `dispatch.sh --dry-run` prints the resolved model, tier, budget, permission mode and grants

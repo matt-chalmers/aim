@@ -161,7 +161,7 @@ step 2.
 
 | mechanism | blocks | cleared by |
 |---|---|---|
-| `decision` record + gate + `status blocked` | the **epic** | `/decision` — all three commands are required; a gate alone does not park an epic |
+| `decision` record + `tk.sh park` (the gate and the status, one verb) | the **epic** | `/decision`, which ends with `tk.sh unpark` |
 | `Permission:` record + dependency edge | **one task** | an operator answering; see [permissions](../concepts/permissions.md) |
 | contention re-check | **one task, this wave** | the next wave |
 | blocking lens finding | **one task**, kept open | remediation passing every lens that ran |

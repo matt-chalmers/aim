@@ -108,8 +108,10 @@ hard to write is a design smell, but the fix is a scalpel, not a rewrite.
 
 1. `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh claim <id>`. If already claimed by someone else, return `SKIPPED`. Always
    name explicit IDs. Close with `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close <id> --reason "…"`.
-2. `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh show <id>`, plus the diff you are hardening (`git show <sha>`) and the acceptance
-   criteria the work was meant to satisfy.
+2. `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh show <id>`, plus the diff you are hardening — the per-file patches under the brief
+   your prompt names (`diff/by-file/<slug>.patch`), or `git show --stat <sha>` and `peek.sh --rev <sha>`
+   for the files you reason about; never `git show <sha>`, which is the ~96k-token path — and
+   the acceptance criteria the work was meant to satisfy.
 3. Hunt, per the list above. Enumerate what you checked — "coverage looks fine" is not a
    pass.
 4. Write the tests. Create the data they need — factory functions at
@@ -136,8 +138,8 @@ effectively unretrievable:
   "*** DECISION-RECORD NUMBER: it is the number the task names, not a neighbouring one" correction).
 
 7. Commit inside the mutex: `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-acquire` → `git status --porcelain` (assert
-   only your paths) → `git add <explicit paths, never -A>` → commit → `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-acquire
-   release`. Never `git stash`/`checkout`/`reset`. Do not push.
+   only your paths) → `git add <explicit paths, never -A>` → commit → `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-release`.
+   Never `git stash`/`checkout`/`reset`. Do not push.
 
 ## Resource ban list — hard
 

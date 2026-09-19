@@ -221,8 +221,8 @@ exists for.
    ```
 
 5. Open questions as proposed `decision` tasks — as TEXT, outside the command blocks. A decision is
-   not a task's blocker but the epic's: the main thread files it and parks the epic on it (`gate
-   create <epic>` + `--status blocked`, the loop's hard line), and a `dep` from a task onto a decision
+   not a task's blocker but the epic's: the main thread files it and parks the epic on it
+   (`tk.sh park <epic>`, the loop's hard line), and a `dep` from a task onto a decision
    reads as an orphan to `validate`, because a decision is never one of the epic's children.
 
 Never emit `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create --graph` JSON: `--dry-run` is silently ignored on that path, so a

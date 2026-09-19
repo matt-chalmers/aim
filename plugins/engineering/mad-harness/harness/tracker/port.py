@@ -27,6 +27,7 @@ constraint, and a check that reads it from config keeps working when the backend
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -265,6 +266,86 @@ class TaskStore(Protocol):
     def label(self, task_id: str, name: str, *, remove: bool = False) -> None:
         """Add or remove one label."""
         ...
+
+
+#: What `park` records on the epic, so `unpark` can find the gate it made without
+#: asking the backend — which, on beads, cannot say. Same pattern as `resume.VERIFIED`.
+PARKED = re.compile(r"\bPARKED\s+(?P<gate>\S+):")
+
+
+def park(store: TaskStore, epic_id: str, reason: str) -> str:
+    """Park an epic: gate it AND take it out of the open queue, as one operation.
+
+    THE TWO-STEP INVARIANT THIS CLOSES. `gate create <epic>` alone does NOT park an epic on
+    beads: it refuses the blocking edge ("epics can only block other epics, not tasks")
+    while still writing the gate issue, so the epic stays `open` and the loop's queue —
+    `list --type epic --status open` — offers it again. The loop's text therefore said
+    "gate create AND update --status blocked — both steps, always" in four places, the
+    pinned block repeated it after every compaction, and `commands/campaign-auto.md` still
+    shipped with only the first step. A rule stated four times and drifted once is a verb
+    the tracker should own; this is that verb.
+
+    Order: the gate first (it carries the reason and the audit trail), then a `PARKED
+    <gate>: <reason>` note on the epic so `unpark` can find the gate — beads cannot
+    record which epic a gate blocks, and `gate_list` is every open gate in the store — and
+    the status write last, since it is the step that changes what the queue offers.
+    Refuses an epic that is already `blocked`: a second park would stack a second gate on
+    it, and un-parking would then resolve one and leave the other holding the epic.
+    """
+    epic = store.show(epic_id)
+    if epic is None:
+        raise TrackerError(f"park: {epic_id} is not a record the tracker knows")
+    if epic.status == BLOCKED:
+        gate = PARKED.search(epic.notes or "")
+        held = f" (gate {gate.group('gate')})" if gate else ""
+        raise TrackerError(
+            f"park: {epic_id} is already blocked{held} — `unpark` it first; a second park "
+            f"would stack a second gate"
+        )
+    gate_id = store.gate_create(epic_id, reason)
+    store.note(epic_id, f"PARKED {gate_id}: {reason}")
+    store.update(epic_id, status=BLOCKED)
+    return gate_id
+
+
+def unpark(store: TaskStore, epic_id: str, gate_id: str | None = None) -> str:
+    """The mirror of `park`: resolve the gate AND reopen the epic, as one operation.
+
+    The gate is the one `park` recorded on the epic (the last `PARKED <gate>:` note), or
+    the one the caller names. On a backend that records the target on the gate (mdfiles)
+    the open gate whose `depends_on` names the epic is a third source. Ambiguity —
+    nothing recorded, nothing named, more than one gate holding it — REFUSES rather than
+    guessing: resolving the wrong gate reopens nothing, and un-parking with a gate still
+    open leaves the epic blocked with no note saying why.
+    """
+    epic = store.show(epic_id)
+    if epic is None:
+        raise TrackerError(f"unpark: {epic_id} is not a record the tracker knows")
+    open_gates = {g.id: g for g in store.gate_list()}
+    if gate_id is None:
+        recorded = PARKED.findall(epic.notes or "")
+        candidates = [g for g in recorded if g in open_gates]
+        if not candidates:
+            candidates = [g.id for g in open_gates.values() if epic_id in g.depends_on]
+        if len(set(candidates)) > 1:
+            raise TrackerError(
+                f"unpark: {epic_id} has more than one open gate ({', '.join(sorted(set(candidates)))}); "
+                f"pass --gate <id> to say which"
+            )
+        gate_id = candidates[-1] if candidates else None
+    if gate_id is None:
+        if epic.status != BLOCKED:
+            raise TrackerError(f"unpark: {epic_id} is {epic.status}, not blocked, and holds no open gate")
+        raise TrackerError(
+            f"unpark: no gate recorded for {epic_id} (no `PARKED <gate>:` note and no open gate "
+            f"names it) — pass --gate <id>"
+        )
+    if gate_id not in open_gates:
+        raise TrackerError(f"unpark: gate {gate_id} is not an open gate")
+    store.gate_resolve(gate_id)
+    store.update(epic_id, status=OPEN)
+    store.note(epic_id, f"UNPARKED {gate_id}")
+    return gate_id
 
 
 @runtime_checkable

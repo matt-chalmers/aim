@@ -26,18 +26,16 @@ genuine product, spec or design question, you do not resolve it and you do not g
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create "<the question>" -t decision -p 1 --description "<options and trade-offs>"
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh gate create <epic-id> --reason "<one line: what decision is owed>"
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <epic-id> --status blocked     # REQUIRED — the gate alone does NOT park an epic
+${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh park <epic-id> --reason "<one line: what decision is owed>"     # the gate AND the status, one verb
 ```
 
-**Both steps, always.** `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh gate create --blocks <epic>` fails to add the blocking dependency
-with *"epics can only block other epics, not tasks"* — beads refuses a gate issue (type=gate)
-blocking an epic. The gate issue IS still created, so `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh gate list` names the epic and §1's
-exclusion set works, but **the epic is not removed from the open queue without the explicit
-`--status blocked`.** Verified 2026-08-21.
-
-**Un-parking needs both too:** `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh gate resolve <gate-id>` **and**
-`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <epic-id> --status open`.
+**`park` is two steps the tracker owns, not one the loop remembers.** `gate create <epic>`
+alone does NOT park an epic on beads — it refuses the blocking edge (*"epics can only block
+other epics, not tasks"*) while still writing the gate issue, so the epic stayed in the open
+queue. This section used to say "gate create AND `--status blocked`, both steps, always";
+`/campaign-auto` shipped with only the first, and `campaign.sh`'s queue would have re-dispatched
+the epic forever. `park` does the gate, a `PARKED <gate>:` note, and the status; `unpark`
+is its mirror (`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh unpark <epic-id>`). The port's docstring holds the rest.
 
 The epic then disappears from the queue until the owner un-parks it. **Move to the next
 epic.** This is the rule that makes an unattended run safe: the harness is
@@ -57,7 +55,7 @@ pinned id the summary dropped. When you see it, trust it over the summary, and r
 this skill's §4 before your next action.
 
 <!-- PINNED -->
-- **Never answer a `decision` task.** Park the epic: `tk.sh gate create` AND `tk.sh update <epic> --status blocked`. Move on.
+- **Never answer a `decision` task.** File it, `tk.sh park <epic> --reason …`, move on. `unpark` is the mirror.
 - **One epic at a time.** §3 → §4 waves → §5 close → §6 report → next. Never fan §3 across the queue.
 - **Every dispatch goes through `dispatch.sh --worker N`** into a worktree; never edit the primary checkout during a wave.
 - **No close without the lens gate** — L1–L3 always, L4 when its trigger fires; unanimity to pass.
@@ -393,7 +391,7 @@ criteria and not two, sending it onward asks the owner about all six.
 3. **`ADEQUATE`** → proceed to fold-in ①. Record `CORPUS-DERIVED — no owner input` on the epic,
    so a spec assembled without a human saying anything is **visible** rather than silently
    indistinguishable from one the owner dictated.
-   **Otherwise** → file the `REQUIREMENT:` task, gate **and** `--status blocked`, and send it to
+   **Otherwise** → file the `REQUIREMENT:` task, `park` the epic, and send it to
    `/requirements` — **with the partial draft**, so the conversation starts at *"here are the four
    we derived, confirm them; these two we cannot answer"* rather than at zero.
 
@@ -571,7 +569,7 @@ from*. It tells you where to look; the doc tells you what is true.
 a new or changed data model or migration; a new rule in a core domain engine; a new adapter
 behind an existing extension point; a new boundary between bounded contexts or a new shared
 service; a new API resource or a changed response shape; or more than ~5 tasks expected. Otherwise state which test failed and
-skip to 3b.
+skip to 3c.
 
 **READY — sanity-check.** Dispatch `architect` with the epic, its existing tasks, and any
 `ARCHITECTURE:` note, and ask it to answer three questions:
@@ -618,11 +616,10 @@ the rest of the epic — so an absent specification silently becomes an invented
 signal to the owner that scope was invented rather than specified.
 
 The architect files a **requirement record** (`REQUIREMENT:` prefixed, type `decision`, so it
-inherits this section's gate machinery). You park exactly as for a decision — **both steps**:
+inherits this section's gate machinery). You park exactly as for a decision:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh gate create <epic-id> --reason "REQUIREMENT owed: <one line>"
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <epic-id> --status blocked
+${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh park <epic-id> --reason "REQUIREMENT owed: <one line>"
 ```
 
 **Un-parking a requirement gap is `/requirements`**, not `/decision`. A decision is one
@@ -701,7 +698,7 @@ Output a **revision plan**: for each task, one of `keep` / `merge into <id>` / `
 Say `keep` explicitly for tasks that pass — a revision plan that only lists changes hides how
 much was reviewed.
 
-**Rules on destructive edits** (the planner proposes; the main thread executes — see 3c):
+**Rules on destructive edits** (the planner proposes; `apply-plan.sh` executes — see 3e):
 
 - **Never touch a task that is `in_progress` or `closed`.** Someone may be working it right
   now. Re-scoping around it is fine; editing it is not.
@@ -746,7 +743,7 @@ boundary written.
 |---|---|
 | PASS | proceed to the gate below |
 | FAIL, first time | **dispatch `planner` afresh with the audit's output file path in its prompt** and re-audit. This is a revision, not a re-plan — but it is a NEW dispatch, never a resumed one: measured, resuming a lens rebuilt its whole prior conversation at the cache-write rate ($1.95 for two round-trips against $0.16), because a resumed prompt does not match the cached prefix. A fresh planner pays one clean prefix and reads the findings from the file. |
-| FAIL, second time | **the epic is underspecified at the epic level.** File a `REQUIREMENT:` task and park — gate **and** `--status blocked`. |
+| FAIL, second time | **the epic is underspecified at the epic level.** File a `REQUIREMENT:` task and `park` the epic. |
 
 **That second failure is the loop closing.** A plan that cannot be made dispatchable in two
 passes is not a planning problem — it is an absent specification wearing a DAG. It goes to
@@ -815,9 +812,9 @@ time it fires the time is spent. The only fix is to **not ask while anything is 
 | Order | Condition | Action |
 |---|---|---|
 | 1 | This epic has ready tasks | **Dispatch them.** No prompt. |
-| 2 | This epic is dry, but **any other epic** has work | **Move to that epic.** Still no prompt. |
+| 2 | This epic is dry, but **any other epic** has work | **End at the epic boundary** (below): `/clear`, then `/campaign` picks it up. An invocation is one epic. |
 | 3 | Nothing dispatchable **anywhere in the queue** | **Now** ask — *one* batched question covering every queued approval. |
-| 4 | Step 3 unanswered after **30 minutes** | Park the queued epics (gate + `--status blocked`) and end the run cleanly. |
+| 4 | Step 3 unanswered after **30 minutes** | `park` the queued epics and end the run cleanly. |
 
 **The trigger is the whole queue running dry, not this epic running dry.** Asking one epic
 early suspends the orchestrator while other epics still have ready tasks — the same stall,
@@ -915,7 +912,7 @@ Repeat, up to **`MAX_WAVES = 6`** per epic:
    | The same task FAILs the lenses twice | gate that task (not the epic), continue |
    | **A task enters a THIRD lens round** | **SPLIT it, do not remediate again** — see below |
    | A `decision` task appears | gate that task — the hard line — then **re-check** |
-   | `MAX_WAVES` reached | **park the epic** (gate + `--status blocked`), "needs another campaign run" |
+   | `MAX_WAVES` reached | **`park` the epic**, reason "needs another campaign run" |
    | Zero tasks closed in a wave | gate what blocked, then **re-check**; park only if it comes back empty |
    | **Three epics parked consecutively** | **stop the whole run** — something systemic is wrong |
 

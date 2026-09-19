@@ -103,8 +103,9 @@ Use the tracker to bring the tracker in line with reality.
 - **File new tasks** for every follow-up the work surfaced — TODOs, known gaps,
   tech debt, deferred edge cases, flaky tests — with enough context and the right
   dependencies so they're actionable later. Don't let discovered work evaporate.
-- Ensure tasks changes are part of the commit so the git-synced backlog travels
-  with the code.
+- Run `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh export` after the closes — the tracked export is stale until you do,
+  and `git status` can look clean because the on-disk file matches HEAD — then ensure it is
+  part of the commit so the git-synced backlog travels with the code.
 
 ## Phase 4 — Cleanup & hygiene
 

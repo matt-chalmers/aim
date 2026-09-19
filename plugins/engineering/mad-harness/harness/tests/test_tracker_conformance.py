@@ -26,7 +26,19 @@ import subprocess
 import pytest
 
 from tracker.beads import BeadsTaskStore
-from tracker.port import CLOSED, DECISION, EPIC, TASK, Task
+from tracker.port import (
+    BLOCKED,
+    CLOSED,
+    DECISION,
+    EPIC,
+    OPEN,
+    PARKED,
+    TASK,
+    Task,
+    TrackerError,
+    park,
+    unpark,
+)
 
 pytestmark = pytest.mark.conformance
 
@@ -222,6 +234,64 @@ def test_resolving_a_gate_removes_it_from_the_open_list(store):
     gid = store.gate_create(target, "temporary")
     store.gate_resolve(gid)
     assert gid not in {g.id for g in store.gate_list()}
+
+
+# --- park / unpark: the two-step invariant as one verb -----------------------
+
+
+def test_park_removes_the_epic_from_the_open_queue_and_records_its_gate(store):
+    """`gate create` alone does NOT park an epic on beads (the edge is refused, the
+    issue is written), so the loop's queue — `list --type epic --status open` — offered
+    it again. `park` is the gate AND the status, and it leaves a note naming the gate."""
+    epic = store.create("an epic to park", type=EPIC)
+    child = store.create("its child", parent=epic)
+    gid = park(store, epic, "an owner decision is owed")
+    assert gid in {g.id for g in store.gate_list()}
+    got = store.show(epic)
+    assert got is not None and got.status == BLOCKED
+    assert f"PARKED {gid}:" in got.notes and "an owner decision is owed" in got.notes
+    assert epic not in {t.id for t in store.list(type=EPIC, status=OPEN)}
+    # The children stay as they were; parking is about the QUEUE, not the records.
+    assert store.show(child).status == OPEN
+
+
+def test_unpark_resolves_the_recorded_gate_and_reopens_the_epic(store):
+    epic = store.create("parked then released", type=EPIC)
+    gid = park(store, epic, "temporary")
+    assert unpark(store, epic) == gid
+    got = store.show(epic)
+    assert got is not None and got.status == OPEN
+    assert gid not in {g.id for g in store.gate_list()}
+    assert f"UNPARKED {gid}" in got.notes
+    assert epic in {t.id for t in store.list(type=EPIC, status=OPEN)}
+
+
+def test_unpark_with_no_recorded_gate_refuses_rather_than_guessing(store):
+    """An epic blocked by hand — `update --status blocked` with no gate — has nothing to
+    resolve. Guessing at one of the store's open gates would resolve somebody else's."""
+    epic = store.create("blocked by hand", type=EPIC)
+    store.update(epic, status=BLOCKED)
+    with pytest.raises(TrackerError, match="no gate recorded"):
+        unpark(store, epic)
+    assert store.show(epic).status == BLOCKED, "a refused unpark changes nothing"
+
+
+def test_park_twice_is_refused_not_stacked(store):
+    """A second park would stack a second gate; un-parking would then resolve one and
+    leave the other holding the epic, blocked, with a stale note."""
+    epic = store.create("parked once", type=EPIC)
+    gid = park(store, epic, "first")
+    with pytest.raises(TrackerError, match="already blocked"):
+        park(store, epic, "second")
+    assert [g.id for g in store.gate_list() if g.id == gid] == [gid]
+    assert len(PARKED.findall(store.show(epic).notes)) == 1
+
+
+def test_unpark_names_the_gate_when_asked_to(store):
+    epic = store.create("explicit gate", type=EPIC)
+    gid = park(store, epic, "reason")
+    assert unpark(store, epic, gate_id=gid) == gid
+    assert store.show(epic).status == OPEN
 
 
 # --- supersede ----------------------------------------------------------------

@@ -52,9 +52,10 @@ harness/wavelab/compare.sh        # diff what the two runs produced
 real wave, that both backends produce the same observable outcome from the same work, and
 that the tracked export and the epic view are correct afterwards.
 
-**Does not:** `/swarm`'s full doctrine — the contention matrix, the lens gate's unanimity
-rule, the circuit breakers. Those are the orchestrator's judgement, and an agent reading
-`/swarm` is what exercises them. This tests the tracker under real agents, which is the
+**Does not:** `/swarm`'s full doctrine — the shared-vocabulary and new-file checks, the
+routing of a FAIL, the circuit breakers' actions. Those are the orchestrator's judgement, and
+an agent reading `/swarm` is what exercises them. (The unanimity rule — any FAIL blocks — is
+a boolean, not a judgement; it was called judgement here until the 0.10.19 audit.) This tests the tracker under real agents, which is the
 part no other test reaches.
 
 ## The base

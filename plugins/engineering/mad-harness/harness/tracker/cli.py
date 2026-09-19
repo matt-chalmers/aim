@@ -197,6 +197,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("ready", help="dispatchable now")
     p.add_argument("--parent")
     p.add_argument("--limit", type=int)
+    # A lane is a label. `/swarm` composed a wave with `ready --label <lane>` for months
+    # while no such flag existed — inline-backticked, so the invocation-parses test never
+    # saw it — and the orchestrator improvised on the error. The filter is applied AFTER
+    # the port's `ready()`, which stays label-agnostic; `--limit` bounds the filtered set.
+    p.add_argument("--label", help="only tasks carrying this label (a lane)")
 
     p = add("validate", help="wave levelling, cycles and orphans for an epic")
     p.add_argument("epic")
@@ -256,6 +261,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("action", choices=["create", "list", "resolve"])
     p.add_argument("target", nargs="?", help="the id to block, or the gate to resolve")
     p.add_argument("--reason", default="")
+
+    # ONE VERB FOR THE TWO-STEP INVARIANT. `gate create <epic>` alone does not park an
+    # epic on beads (the edge is refused, the issue is written); the loop's text said
+    # "gate create AND update --status blocked, both steps, always" in four places and
+    # still drifted. `park` is the two steps; `unpark` is their mirror.
+    p = add("park", help="gate an epic AND take it out of the open queue — the one verb for the two steps")
+    p.add_argument("epic")
+    p.add_argument("--reason", required=True, help="what decision is owed, or why it is paused")
+
+    p = add("unpark", help="resolve the epic's gate AND reopen it — the mirror of park")
+    p.add_argument("epic")
+    p.add_argument("--gate", default=None, help="the gate to resolve, when more than one holds the epic")
 
     p = add(
         "autosync",
@@ -324,7 +341,7 @@ def build_parser() -> argparse.ArgumentParser:
 #: Verbs that mutate. `--readonly` refuses these; everything else is a read.
 WRITE_VERBS = frozenset({
     "create", "close", "note", "dep", "update", "supersede", "delete", "label",
-    "gate", "export", "autosync", "remember", "claim", "release",
+    "gate", "park", "unpark", "export", "autosync", "remember", "claim", "release",
     "slot-acquire", "slot-release", "event",
     # It writes to the TARGET store. The source is never modified, but a verb that
     # creates records anywhere is a write, and --readonly must refuse it.
@@ -532,7 +549,12 @@ def main(argv: list[str] | None = None) -> int:
                 getattr(args, 'json', False),
             )
         elif v == "ready":
-            _rows(store.ready(parent=args.parent, limit=args.limit), getattr(args, 'json', False))
+            rows = store.ready(parent=args.parent, limit=None if args.label else args.limit)
+            if args.label:
+                rows = [t for t in rows if args.label in t.labels]
+                if args.limit:
+                    rows = rows[: args.limit]
+            _rows(rows, getattr(args, 'json', False))
         elif v == "validate":
             val = store.validate(args.epic)
             _emit(asdict(val), True)
@@ -582,6 +604,16 @@ def main(argv: list[str] | None = None) -> int:
                 _rows(store.gate_list(), getattr(args, 'json', False))
             else:
                 store.gate_resolve(args.target)
+        elif v == "park":
+            from tracker.port import park
+
+            gid = park(store, args.epic, args.reason)
+            print(f"parked {args.epic} — gate {gid}, status blocked")
+        elif v == "unpark":
+            from tracker.port import unpark
+
+            gid = unpark(store, args.epic, args.gate)
+            print(f"unparked {args.epic} — gate {gid} resolved, status open")
         elif v == "autosync":
             store.autosync(args.state == "on")
         elif v == "prime":

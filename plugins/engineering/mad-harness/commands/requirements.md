@@ -315,15 +315,14 @@ are not.
 
 6. **Close the task**, citing the doc: `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close <id> --reason "Specified in <feature doc>;
    N acceptance criteria."`
-7. **Un-park the epic — both steps, or nothing moves:**
+7. **Un-park the epic:**
 
    ```bash
-   ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh gate resolve <gate-id>
-   ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <epic-id> --status open
+   ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh unpark <epic-id>        # the gate AND the status; a gate resolved by hand does not reopen the epic
+   ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh export                  # the tracked export is stale after the close above; a commit without it publishes a backlog that disagrees with the doc
    ```
 
-   The gate alone does **not** return a parked epic to the queue.
-8. **Commit** the doc, the index entry and any decision record together, and **push**.
+8. **Commit** the doc, the index entry, the tracked export and any decision record together, and **push**.
 
 ---
 

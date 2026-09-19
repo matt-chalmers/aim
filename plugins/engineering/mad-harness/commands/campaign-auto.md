@@ -38,7 +38,7 @@ A genuine product, spec or design question gets filed and the epic gets parked:
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create "<the question>" -t decision -p 1 --description "<options and trade-offs>"
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh gate create <epic-id> --reason "<what decision is owed>"
+${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh park <epic-id> --reason "<what decision is owed>"     # the gate AND the status; a gate alone does not park
 ```
 
 Then move to the next epic. Spec and design calls belong to the owner, and

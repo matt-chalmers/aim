@@ -51,12 +51,13 @@ phenomenon.
 
 ```bash
 tk.sh create "<the question>" -t decision -p 1 --description "<options and trade-offs>"
-tk.sh gate create <epic-id> --reason "<what decision is owed>"
-tk.sh update <epic-id> --status blocked    # the gate alone does NOT park the epic
+tk.sh park <epic-id> --reason "<what decision is owed>"
 ```
 
-All three commands are required. A gate without the status change leaves the epic
-selectable, and the loop picks it up again on the next pass.
+`park` is the gate and the status change as one verb. A gate on its own leaves the epic
+selectable — beads refuses the blocking edge while writing the gate — and the loop picks it
+up again on the next pass; that was a two-step rule stated in four places until 0.10.19
+made it a verb. `unpark` is the mirror.
 
 ## Wave execution
 

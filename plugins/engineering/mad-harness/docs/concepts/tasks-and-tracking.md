@@ -14,7 +14,7 @@ would require someone — or some model — to decide ordering on every wave.
 | `epic` | a unit with a staging folder and a fold-in | the campaign, at close-out |
 | `task` | one dispatchable piece with acceptance criteria | the worker that implements it |
 | `decision` | a question only the owner can answer; gates work behind it | `/decision` |
-| `gate` | an explicit block on an epic, with a reason | `gate_resolve` |
+| `gate` | an explicit block on an epic, with a reason — made by `tk.sh park`, which also sets the epic `blocked` (the gate alone does not remove it from the queue) | `tk.sh unpark` |
 
 A `Permission:` record is a `decision` with a title prefix rather than its own type. One
 backend validates its type vocabulary and rejects unknown values, so a new type would work

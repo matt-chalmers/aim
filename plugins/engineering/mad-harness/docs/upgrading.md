@@ -882,3 +882,39 @@ is gone (a config that still sets it fails the check, so nothing is silently ign
 
 - **mechanical** — remove `dispatch.preload_declared` from `harness.yaml` if you set it;
   re-stamp `harness.version`, when convenient.
+
+### 0.10.19
+
+**Deterministic steps out of the prose, part 1: `tk.sh park` / `tk.sh unpark`, and the
+drift an audit found.** No config change.
+
+- **What was wrong.** Parking an epic was two commands — `gate create <epic>` and
+  `update <epic> --status blocked` — because beads refuses the blocking edge on an epic while
+  still writing the gate issue, so the gate alone never removed the epic from
+  `list --type epic --status open`. The loop's text said "both steps, always" in four places
+  and the pinned block repeated it after every compaction; `commands/campaign-auto.md` still
+  shipped with only the first step, and `campaign.sh`'s queue filters on `status=open`, so a
+  headless park would have re-dispatched the epic. A rule stated four times and drifted once
+  is a verb the tracker should own. `park` is the gate, a `PARKED <gate>:` note on the epic
+  (beads cannot record which epic a gate blocks, so the note is how `unpark` finds it), then
+  the status; `unpark` is the mirror and refuses when it cannot tell which gate holds the
+  epic. Conformance-tested on both backends' real binaries.
+- **The rest of the audit, one line each.** `/swarm` composed a wave with
+  `tk.sh ready --label <lane>` while no such flag existed (inline-backticked, so the
+  invocation-parses test never saw it) — it exists now. `/swarm` step 9 and `/grind` §10 said
+  `git pull --rebase`, which `close_epic.py` had already recorded refuses to start on a beads
+  repo after `autosync off` — `--autostash`. `quality-engineer` released the merge slot with
+  `slot-acquire release`, not a verb, so the slot stayed held for an hour; and read its diff
+  with `git show <sha>`, the ~96k-token path its own preloaded skill bans. `/landit` and
+  `/requirements` closed tasks and committed without `tk.sh export`. Three stale
+  cross-references in `campaign-loop` (3b→3c, 3c→3e, "move to that epic" against
+  one-epic-per-session). The wavelab README called the unanimity rule a judgement.
+- **Why an audit, and what follows.** The harness's rule is that a machine-checkable step
+  is code with a test and a judgement is a prompt with a lens. 0.10.10–0.10.18 applied it to
+  §0, §3e/f, §5 and the outer loop; a sweep of every command, agent and skill found the
+  rest — the wave loop, the lens gate, `/halt`, the §3 pipeline, and a per-agent layer of
+  copy-pasted procedures. Every drift above was found by that sweep and each is what `make
+  check` would have caught as code. The releases that follow move those sequences into
+  `harness/`, one cluster at a time, each measured.
+
+- **mechanical** — re-stamp `harness.version`, when convenient.

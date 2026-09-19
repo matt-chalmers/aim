@@ -55,7 +55,7 @@ Repeat until **Stop conditions** (§8) are met:
 7. **Update all affected documentation** (§7).
 8. **Verify** — independent three-lens agent review (§9). This gate is mandatory before closing.
 9. **Commit** the task as one clean commit (§10).
-10. **Close, sync and push** (§10): `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close <id> --reason "…"`, `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh export`, commit that, then `git pull --rebase && git push`. Record durable insights with `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh remember "<insight>"`.
+10. **Close, sync and push** (§10): `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close <id> --reason "…"`, `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh export`, commit that, then `git pull --rebase --autostash` and `git push`. Record durable insights with `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh remember "<insight>"`.
 11. Go to step 1.
 
 Do the work **one task at a time, start to finish.** Do not batch multiple tasks into one commit or defer testing/docs "until later" — later never comes, and that is exactly the failure this command exists to prevent.
@@ -234,7 +234,7 @@ After the verification gate passes:
   ${CLAUDE_PLUGIN_ROOT}/harness/tracker/render-epic.sh <its epic> --write <paths.proposed>/<epic>-<slug>/tasks.md
   git add <the tracked export>
   git commit -m "chore(tasks): close <id>"
-  git pull --rebase
+  git pull --rebase --autostash    # --autostash: on beads, config.yaml is unstaged after `autosync off`, and a plain rebase refuses to start over it
   git push
   git status -sb                           # must show up to date with origin
   ```

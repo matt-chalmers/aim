@@ -181,18 +181,15 @@ ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close <gate-id> --reason "Answered b
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <decision-id> --status closed
 ```
 
-**If an epic was parked behind it**, un-parking needs **both** of:
+**If an epic was parked behind it**, un-park it — the gate and the status, as one verb:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh gate resolve <gate-id>        # or ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close, per the gate's type
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <epic-id> --status open
+${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh unpark <epic-id>        # resolves the gate `park` recorded on the epic and reopens it
 ```
 
-**The gate alone does not un-park an epic.** A gated epic still appears in
-`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh list --type epic --status open`, so the campaign loop's exclusion set works but the epic
-never returns to the queue without the explicit status change. (Symmetrically, `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh gate create
---blocks <epic>` errors with *"epics can only block other epics"* while still creating the
-gate — so parking also needs both steps.)
+A gate resolved by hand does not un-park an epic (the status stays `blocked`), and a
+status flipped by hand leaves the gate open; `unpark` refuses when it cannot tell which
+gate holds the epic (`--gate <id>` says which).
 
 Then confirm what actually moved:
 

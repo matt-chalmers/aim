@@ -585,7 +585,7 @@ ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh export
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/render-epic.sh <epic> --write <paths.proposed>/<epic>-<slug>/tasks.md
 git add <the tracked export>  && git commit -m "chore(tracker): close <ids>"
 git status --porcelain <the tracked export>   # must be clean once committed
-git pull --rebase
+git pull --rebase --autostash    # --autostash: on beads, config.yaml is unstaged after `autosync off`, and a plain rebase refuses to start over it
 git push
 git status -sb                                   # must show up to date with origin
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh autosync on                   # restore what pre-flight disabled

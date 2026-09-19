@@ -17,7 +17,7 @@ Load the `campaign-loop` skill now (one `Skill` call) and follow it with `MODE=a
 the epic named in your prompt: §0 is already done by the script that started you; do §1
 and §2 for **this epic only**, then §3 through §6, then stop. Everything `/campaign-auto`
 says holds: you approve your own designs and DAGs; you **never answer a `decision` task**
-(file it, `gate create`, `--status blocked`, stop); you never push a worker's branch —
+(file it, `tk.sh park <epic>`, stop); you never push a worker's branch —
 you merge it into the primary checkout after the lens gate and push once at the wave's end.
 
 ## Headless rules — these are not in the loop, because the loop is written for a terminal

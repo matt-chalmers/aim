@@ -72,15 +72,10 @@ Use when you want the same tasks resumed later, by you, in the state they are in
 `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh ready`, so nothing will re-dispatch it. You mostly need to stop *new* work starting:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh gate create <epic-id> --reason "paused <date>"
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <epic-id> --status blocked      # REQUIRED — the gate alone does NOT park an epic
+${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh park <epic-id> --reason "paused <date>"      # the gate AND the status — a gate alone does not park an epic
 ```
 
-**Both steps.** `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh gate create --blocks <epic>` cannot add the dependency — beads rejects it
-with *"epics can only block other epics, not tasks"*. The gate issue is still created (so it
-shows in `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh gate list` and carries the audit trail), but only `--status blocked` actually
-removes the epic from the queue. Leave the claims, leave the working
-tree, leave the branches.
+Leave the claims, leave the working tree, leave the branches.
 
 **Then park the working tree honestly** — either commit the partial work on its worker
 branch, or leave it uncommitted in the worktree and say so in the report. Both are resume
@@ -90,7 +85,7 @@ points; a broken tree is not. If the partial edit does not compile, note that pr
 `${CLAUDE_PLUGIN_ROOT}/harness/swarm/resume-point.sh <id>` and put its line in the report: the branch, the commit count,
 whether uncommitted work exists, whether a verdict was recorded. That is the handover.
 
-**To resume:** `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh gate resolve <gate-id>` **and** `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <epic-id> --status open` — both, for the same reason — then re-run `/swarm` or `/campaign`. **The
+**To resume:** `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh unpark <epic-id>` — the gate and the status, as one verb — then re-run `/swarm` or `/campaign`. **The
 resumed run adopts the work rather than redoing it:** `/swarm` step 5 asks `resume-point.sh`
 for every task before dispatching, merges what was already verified, verifies what was only
 committed, and re-attaches a worker (`dispatch.sh … --resume <branch>`) to a worktree holding
@@ -154,5 +149,5 @@ quietly drifts from your code.
 
 State exactly: which tasks landed, which are paused (and gated), which were released, what
 uncommitted work remains and whose it was, merge-slot state, whether `export.auto` is
-restored, and **the one command that resumes** — `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh gate resolve <id>` or the `/campaign`
+restored, and **the one command that resumes** — `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh unpark <epic>` or the `/campaign`
 invocation. Someone returning tomorrow should not have to reconstruct any of it.

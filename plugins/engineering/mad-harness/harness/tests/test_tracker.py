@@ -463,6 +463,7 @@ def test_readonly_permits_a_read_verb():
     from tracker.cli import WRITE_VERBS
 
     assert "close" in WRITE_VERBS and "list" not in WRITE_VERBS
+    assert "park" in WRITE_VERBS and "unpark" in WRITE_VERBS
     assert "ready" not in WRITE_VERBS and "show" not in WRITE_VERBS
 
 
