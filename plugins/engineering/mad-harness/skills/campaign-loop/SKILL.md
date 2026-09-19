@@ -6,7 +6,8 @@ description: The shared epic-iteration procedure behind /campaign and /campaign-
 # Campaign loop
 
 Iterate the open epic queue: **triage → design → plan → swarm waves → verify → document →
-push → next epic**, until the queue is empty.
+push → next epic**, until the queue is empty — one epic per session in `MODE=interactive`,
+for the reason §6 gives.
 
 You are the orchestrator for the whole run. You own every singleton resource — the ports your
 stacks bind, the shared development database, the reseed and end-to-end targets, any code
@@ -1115,3 +1116,31 @@ explicitly in the report rather than letting the low task count read as a pipeli
 completed, epics gated **and the decision owed for each — counting DECISIONS and MISSING
 REQUIREMENTS separately**, total tasks closed, health signals
 across the run, and a fresh `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh list --type epic --status open`.
+
+## The epic boundary is where the session ends — `MODE=interactive`
+
+**Every request you make re-reads everything before it.** An epic leaves ~300k tokens in
+your context; the next epic's ~110 requests carry that for ~33M tokens — about what the
+whole orchestrator cost on the measured one-epic campaign — and buy nothing with it, because
+the next epic is loaded fresh from the tracker anyway. The CLI compacts only near the
+window's end (a measured session reached 920k without it), and nothing you can call clears
+or compacts a session. So in `MODE=interactive` an invocation is **one epic**:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/pinned.sh --always     # must show: no claims, slot free, no worktrees
+```
+
+When it does, end with exactly this and stop: *"Epic `<id>` closed and pushed; nothing in
+flight. `/clear`, then `/campaign` to continue."* Everything the next epic needs is on disk —
+the tracker, the export, the pinned state — which is why it is `/clear` and not `/compact`:
+at this boundary a summary is the only thing that can be wrong, and there is nothing worth
+summarising that the tracker does not already hold. Mid-epic the opposite holds — a
+compaction there loses in-flight ids (measured: 2 of 9 kept), and the pinned-state hook
+exists to recover from it, never as the plan. The cost of starting fresh is one ~60k-token
+prefix and re-reading this skill: under a dollar against ~$17 an epic of carried context.
+
+`MODE=auto` cannot end its own session, so it continues — and pays the carrying cost. The
+fix there is structural, an outer script that starts one fresh headless session per epic,
+and it is being built in the lab because it has untested parts: the orchestrator becomes a
+dispatched agent, sandboxed, dispatching sandboxed workers from inside its sandbox, and
+pushing from a boundary the worker sandbox deliberately keeps off the network.

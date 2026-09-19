@@ -683,3 +683,30 @@ change; restart once so the hook picks up its wider trigger.
   restates the rules trims to a pointer; the one sentence worth keeping there is the
   standing authorisation to delegate reads to a built-in agent, since some sessions carry a
   rule that only a user, `CLAUDE.md` or a skill may grant it.
+
+### 0.10.13
+
+**An interactive campaign is one epic per session.** From a field analysis of what the
+orchestrator carries between epics, checked against the loop and the transcripts. No
+config change.
+
+- **`/campaign` ends its invocation at the epic boundary.** Nothing in the loop compacted
+  or cleared between epics, nothing the model can call does so, and the CLI's own
+  compaction fires only near the window's end — a measured session reached 920k without
+  it. An epic leaves ~300k tokens in context; the next epic's ~110 requests would carry
+  that for ~33M tokens, about the whole orchestrator cost of the measured campaign, and
+  the next epic is loaded from the tracker anyway. §6 now runs `pinned.sh --always` to
+  confirm nothing is in flight, then ends with the instruction: `/clear`, then `/campaign`.
+  `/clear` and never `/compact`: at the boundary disk equals truth, and a summary is the
+  only thing that can be wrong. Mid-epic compaction stays what 0.10.7 made it — the
+  fallback the pinned-state hook recovers from, never the plan.
+- **`/campaign-auto` is unchanged**, and pays the carrying cost, because it cannot end its
+  own session. The structural fix — an outer script starting one fresh headless session
+  per epic, the lab's own `dispatch-wave.sh` shape one level up — is recorded as the next
+  lab project rather than shipped: it makes the orchestrator a dispatched agent that
+  dispatches sandboxed workers from inside its own sandbox and pushes from a boundary the
+  worker sandbox keeps off the network, none of which has been run. Building it would also
+  give the lab an orchestrator to measure, which every orchestrator lever so far has lacked.
+
+- **mechanical** — re-stamp `harness.version`, when convenient. An interactive campaign
+  now needs `/clear` + `/campaign` between epics; the loop says when.

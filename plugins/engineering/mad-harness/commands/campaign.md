@@ -1,5 +1,5 @@
 ---
-description: Iterate the open epic queue — design, plan, swarm, verify, document and push each epic, asking you to approve every design and DAG
+description: Work the open epic queue one epic per invocation — design, plan, swarm, verify, document and push it, asking you to approve every design and DAG; then /clear and invoke again
 argument-hint: "[optional: an epic id, or a lane to bias toward]"
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/harness/*), Task, Bash(git:*), Bash(make:*), Read, Glob, Grep, AskUserQuestion
 ---
@@ -23,6 +23,11 @@ is not already in your context — it is the whole procedure, and it is shared w
 `/campaign-auto` so the two cannot drift.
 
 `MODE=interactive` means:
+
+- **One epic per invocation.** When it closes and nothing is in flight, the loop tells you
+  to `/clear` and invoke `/campaign` again. Every request re-reads the whole context, and an
+  epic leaves ~300k tokens behind that the next one would carry for nothing — about the
+  whole orchestrator cost of a measured campaign, per epic.
 
 - **The two analyst gates come to you as evidence, not as approvals to click through.**
 

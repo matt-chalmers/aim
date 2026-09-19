@@ -92,6 +92,15 @@ trigger would have fired zero times on it:
    every token. Back at a large session, weigh what its context is worth against that, or
    start fresh; a campaign gets a fresh session of its own.
 
+A fifth is about the session itself: **an interactive campaign is one epic per session.** An
+epic leaves ~300k tokens in the orchestrator's context; the next epic's ~110 requests would
+carry that for ~33M tokens — about the whole orchestrator cost of the measured campaign —
+and the next epic is loaded from the tracker anyway. The epic boundary is the one moment
+where disk equals truth (everything pushed, no claims, no worktrees, no slot), so the loop
+ends the invocation there with `/clear`, never `/compact`: a summary is the only thing that
+can be wrong. `/campaign-auto` cannot end its own session; one fresh headless session per
+epic is the structural fix, and it is a lab project because it has untested parts.
+
 And two more that are mechanisms rather than rules: every plugin agent goes through
 `dispatch.sh` (a `PreToolUse` hook refuses the Agent tool for them — 67.2M tokens went
 through it uncapped and unrecorded in five field sessions), and a revision after a failed

@@ -10,7 +10,7 @@ loader installs; they are the whole user-facing surface.
 | command | does |
 |---|---|
 | `/campaign-auto` | Iterate the open epic queue unattended — design, plan, swarm, verify, document and push each epic, self-approv |
-| `/campaign` | Iterate the open epic queue — design, plan, swarm, verify, document and push each epic, asking you to approve  |
+| `/campaign` | Work the open epic queue one epic per invocation — design, plan, swarm, verify, document and push it, asking y |
 | `/decision` | Find the outstanding owner decision that unblocks the most work, verify its premise still holds, and resolve i |
 | `/design` | Design the technical approach for a change before any tasks are cut or code is written |
 | `/grind` | Autonomously work through unblocked tasks with rigorous testing, fidelity checks, live docs, and a commit + pu |
