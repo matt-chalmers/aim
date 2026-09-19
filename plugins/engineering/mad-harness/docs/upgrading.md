@@ -789,3 +789,27 @@ modules, already set on the shipped ones.
 - **mechanical** — re-stamp `harness.version`, when convenient. Restart once so the new
   hook registers. If you run unattended campaigns, `swarm/campaign.sh` is the form; if a
   stack module of your own fetches from a registry, declare it under `network:`.
+
+### 0.10.15
+
+**The consumer's verification is four checks and the worktree probe; the suite is the
+author's.** From the field: `harness-setup` §7 listed `make harness-test` beside the four
+consumer checks, a target that exists only in the plugin's own Makefile — and a consumer
+who ran the suite from the installed cache got fifteen failures. All one cause: the
+suite's corpus sweeps enumerate shipped files with `git ls-files` (exactly what ships,
+never scratch, refusing to pass on zero files) and its revision readers exercise `peek.sh`
+and `brief.py` against HEAD, and a plugin cache is not a git repository. None of those
+fifteen said anything about the consumer's configuration. No config change.
+
+- §7 drops `make harness-test` and states the split: `make project`, `make skills`,
+  `make models`, `make commands` and the worktree probe are a consumer's verification — the
+  whole of it; the suite asserts the harness's internal invariants and belongs to the
+  plugin's repository.
+- The suite refuses to run outside a git checkout, with one line saying why and what a
+  consumer runs instead, rather than fifteen confusing failures. The field's alternative —
+  skipping the git-dependent tests and giving the sweeps an `os.walk` fallback — was
+  declined: the sweeps would lose their "only tracked files" guarantee, to serve a run
+  nobody should be making.
+
+- **mechanical** — re-stamp `harness.version`, when convenient. If your setup notes say to
+  run the harness's suite, stop.

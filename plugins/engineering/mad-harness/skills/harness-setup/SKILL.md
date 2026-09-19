@@ -260,8 +260,15 @@ make project        # config valid, stacks present, hard-coded sites agree
 make skills         # declarations resolve, preload bills within budget
 make models         # every agent's tier resolves
 make commands       # each stack's declared commands actually work
-make harness-test   # the harness's own suite
 ```
+
+**These four, plus the worktree probe below, are the consumer's verification — the whole
+of it.** The harness's own test suite (`make harness-test` in the plugin's repository) is
+the plugin author's: it asserts the harness's internal invariants over the files it
+tracks, with `git ls-files` and `git show HEAD`, and an installed plugin cache is not a git
+repository. Run from there it fails fifteen tests that say nothing about your
+configuration; a consumer has no business validating the harness's internals, and the
+suite refuses to run outside a checkout rather than fail confusingly.
 
 `make project` must end `OK` or `WARN`. `UPGRADE` means the stamp is missing or behind: §0
 was skipped, or the version was typed rather than read.
