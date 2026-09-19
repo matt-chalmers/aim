@@ -813,3 +813,19 @@ fifteen said anything about the consumer's configuration. No config change.
 
 - **mechanical** — re-stamp `harness.version`, when convenient. If your setup notes say to
   run the harness's suite, stop.
+
+### 0.10.16
+
+**`preload_declared` measured: worse. It stays off, and the reasoning in 0.10.8 is
+corrected.** 5 runs per arm, 2 workers, the full epic: cost per run $2.35 → $3.78 (+61%,
+spreads apart), cost per dispatch $0.59 → $1.18, turns 42 → 60 (overlap). The `on` arm
+straddled two plugin commits (the series was stopped by a usage window and resumed after
+a release) and every run still carried the environment leak 0.10.14 fixed, so the size is
+provisional — the direction is not. Appending a writer's whole declared set (~35k
+characters, ~9k tokens) to every prompt costs more than it saves; 0.10.5's −24% came from
+`evidence-gathering` alone (~7k characters), which the writers now reach on demand. So:
+the CLI does not preload frontmatter `skills:` under `--agent` dispatch, a dispatched
+agent loads its doctrine when its body says to, and the numbers say that is the cheaper
+path. 0.10.8 called the on-demand path a gap; it is the default because it measured best.
+
+- **mechanical** — re-stamp `harness.version`, when convenient. Nothing to set.

@@ -57,7 +57,7 @@ and each move is its own patch release with the measurement in
 | `task_budget_tokens` | **−32% cost per run, spreads apart** — a worker told its budget paces; one that is not is cut off from behind by the ceiling it never sees | worker tier 400,000; raise per project | 0.10.4 |
 | `preload` (a skill appended to the prompt) | **−24% cost per run, output −36%, spreads apart** — writers given `evidence-gathering` make fewer, larger tool calls | the writers declare it — see `preload_declared` | 0.10.5 |
 | `lean_catalog` | request-level, deterministic: a worker's first request 26,130 → 22,743 tokens with 17 bundled CLI skills and 10 orchestrator commands out of its Skill catalog; with cloud connectors off, 21,028 | **on** — the exception: it removes rather than changes | 0.10.8 |
-| `preload_declared` | the CLI does not preload an agent's frontmatter `skills:` under `--agent` dispatch (measured: ABSENT for every declared skill); this lever appends them the way `preload` did | off until sized — the series is running | 0.10.8 |
+| `preload_declared` | **+61% cost per run, spreads apart** ($2.35 → $3.78) — appending a writer's whole declared set (~35k chars) costs more than it saves; the −24% above came from `evidence-gathering` alone (~7k). The CLI does not preload frontmatter `skills:` under `--agent` dispatch, so a dispatched agent loads its doctrine on demand, which the numbers say is the cheaper path | off | 0.10.16 |
 | `tiers:` (per-agent override) | a switch for tier-splitting a lens; a gate's catch rate is measured in the field before its tier moves for everyone | off | 0.10.10 |
 
 Measured in [`harness/wavelab/`](../../harness/wavelab/README.md): the same seeded epic,
