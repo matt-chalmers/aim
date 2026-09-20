@@ -119,12 +119,16 @@ def test_the_four_lenses_all_carry_the_gate_doctrine():
         assert "evidence-gathering" in declared_skills(lens)
 
 
-def test_verifier_spec_is_told_it_must_not_read_the_diff():
+def test_verifier_spec_is_told_it_must_not_read_the_diff_and_is_denied_it():
     """L3's independence is the whole reason its findings are worth having next to
-    L1's, and it now carries that rule itself rather than inheriting it from a prompt."""
+    L1's. The skill states the rule; since 0.10.21 the dispatch ENFORCES it — the lens
+    declares `evidence: no-diff` and is denied the diff root — and the skill says so,
+    because a lens told "must not" without knowing it is also "cannot" may spend calls
+    trying."""
     gate = skill_files()["verification-gate"].read_text()
     assert "must never see the diff" in gate
-    assert "diff/by-file/" in gate and "diff/full.patch" in gate
+    assert "evidence: no-diff" in gate and "denied" in gate
+    assert "diff/by-file/" not in gate, "the skill no longer names a path the lens is denied — naming it invites the attempt"
 
 
 def test_the_isolation_invariant_reaches_workers_through_their_stack():

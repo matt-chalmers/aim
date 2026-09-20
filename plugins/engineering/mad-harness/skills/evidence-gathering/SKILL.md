@@ -75,22 +75,23 @@ every interactive invocation of every command until it was found.
 Measured on a 44-file commit: `git show` is **~96,000 tokens**. That is most of a
 dispatch, spent in one call, on content you will use a fraction of.
 
-The orchestrator should hand you a **brief** built by `${CLAUDE_PLUGIN_ROOT}/harness/verify/brief.sh`:
+The gate hands you a **brief** built by `${CLAUDE_PLUGIN_ROOT}/harness/verify/brief.sh`:
 
 ```
-brief.md              measurements only — scope, changed paths by area, diff stat,
-                      the task text. ~1,700 tokens instead of ~96,000.
-diff/stat.txt         the --stat table
-diff/files.txt        changed paths, one per line
-diff/by-file/<slug>.patch   ONE file's diff  (slug = path with non-alphanumerics → '-')
-diff/full.patch       the whole diff, on disk. Reading it costs the entire saving.
+brief.md              measurements only — scope, changed paths by area, diff stat, the
+                      task text and its acceptance criteria, the L4 trigger, the commit
+                      hygiene. ~1,700 tokens instead of ~96,000. No diff, no diff pointer.
+artefacts.md          in a SIBLING directory, handed to L1, L2 and L4 by path — where the
+                      patches are: stat.txt, files.txt, by-file/<slug>.patch (ONE file's
+                      diff), full.patch (the whole diff; reading it costs the entire saving)
 ```
 
-Read `diff/by-file/` for the files your lens actually reasons about. If you were
-not given a brief and you need one, build it — it is one call.
+Read `by-file/` for the files your lens actually reasons about. If you were not given
+a brief and you need one, build it — it is one call.
 
-**Whether you may read `diff/` at all depends on which lens you are.** That is a
-correctness rule, not a budget one; see the `verification-gate` skill.
+**Whether you may read the diff at all depends on which lens you are.** That is a
+correctness rule, not a budget one, and it is enforced — `verifier-spec` is denied the
+directory; see the `verification-gate` skill.
 
 ## Batch your questions
 

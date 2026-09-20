@@ -918,6 +918,27 @@ def briefs_root() -> str:
     return str((REPO / ".harness" / "run" / "briefs").resolve())
 
 
+def diff_root() -> str:
+    """Where `verify/brief.py` writes the DIFF artefacts: beside the briefs, never under
+    them, so the one lens that must not see the diff can be denied exactly this root.
+    `verify.brief.DIFF_ROOT` is the same path; a test pins that they agree."""
+    return str((REPO / ".harness" / "run" / "briefs-diff").resolve())
+
+
+def sees_no_diff(agent: str, agents_dir: Path | None = None) -> bool:
+    """`evidence: no-diff` in the agent's frontmatter — the lens whose independence rests
+    on never seeing the change, only the task and the repository as it now stands.
+
+    UNTIL 0.10.21 THIS WAS A SENTENCE. `verification-gate` said "L3 must never see the
+    diff", `brief.md` printed the diff's paths in a section every lens read, and every
+    reader was granted the directory that held them; `docs/concepts/verification.md`
+    called the separation "physical, not instructional" and it was the reverse. The
+    frontmatter key turns it into a `Read(//<diff root>/**)` DENY on the dispatch —
+    deny beats allow (measured for `git push`), and Claude Code applies Read denies to
+    `cat`, `head`, `tail` and `sed` as well as to the Read tool."""
+    return str(agent_frontmatter(agent, agents_dir).get("evidence") or "").strip() == "no-diff"
+
+
 def project_tier_overrides(
     config: dict[str, Any] | None = None, agents_dir: Path | None = None
 ) -> dict[str, str]:
@@ -1035,7 +1056,7 @@ def resolve(
             if mode == "acceptEdits"
             else (briefs_root(), str(HARNESS), str(REPO))
         ),
-        disallowed_tools=() if orchestrator else FORBIDDEN,
+        disallowed_tools=() if orchestrator else FORBIDDEN + ((f"Read(//{diff_root().lstrip('/')}/**)",) if sees_no_diff(agent, agents_dir) else ()),
         plugin_dir=str(PLUGIN_ROOT),
         sandbox=_sandbox,
         settings=_settings,

@@ -25,12 +25,16 @@ you merge it into the primary checkout after the lens gate and push once at the 
 **A headless session ends the moment you stop calling tools.** There is no notification
 to wait for and no next turn. Never end your turn with work in flight:
 
-- Dispatch each writer in the background with `--out <path>` naming its result file, then
-  wait for the files in the foreground — one Bash call, under ten minutes, of the form
-  `until [ -s <path> ]; do sleep 20; done` — and repeat the call if it times out. Read the
-  file's first lines, not the whole thing.
-- A read-only agent (survey, architect, planner, audit, lens) runs in the foreground with
-  the Bash timeout at its maximum; they finish inside it.
+- Dispatch a wave's writers with **one** call: write the `dispatch.sh …` lines to a jobs
+  file, then `${CLAUDE_PLUGIN_ROOT}/harness/swarm/fanout.sh --detach --jobs <file> --cap <n>`, which starts them
+  under a supervisor in its own session and prints a run id. Then
+  `${CLAUDE_PLUGIN_ROOT}/harness/swarm/fanout.sh --wait <id> --timeout 540` — the same one call, repeated while it
+  exits 5 (still running); it exits 0 or 1 when every job has answered, with each job's
+  first line and its `full:` path. Never a sleep loop of your own: a job past its timeout
+  is HUNG, never left to hold the wave.
+- The lens gate is one call per task (`lens-gate.sh`) and runs its lenses at once itself;
+  a read-only agent you dispatch alone (survey, architect, planner, audit) runs in the
+  foreground with the Bash timeout at its maximum — they finish inside it.
 - One simple command per Bash call: no `;`, `&&`, pipes or `$( )`. A compound matches no
   rule and costs a turn.
 

@@ -24,8 +24,13 @@ claims** — whether a docstring still tells the truth, whether a caller still h
 two documents now disagree. Given the diff it starts reviewing the patch like the others,
 and four lenses collapse into one opinion held four times.
 
-The separation is physical, not instructional: `brief.py` writes the body and `diff/` as
-separate artefacts, and L3's prompt is given the body path only.
+The separation is physical, not instructional — since 0.10.21, when it became so. Before,
+`brief.py` wrote the diff *under* the brief root, `brief.md` printed those paths in a
+section every lens read, and every reader was granted the directory: the rule was a
+request in the very file that said where the diff was. Now `brief.md` carries no pointer,
+the diff lives in a sibling root, `verifier-spec` declares `evidence: no-diff` and is
+denied that root on the dispatch, and `lens-gate.sh` asserts L3's prompt names no such
+path.
 
 Two runs from this repository's own test lab:
 

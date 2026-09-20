@@ -954,3 +954,44 @@ pre-flight that finishes.** No config change.
   sequence") rather than a list that cannot grow inside the card's 1,200-char budget.
 
 - **mechanical** — re-stamp `harness.version`, when convenient.
+
+### 0.10.21
+
+**Deterministic steps out of the prose, part 3: the lens gate.** No config change.
+
+- **What was wrong.** `/swarm` step 7 and `/grind` §9 had the orchestrator, per task per
+  round, build the brief, compute the L4 trigger by hand (with `brief.py` already holding
+  every input), write three or four prompt files enforcing by hand that L3's named no
+  diff path, dispatch them, read the verdicts by eye, apply unanimity, route, and type the
+  `VERIFIED <sha>` line `resume.py` machine-reads — fifteen to twenty calls at the
+  orchestrator's context price, all routing. Two defects rode along: the lenses ran in
+  the primary at `main` *before* step 8 merged the branch, so L2 re-ran a suite without
+  the change and L3 read a repository without it; and "L3 must never see the diff" was a
+  request — the diff sat under the brief root every reader was granted, and `brief.md`
+  printed its paths. `lens-gate.sh` is the gate as one call: the brief and the trigger,
+  the suite once in the branch's worktree, all lenses at once, one verdict parser, the
+  note only on unanimity. A lens that hung, was denied, was cut off or returned no
+  `VERDICT:` line is NONE, never PASS, and the gate writes nothing.
+- **L3's exclusion is physical now.** The diff artefacts live in a sibling root
+  (`.harness/run/briefs-diff/`), `brief.md` carries no pointer to them, `verifier-spec`
+  declares `evidence: no-diff` and is denied that root on the dispatch
+  (`Read(//…/briefs-diff/**)` — deny beats allow, and it covers `cat`/`head`/`sed`), and
+  the gate asserts L3's prompt names no such path. L1, L2 and L4 are handed an
+  `artefacts.md` by path. `brief.md` also gained the acceptance criteria (every lens re-ran
+  `tk.sh show` for them), the commit-hygiene facts, and the L4 trigger section.
+- **One verdict parser.** `models/verdict.py` reads `VERDICT:` lines and the worker return
+  line. `escalate.classify` used to take the first `·`-token of a worker's return as its
+  status while the contract puts the id first, so a BLOCKED return was never recognised;
+  it reads through the one parser now.
+- **`fanout.sh`** runs N commands at once, each with a timeout, and answers for every one;
+  `--detach`/`--wait` replace the headless orchestrator's hand-written
+  `until [ -s <path> ]; do sleep 20; done`. **The wave manifest**
+  (`.harness/run/waves/<epic>-w<n>.json`) is born here: the gate records each round on it,
+  so the circuit breakers and the health signals (0.10.22) are arithmetic over a record
+  rather than counters in a context a compaction loses.
+- The wavelab's `lens-wave.sh` is a thin caller of the production gate now, so the lab
+  exercises the production path and the two cannot drift.
+
+- **mechanical** — re-stamp `harness.version`, when convenient. Briefs built before
+  this version have their diff under `<brief>/diff/`; a lens gate rebuilds the brief, so
+  nothing needs moving.

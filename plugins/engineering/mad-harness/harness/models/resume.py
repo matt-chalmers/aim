@@ -50,6 +50,14 @@ WORKER_REF_GLOBS = ("refs/heads/harness-w*", "refs/heads/worktree-agent-*")
 VERIFIED = re.compile(r"\bVERIFIED\s+([0-9a-f]{7,40})\b")
 
 
+def verified_note(sha: str, lenses: dict[str, str]) -> str:
+    """The note `lens_gate` writes when every lens passes — the WRITER of what `VERIFIED`
+    reads, kept beside it so the two cannot drift. Until 0.10.21 the orchestrator typed
+    this line by hand from four verdicts it had read by eye; a typo, or the wrong ref to
+    `rev-parse`, meant `resume_point` said VERIFY forever and the round was paid again."""
+    return f"VERIFIED {sha[:12]}: " + " · ".join(f"{k} {v}" for k, v in lenses.items())
+
+
 def _git(repo: Path, *args: str) -> str:
     proc = subprocess.run(["git", *args], cwd=str(repo), capture_output=True, text=True, timeout=60)
     return proc.stdout if proc.returncode == 0 else ""

@@ -486,6 +486,22 @@ def test_a_lens_is_given_the_brief_directory_and_a_writer_is_not():
     assert briefs_root() not in writer.add_dirs, "a writer judges nothing and reads no brief"
 
 
+def test_the_no_diff_lens_is_denied_the_diff_root_and_the_others_are_not():
+    """`verification-gate`'s "L3 must never see the diff" was a sentence: every reader
+    was granted the briefs root and brief.md printed the diff's paths. Now the diff is a
+    sibling root and the lens that declares `evidence: no-diff` is DENIED it — deny beats
+    allow, and Claude Code applies a Read deny to cat/head/tail/sed as well."""
+    from models.resolve import diff_root, resolve, sees_no_diff
+
+    assert sees_no_diff("verifier-spec") and not sees_no_diff("verifier")
+    deny = f"Read(//{diff_root().lstrip('/')}/**)"
+    spec = resolve("verifier-spec")
+    assert deny in spec.disallowed_tools and deny in spec.sdk_options().disallowed_tools
+    assert "Bash(git push:*)" in spec.disallowed_tools, "the deny is added to FORBIDDEN, not in place of it"
+    for other in ("verifier", "verifier-tests", "verifier-security"):
+        assert deny not in resolve(other).disallowed_tools, other
+
+
 def test_a_lens_may_run_the_projects_test_command():
     """Otherwise it can only BELIEVE the worker's "tests pass", which is not verification.
 

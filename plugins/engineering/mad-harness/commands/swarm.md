@@ -241,181 +241,80 @@ must carry, in full:
 
 ## 7. Verification gate — decorrelated lenses
 
-Dispatch **L1-L3 in parallel** per `PASS` claim, plus **L4 when its trigger fires**. They
-stack only because each is allowed to see something different — that is the decorrelation,
-not copies of one opinion:
+```bash
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/lens-gate.sh <id> <sha> --branch <branch> --lane <lane> --worker <n> [--wave <epic>-w<k>]
+```
+
+One call per `PASS` claim. It runs **L1–L3 always, L4 when its trigger fires**, and they
+stack only because each is allowed to see something different — that is the
+decorrelation, not copies of one opinion:
 
 | Lens | Agent | Sees | Owns | When |
 |---|---|---|---|---|
-| L1 | `verifier` | task + acceptance criteria + **the diff** + **L2's suite result** | correctness: every criterion met and located; one clean commit | always |
-| L2 | `verifier-tests` | the diff + tests, and runs them | test quality: adversarial vs decorative, what was skipped | always |
-| L3 | `verifier-spec` | the task + **the repo at HEAD — NOT the diff, NOT the worker's report** | docs, specs, ADRs, callers, blast radius, mechanical invariants | always |
-| L4 | `verifier-security` | the diff + the repo | **what the wrong person can now reach**: authz, tenant isolation, data exposure, auth/session, CSRF, injection, secrets | **on trigger** |
+| L1 | `verifier` | task + acceptance criteria + **the diff** + **the suite's output** | correctness: every criterion met and located; one clean commit | always |
+| L2 | `verifier-tests` | the diff + tests, in the branch's worktree | test quality: adversarial vs decorative, what was skipped | always |
+| L3 | `verifier-spec` | the task + **the repo as it now stands — NOT the diff, NOT the worker's report** | docs, specs, ADRs, callers, blast radius, mechanical invariants | always |
+| L4 | `verifier-security` | the diff + the repo + **why it fired** | **what the wrong person can now reach**: authz, tenant isolation, data exposure, auth/session, CSRF, injection, secrets | **on trigger** |
 
-**L4 fires when the diff touches anything your project declares as a security surface** —
-`harness.yaml` → `security.paths` and `security.tokens` — plus **a new or changed response
-shape**, code reading or writing another user's data, client-side auth or token handling, or
-anything naming one of the declared `security.invariants`.
+| step | what the gate does |
+|---|---|
+| `brief.sh <id> <sha> --json` | the brief once — task text, **acceptance criteria**, stat, paths by area, **commit hygiene** (one commit ahead? subject names the id? touches the export?), and **the L4 trigger**: `security.paths`, `security.tokens` in *added* lines, the area map, and the task's `SURFACE:` line — a task with no `SURFACE:` line fires L4, because doubt fires |
+| worktree | `--branch` attaches to the branch's worktree (reusing the worker's live one). **The lenses used to run in the primary at `main`, before step 8 merged** — L2 re-ran a suite without the change, L3 read a repository without it |
+| `run.sh --lane <lane> test` | **the suite, once, where the change is.** Its output goes to a file L1 and L2 read by path. Red or hung → COULD NOT JUDGE: a lens over a red suite is the believe-the-report failure |
+| prompts | one per lens; each says to batch with `scan.sh`/`peek.sh`. **L3's names `brief.md` and nothing else** — the brief carries no diff body and no diff pointer, the diff lives in a sibling root, and `verifier-spec` is *denied* that root on the dispatch (`Read(//…/briefs-diff/**)`). Physical, not instructional |
+| dispatch | all three or four at once through `dispatch.sh`, each with a timeout; L2 and L3 with `--cwd` the worktree |
+| verdicts | one parser. **A lens that hung, was denied a tool, was cut off at its ceiling, or returned no `VERDICT:` line is NONE — never PASS** |
+| unanimity | any FAIL blocks. A majority rule would let two lenses outvote the one that actually looked at the thing — these read different sensors, so a disagreement is information, not noise |
+| `tk.sh note <id> "VERIFIED <sha12>: L1 PASS · …"` | **only when every lens passed** — the line `resume-point.sh` reads, written by the same code that reads it. A run stopped between here and step 8 resumes at **MERGE** |
 
-**And L4 fires on the task's `SURFACE:` line, whatever the diff shows.** If the planner recorded
-that this task touches authorization, data exposure, the integrity of a published record, or
-any declared privacy invariant, dispatch L4 — even when the path grep is zero.
+Exit 0 PASS · 1 FAIL — nothing written, the route printed · 2 could not judge. Fifteen to
+twenty calls at your context's price were one; the L4 trigger, the suite-once rule and
+L3's independence are code, not things you remember.
 
-**This is the half that used to depend on the orchestrator noticing.** In one campaign L4 fired
-on a task whose diff touched no declared security path and matched none of the keywords — it
-fired only because the orchestrator hand-reasoned that a derived timestamp *was* the access
-control. It then found a hole letting any authenticated user alter another
-account's records. That should never have rested on a judgement call, and with
-`SURFACE:` it does not.
-
-**Compute the trigger mechanically, from `git diff --name-only` plus a grep of the diff
-body, plus the task's `SURFACE:` line — never from the worker's summary.** A worker that did not realise it touched a
-security surface is exactly the case L4 exists for. When in doubt, dispatch: L4 returns
-`PASS (no security surface)` cheaply, and a missed leak is not cheap.
+**L4's trigger, and why it is computed.** L4 fires on a declared `security.path`, a
+`security.token` in an added line, the area map, **the task's `SURFACE:` line whatever
+the diff shows**, and — since doubt fires — the absence of one. In one campaign L4 fired on
+a task whose diff touched no declared path and matched no keyword; it fired only because
+the orchestrator hand-reasoned that a derived timestamp *was* the access control, and
+found a hole letting any authenticated user alter another account's records. That should
+never have rested on a judgement call, and it no longer does. `--l4 always` dispatches it
+regardless; L4 returns `PASS (no security surface)` cheaply, and a missed leak is not cheap.
 
 **L4 blocks like any other lens.** It carries the same `blocking`/`filed` governor as L3 —
 only `blocking` findings can FAIL — with one deliberate exception: a change that makes a
-*pre-existing* hole materially easier to reach is `blocking`, because the change is what put
-it in reach.
+*pre-existing* hole materially easier to reach is `blocking`, because the change is what
+put it in reach.
 
-### Cost discipline — four levers, none of which trades fidelity
+**L3's blocking/filed governor.** L3 tags every finding `blocking` (caused by this change)
+or `filed` (pre-existing). **Only `blocking` findings can FAIL a task.** `filed` findings
+become `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create` lines in the wave report. Without this, L3 fails
+every task that touches your largest shared module forever, and a lens that always fails
+is a lens you learn to ignore.
 
-A four-lens round costs roughly 480k subagent tokens. On a 25-line change that is the wrong
-shape, and the fix is not to weaken a lens — it is to stop paying for work already done.
+**The route line is a recommendation; the decision is yours.** On a FAIL the gate prints:
 
-**0. Build the brief ONCE, before dispatching any lens.**
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/verify/brief.sh <task-id> <commit-sha>     # prints the path to brief.md
-```
-
-Four lenses otherwise each re-derive the same diff stat, changed-file list and task
-text. Measured on a 44-file commit: the full diff is **~96,000 tokens**, the brief
-**~1,700** — and both lens dispatches measured in the parity exercise were 100% bash
-at ~2,600 tokens per call, so this is the largest single line item on the gate.
-
-- **`brief.md` goes to all four lenses.** It carries measurements only and **no diff
-  body**, which is what makes it safe for L3.
-- **The `diff/` artefacts go to L1, L2 and L4 by path — never to L3.** Give them
-  `diff/by-file/<slug>.patch` for the files their lens actually reasons about;
-  `full.patch` exists but reading it costs the whole saving.
-- **Never `git show <sha>` in a lens prompt.** That is the 96,000-token path.
-
-**0b. Batch the questions. One call, many answers.**
-
-Measured across four real lens runs: 92 bash calls, of which 31 were searches, 16
-were slice reads and 11 were reads at a revision — **58 of 92 asking one small
-question each**, at ~2,600 tokens of call overhead apiece. Two primitives collapse
-them:
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/verify/scan.sh -e 'PAT' -e 'PAT' -e 'PAT' [--rev SHA] [pathspec...]
-${CLAUDE_PLUGIN_ROOT}/harness/verify/peek.sh path:10-40 other/file.py:1-25 third.md [--rev SHA]
-```
-
-Put **every** search you expect to run into one `scan.sh`, and every file or slice
-you already know you want into one `peek.sh`. Both answer every input — a pattern
-with **zero hits is reported as searched-and-found-nothing**, and a missing path
-gets `!! not found` — so a batch never leaves you reasoning about an answer you
-did not actually receive.
-
-State this in the dispatch prompt. A lens that is not told to batch will not.
-
-**1. The dispatch prompt carries only what the task does NOT.** The task already holds the
-`SURFACE:` line, every acceptance criterion and its notes; say "read the task" and add only
-the two or three things that are not in it — the branch, the commit, and any trap specific to
-this diff.
-
-**The reason is scope, not prompt length — and the old rationale here was wrong.** This
-section used to claim prompt text is re-processed on every tool call, so a 1,200-word prompt
-across 40 calls is "paid forty times", and called that the cheapest saving available. It is
-not, and measurement says so: across 24 lens dispatches in one campaign, cost fits
-`tokens ~= 18,700 + 2,600 x tool_calls`, and **tokens-per-call FALLS as calls rise** (3,397 at
-<=30 calls, 2,825 at 45+). Were the prefix re-processed at full price that curve would bend the
-other way; it bends down because the accumulated conversation is served from cache. Trimming
-the prompt saves a fraction of one call.
-
-**What the same data says the lever actually is: tool calls.** At ~2,600 tokens each, halving
-a lens's calls is worth ~44%. And splitting one lens into two is worth **-11%** — each dispatch
-re-pays the ~18,700 fixed base, and you lose the cross-cutting read that catches a code change
-falsifying a task's text.
-
-So keep the prompt tight because a shorter prompt is a **clearer** one, and spend the saving
-where it exists: give the lens a precomputed brief so it need not re-derive the diff stat, the
-changed-file list and the task text that its three sibling lenses are deriving in parallel.
-
-**2. Share MEASUREMENTS between lenses. Never share JUDGEMENTS.** Decorrelation is about what
-each lens **sees of the change** — L3 must never receive the diff or the worker's report, and
-that rule does not bend. It is *not* about re-measuring settled mechanical facts. If L1 has
-already run the linter and reported "4 files already formatted", tell L2 so and let it spend its
-budget on tests instead. Hand over *numbers and greps*, never "L1 thinks this is fine".
-
-**3. A mutation log from `${CLAUDE_PLUGIN_ROOT}/harness/verify/mutate.sh` is a durable artefact — verify it, do not redo
-it.** That harness self-attests: it aborts if a mutation does not match exactly once, restores
-by re-extracting rather than undoing, records failing test **names** per mutant, and re-runs
-mutant 1 last, failing the batch if the result moved. So L2's job on a worker-produced log is
-to confirm its provenance (right sha, right harness) and **spot-re-run three of sixteen**, not
-to re-run all sixteen. Re-run the full set only when the log is absent, hand-rolled, or its
-recheck line is missing.
-
-**4. L4 is already trigger-based; L2 may be scoped on a task that ships no logic.** A
-docs-only or pure-re-pin task has nothing for a test-quality lens to judge beyond "the suite
-is still green", which the wave gate already proves. **L1 and L3 stay unconditional** — and L3
-especially, because the defect it catches most often is line-pin drift, which happens on *any*
-commit that shifts lines regardless of what the task was about.
-
-**Derive every lens's isolated resources from its TASK ID, never from the lens name.** Two
-concurrent `verifier-tests` runs handed the same fixed name deadlocked on a unique constraint;
-the lens noticed, discarded its numbers and re-measured on a fresh one — costing a full
-both-ends re-run, and it only caught it because the deadlock happened to surface. A silently
-interleaved run would have produced *plausible wrong counts*, which is the failure this whole
-pipeline is built to avoid. `<slug>_l2_<task-slug>` cannot collide; "remember to vary it"
-already failed once.
-
-**Only L2 executes tests.** L1, L3 and L4 must not run the suites: the lenses are dispatched in
-parallel *without* worktree isolation, so they share one set of per-worker resources, and two
-concurrent runs that reuse a database collide destructively. Dispatch L2
-first and pass its verbatim counts into L1's prompt — or, if you want all three strictly
-simultaneous, run the scoped suite yourself once and paste that output into L1's prompt.
-
-**Do not hand L3 the diff or the worker's report.** If you do it anchors on them and
-re-derives L1, and you have paid for three lenses and bought two. L3 is the only lens that
-can catch a worker *describing* something it did not build.
-
-**Unanimity to pass: any FAIL from any lens — including L4 — blocks the task.** A majority rule would let two
-lenses outvote the one that actually looked at the thing — and these read different sensors,
-so a disagreement is information, not noise. `verifier.md` already argues the principle: a
-false PASS is far more expensive than a re-run.
-
-**L3's blocking/filed governor.** L3 must tag every finding `blocking` (caused by this
-change) or `filed` (pre-existing). **Only `blocking` findings can FAIL a task.** `filed`
-findings become `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create` lines in the wave report. Without this, L3 fails every task that
-touches your largest shared module forever — thousands of lines of pre-existing everything —
-and a lens that always fails is a lens you learn to ignore.
-
-**Route each FAIL by which lens raised it:**
-
-- **L2 (test-shaped)** — decorative assertion, untested path, weakened or skipped test,
-  missing edge case → **`quality-engineer`**, after step 8 merges the branch, in its own
+- **L2, or L1 classified test-shaped** — decorative assertion, untested path, weakened or
+  skipped test → **`quality-engineer`**, after step 8 merges the branch, in its own
   worktree. The author already missed it once.
 - **L1 or L3 `blocking`** — wrong behaviour, unmet criterion, broken caller, stale doc or
-  ADR, invariant violation → back to **`fullstack-engineer`** with the finding list.
-- **L4 `blocking`** — authorization, isolation, exposure, auth/session, injection, secrets →
-  back to **`fullstack-engineer`**, and **raise the task's priority to match the severity**.
-  A `critical` or `high` security finding on a P3 task means the task was mis-priced, not
-  that the finding is minor.
+  ADR, invariant violation → back to **`fullstack-engineer --resume <branch>`** with the
+  finding list.
+- **L4 `blocking`** → back to **`fullstack-engineer`**, and **raise the task's priority to
+  match the severity**. A `critical` or `high` security finding on a P3 task means the
+  task was mis-priced, not that the finding is minor.
 
 Either way the task stays open until the remediation itself passes every lens that ran.
+**A third round is not a fourth remediation** — see `/campaign`'s breaker: split the task
+along the seams the rounds revealed.
 
-**When every lens passes, record it on the task, pinned to the head it judged:**
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh note <id> "VERIFIED $(git rev-parse --short=12 <branch>): L1 PASS · L2 PASS · L3 PASS · L4 PASS"   # L4 only if it ran
-```
-
-This is what lets a run stopped between here and step 8 resume at **MERGE** instead of
-re-verifying — or re-implementing. The sha matters: a later commit on the branch is a new head
-with no verdict, and `resume-point.sh` will say VERIFY for it.
+**Cost.** A four-lens round is roughly 480k subagent tokens; the levers that do not trade
+fidelity — the brief instead of a 96k-token `git show`, one `scan.sh` where a lens made
+31 searches, measurements shared and judgements never — live in `lens_gate.py`'s and
+`brief.py`'s docstrings with their measurements. Two rules still bind a lens you dispatch
+by hand: **derive every lens's isolated resources from its TASK ID, never from the lens
+name** (two concurrent `verifier-tests` runs handed the same fixed name deadlocked on a
+unique constraint), and **only L2 executes tests** (the lenses share one set of per-worker
+resources; two concurrent runs that reuse a database collide destructively).
 
 A near-zero FAIL rate across the lenses is not reassurance — it means the gate has gone soft.
 

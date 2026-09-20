@@ -105,6 +105,14 @@ def test_a_blocked_verdict_escalates(verdict):
     ).escalate
 
 
+@pytest.mark.parametrize("verdict", ["BLOCKED", "NEEDS-SERIAL-LANE"])
+def test_a_blocked_verdict_in_the_contracts_own_order_escalates(verdict):
+    """The return contract puts the id FIRST. The parser used to take the first token as
+    the verdict, so every conforming BLOCKED return read as an implementation error."""
+    c = classify(an_outcome(f"PROJ-4f2a · {verdict} · cannot proceed · no files touched"))
+    assert c.escalate and c.category == "blocked", c.why
+
+
 @pytest.mark.parametrize(
     "phrase",
     [

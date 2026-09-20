@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Run the verification lenses over tasks that have already landed.
+# Run the verification lenses over tasks that have already landed — through the
+# PRODUCTION gate, `harness/swarm/lens-gate.sh`, one call per task.
 #
 #   harness/wavelab/lens-wave.sh [--root DIR] <beads|mdfiles> [task-id ...]
 #
@@ -7,11 +8,14 @@
 # re-judged without rebuilding the repo or spending another wave, which is what makes the
 # lens path testable at all. dispatch-wave.sh --lens calls straight into this.
 #
-# L1 (`verifier`) reads the per-file patches. L3 (`verifier-spec`) reads brief.md and the
-# repository at HEAD and MUST NOT see the diff. Running both is what exercises the
-# artefact split verify/brief.py exists to produce.
+# UNTIL 0.10.21 THIS WAS ITS OWN GATE: three prompts written here, three dispatches, a
+# grep for `VERDICT:` — a lab-grade copy of what /swarm step 7 had the orchestrator do by
+# hand, with the same two defects (L3 handed a brief that named the diff's paths; the
+# lenses run in the primary at main, before the branch was merged). It now calls the one
+# gate production uses, so the lab exercises the production path and the two cannot drift.
+# `.harness/run/lens-verdicts.txt` keeps the `task<TAB>agent<TAB>PASS|FAIL|NONE` rows
+# `ab-report.sh` reads, from the gate's --json facts.
 set -euo pipefail
-
 
 ROOT="${WAVELAB_ROOT:-$HOME/harness-wavelab}"
 ARGS=()
@@ -29,13 +33,8 @@ REPO="$ROOT/$NAME"
 [ -d "$REPO" ] || { echo "no such repo: $REPO — run reset.sh first" >&2; exit 2; }
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HARNESS="$(cd "$HERE/.." && pwd)"
-# THE LAB POINTS AT ITS TARGET BY STANDING IN IT. It used to export MAD_HARNESS_REPO,
-# which every wrapper — and every agent dispatch.py spawned, since it inherits the
-# environment — then honoured ahead of resolving anything. So the one question a real
-# project needs answered ("which repository?") was answered for it, and a resolver that
-# returned the plugin's own directory passed every wave here while a real project got
-# an empty backlog with exit 0. Nothing in this lab sets MAD_HARNESS_REPO or
-# MAD_HARNESS_CALLER_PWD: the wrappers record the caller's directory themselves.
+# THE LAB POINTS AT ITS TARGET BY STANDING IN IT — nothing here sets MAD_HARNESS_REPO or
+# MAD_HARNESS_CALLER_PWD; the wrappers record the caller's directory themselves.
 cd "$REPO" || exit 2
 SCRATCH="${SCRATCHPAD:-${TMPDIR:-/tmp}}/wavelab-$NAME"
 mkdir -p "$SCRATCH"
@@ -54,55 +53,45 @@ fi
 
 echo "== verification lenses: $NAME =="
 VERDICTS="$SCRATCH/verdicts.txt"; : > "$VERDICTS"
-# A COPY THE RIG CAN READ. The scratch copy goes with the scratch; the A/B report reads
-# this one, beside the run's dispatch events, so a lever can be judged on what its
-# workers' tests were WORTH and not only on what they cost.
 KEPT="$REPO/.harness/run/lens-verdicts.txt"; mkdir -p "$(dirname "$KEPT")"
 
+FAILED=0
 for TASK in "${TASKS[@]}"; do
-  SHA=$(cd "$REPO" && git log --all --oneline --grep="$TASK" -1 --format=%H || true)
+  SHA=$(git log --all --oneline --grep="$TASK" -1 --format=%H || true)
   [ -n "$SHA" ] || { echo "  $TASK: no commit found, skipping"; continue; }
-
-  # KEEP THE STREAMS APART. brief.sh prints the path on stdout and its size comparison on
-  # stderr; merging them and taking head -1 hands the lens the size note, because stdout
-  # block-buffers into a file and stderr does not.
-  BRIEF=$("$HARNESS/verify/brief.sh" "$TASK" "$SHA" 2> "$SCRATCH/brief-$TASK.err" | head -1) || true
-  if [ ! -f "$BRIEF" ]; then
-    echo "  $TASK: no brief produced — $(tail -1 "$SCRATCH/brief-$TASK.err" 2>/dev/null)"
-    continue
+  # The branch holding the commit, if a worker branch still does — the gate runs the
+  # suite and L2/L3 there. A commit already merged into main needs no --branch.
+  BRANCH=$(git for-each-ref --format='%(refname:short)' 'refs/heads/harness-w*' --contains "$SHA" | head -1 || true)
+  ARGS=("$TASK" "$SHA" --lane backend --json)
+  if [ -n "$BRANCH" ] && ! git merge-base --is-ancestor "$SHA" main 2>/dev/null; then
+    ARGS+=(--branch "$BRANCH")
   fi
-  echo "-- $TASK  brief: $(sed -n '1s/^-- //p' "$SCRATCH/brief-$TASK.err")"
-
-  printf 'Judge task %s for CORRECTNESS. Its brief is at %s. Read the brief and the\nper-file patches under its diff/ directory. Return VERDICT: PASS or FAIL on the\nfirst line, then located findings.\n' \
-    "$TASK" "$BRIEF" > "$SCRATCH/lens1-$TASK.txt"
-  # NO REPO PATH IN THE PROMPT. Handing an agent an absolute path invites `cd <path>`
-  # and `git -C <path>`, both of which are denied — and it is already IN the repo.
-  printf 'Judge task %s against the SPEC and the repository at HEAD, which is your\nworking directory. Read %s — the brief BODY only. Do NOT open its diff/\ndirectory: you are judging what the repository now claims, not how it changed.\nCheck docs, docstrings and callers for anything the change left contradicted.\nReturn VERDICT: PASS or FAIL on the first line, then located findings.\n' \
-    "$TASK" "$BRIEF" > "$SCRATCH/lens3-$TASK.txt"
-
-  # L2 JUDGES WHAT THE DOCTRINE CHANGES. A worker that carries test-doctrine writes
-  # adversarial tests and runs mutations; one that does not writes tests that pass. Only
-  # verifier-tests can tell the two apart, so a cost lever cannot be judged without it.
-  printf 'Judge the TESTS of task %s. Its brief is at %s; read the brief and the per-file\npatches under its diff/ directory, then run the suite. Are the new tests adversarial or\ndecorative — do they pin behaviour that a plausible wrong implementation would fail?\nReturn VERDICT: PASS or FAIL on the first line, then located findings.\n' \
-    "$TASK" "$BRIEF" > "$SCRATCH/lens2-$TASK.txt"
-
-  for AGENT in verifier verifier-tests verifier-spec; do
-    case "$AGENT" in
-      verifier)       LP="$SCRATCH/lens1-$TASK.txt"; LABEL="L1 correctness" ;;
-      verifier-tests) LP="$SCRATCH/lens2-$TASK.txt"; LABEL="L2 tests" ;;
-      *)              LP="$SCRATCH/lens3-$TASK.txt"; LABEL="L3 spec" ;;
-    esac
-    OUT="$SCRATCH/${AGENT}-$TASK.txt"
-    "$HARNESS/models/dispatch.sh" "$AGENT" --prompt-file "$LP" --task "$TASK" \
-      > "$OUT" 2>&1 || true
-    V=$(grep -oiE '\bVERDICT:?[[:space:]]*(PASS|FAIL)' "$OUT" | head -1 \
-        | grep -oiE '(PASS|FAIL)' | tr 'a-z' 'A-Z')
-    printf '  %-16s %-14s %s\n' "$TASK" "$LABEL" "${V:-<no verdict>}" | tee -a "$VERDICTS"
-    printf '%s\t%s\t%s\n' "$TASK" "$AGENT" "${V:-NONE}" >> "$KEPT"
-  done
+  echo "-- $TASK  $SHA"
+  set +e
+  "$HARNESS/swarm/lens-gate.sh" "${ARGS[@]}" > "$SCRATCH/gate-$TASK.txt" 2> "$SCRATCH/gate-$TASK.err"
+  RC=$?
+  set -e
+  sed 's/^/   /' "$SCRATCH/gate-$TASK.txt" | grep -E '^\s+\[|VERDICT|COULD NOT' || true
+  # The last line is the --json facts: {"lenses": {"L1": "PASS", ...}, ...}
+  tail -1 "$SCRATCH/gate-$TASK.txt" | python3 -c '
+import json, sys
+task = sys.argv[1]
+agents = {"L1": "verifier", "L2": "verifier-tests", "L3": "verifier-spec", "L4": "verifier-security"}
+try:
+    facts = json.loads(sys.stdin.read())
+except Exception:
+    facts = {}
+for lens, agent in agents.items():
+    v = (facts.get("lenses") or {}).get(lens)
+    if v is None and lens == "L4":
+        continue
+    print(f"{task}\t{agent}\t{v or 'NONE'}")
+' "$TASK" | tee -a "$VERDICTS" >> "$KEPT"
+  [ "$RC" -eq 0 ] || FAILED=$((FAILED+1))
 done
 
 echo
 echo "== verdicts =="
 cat "$VERDICTS"
 echo "full lens output: $SCRATCH"
+[ "$FAILED" -eq 0 ]

@@ -34,6 +34,7 @@ from typing import Any
 
 from .dispatch import Outcome
 from .resolve import ConfigError, load_config
+from .verdict import return_status
 
 #: A worker may ask for help explicitly. Cheapest possible signal, and the only
 #: one that does not require guessing from prose.
@@ -95,8 +96,10 @@ def classify(
             "the worker asked for escalation explicitly",
         )
 
-    verdict = text.strip().split("·")[0].strip().upper() if text.strip() else ""
-    if any(v in verdict for v in BLOCKED_VERDICTS):
+    # The return contract puts the id FIRST (`<id> · PASS · …`); this used to take the
+    # first `·`-token as the verdict and so never recognised a BLOCKED return. One parser.
+    verdict = return_status(text)
+    if verdict in BLOCKED_VERDICTS:
         return Classification(
             "blocked",
             False,

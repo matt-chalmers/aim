@@ -804,19 +804,13 @@ Repeat, up to **`MAX_WAVES = 6`** per epic:
    regardless of the lane.
 2. **Run the `/swarm` procedure, steps 2–9**, scoped to this epic's ready queue: contention
    re-check (including the megafile width-1 rule and the shared-vocabulary check), dispatch
-   all `n` in a single message, collect, **the verification lenses with unanimity to pass**
-   (L1-L3 always; **L4 `verifier-security` whenever its trigger fires** — see `/swarm` step 7,
-   and compute the trigger from `git diff --name-only` plus a grep of the diff body, never
-   from the worker's summary), integrate + whole-repo wave gate, **the wave-stage
+   all `n` in a single message, collect, **the verification gate** — one call per `PASS`
+   claim, `${CLAUDE_PLUGIN_ROOT}/harness/swarm/lens-gate.sh <id> <sha> --branch <b> --lane <lane> --worker <n> --wave <epic>-w<k>`:
+   the brief once, the L4 trigger computed (never from the worker's summary), the suite
+   once where the change is, L1–L3 and L4-on-trigger at once with L3 handed no diff path,
+   unanimity, the `VERIFIED` note on all-PASS and **nothing** on a FAIL or a missing verdict
+   (`/swarm` step 7 has the table) — then integrate + whole-repo wave gate, **the wave-stage
    `/code-review` and accretion check (`/swarm` step 8b)**, tasks sync.
-
-   **Before dispatching a lens, build the brief once and tell the lens to batch.**
-   `${CLAUDE_PLUGIN_ROOT}/harness/verify/brief.sh <task-id> <sha>` replaces a ~96,000-token `git show` with a
-   ~1,700-token brief; `${CLAUDE_PLUGIN_ROOT}/harness/verify/scan.sh` and `peek.sh` collapse the searches and
-   reads that make up ~63% of a lens's calls. The doctrine lives in the
-   `evidence-gathering` skill, which all four lenses preload — but a lens still needs
-   the brief *path* in its prompt, and `verifier-spec` (L3) must be given `brief.md`
-   **without** anything under `diff/`.
 
    **Every writer's task is asked `${CLAUDE_PLUGIN_ROOT}/harness/swarm/resume-point.sh <id>` first** — `/swarm`
    step 5's table. A run that was stopped mid-wave left branches; MERGE and VERIFY need no

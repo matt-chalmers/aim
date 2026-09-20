@@ -13,17 +13,19 @@ confidence.
 
 | | agent | sees | owns |
 |---|---|---|---|
-| L1 | `verifier` | task + acceptance criteria + **the diff** + L2's suite result | correctness: every criterion met and located |
-| L2 | `verifier-tests` | the diff + the tests, and runs them | test quality: adversarial vs decorative |
-| L3 | `verifier-spec` | the task + **the repo at HEAD** | docs, specs, ADRs, callers, blast radius |
-| L4 | `verifier-security` | the diff + the repo | what the wrong person can now reach |
+| L1 | `verifier` | task + acceptance criteria + **the diff** + the suite's output, run once by the gate | correctness: every criterion met and located |
+| L2 | `verifier-tests` | the diff + the tests, in the branch's worktree | test quality: adversarial vs decorative |
+| L3 | `verifier-spec` | the task + **the repository as it now stands** | docs, specs, ADRs, callers, blast radius |
+| L4 | `verifier-security` | the diff + the repo + why the trigger fired | what the wrong person can now reach |
 
 **L3 must never see the diff, and never the worker's report.** Not the raw diff,
-not `diff/by-file/`, not `diff/full.patch` from the brief, not a paraphrase of it.
-Its whole value is that it asks "if this task is done, what else must now be true?"
-from a standing start — a question that stops being independent the moment it is
-anchored to what the worker actually changed. `brief.md` itself carries no diff
-body and is safe for L3; everything under `diff/` is not.
+not the per-file patches, not a paraphrase of it. Its whole value is that it asks
+"if this task is done, what else must now be true?" from a standing start — a
+question that stops being independent the moment it is anchored to what the worker
+actually changed. `brief.md` carries no diff body **and no pointer to one**; the diff
+artefacts live in a sibling root that `verifier-spec` is *denied* on the dispatch
+(`evidence: no-diff` in its frontmatter → `Read(//…/briefs-diff/**)`), and `lens-gate.sh`
+asserts its prompt names no such path. The rule is enforced, not requested.
 
 If you are L3 and you feel the need to look at the diff, that feeling is the
 signal you are about to stop being useful.

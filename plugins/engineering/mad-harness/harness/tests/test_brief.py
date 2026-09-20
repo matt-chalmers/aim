@@ -13,7 +13,16 @@ from pathlib import Path
 
 import pytest
 
-from verify.brief import Brief, build, render
+from verify.brief import (
+    DIFF_ROOT,
+    L4,
+    Brief,
+    added_lines,
+    build,
+    l4_trigger,
+    render,
+    render_artefacts,
+)
 
 #: Genuine unified-diff markers. Deliberately NOT `^\+` / `^-`, which match the
 #: brief's own markdown bullets — a loose pattern here would make the L3 safety
@@ -83,6 +92,24 @@ def test_brief_states_the_l3_restriction_in_the_text():
     assert "verifier-spec" in text and "must not" in text.lower()
 
 
+def test_brief_names_no_diff_path():
+    """Until 0.10.21 brief.md printed the diff's paths in a section every lens read —
+    "L3 must not read diff/" was a request in the very file that said where it was."""
+    b = a_brief(diff_root=Path("/tmp/nowhere-diff"))
+    text = render(b)
+    assert "nowhere-diff" not in text and "by-file" not in text and "full.patch" not in text
+    assert str(b.diff_dir) not in text
+
+
+def test_the_diff_root_is_a_sibling_never_a_subdirectory():
+    b = a_brief()
+    assert not str(b.diff_dir).startswith(str(b.root) + "/")
+    assert b.diff_dir == DIFF_ROOT / "nowhere"
+    from models.resolve import diff_root
+
+    assert str(DIFF_ROOT.resolve()) == diff_root(), "brief.py and resolve.py must agree on the root verifier-spec is denied"
+
+
 # --- completeness: a dropped path costs more than no brief --------------------
 
 
@@ -122,9 +149,68 @@ def test_api_changes_surface_the_lens_they_must_fire():
 # --- the point of the exercise ------------------------------------------------
 
 
-def test_the_brief_points_at_per_file_patches_rather_than_inlining_them():
-    text = render(a_brief())
+def test_the_artefacts_file_points_at_per_file_patches_rather_than_inlining_them():
+    """The pointers live in artefacts.md — handed to L1, L2 and L4 by path — not in the
+    brief every lens reads."""
+    text = render_artefacts(a_brief())
     assert "by-file" in text and "Do not `git show` it" in text
+    assert "odd/place.txt" in text
+
+
+# --- the L4 trigger, as code ------------------------------------------------------------
+
+
+def _project(paths=(), tokens=(), areas=()):
+    from models.project import Area, Project
+
+    return Project(
+        name="T", slug="t", stacks=(), paths={},
+        areas=tuple(Area(path=p, label=lb, triggers=tuple(t)) for p, lb, t in areas),
+        security={"paths": list(paths), "tokens": list(tokens)},
+    )
+
+
+def test_l4_fires_on_a_security_path_a_token_in_added_lines_only_and_a_surface_line():
+    proj = _project(paths=["src/auth/"], tokens=["SECRET_KEY"])
+    t = l4_trigger(["src/auth/login.py"], "", "SURFACE: none of the declared security invariants", proj)
+    assert t.fires and t.touched_security_path and any("security.paths" in w for w in t.why)
+    t = l4_trigger(["src/x.py"], "+++ b/src/x.py\n+SECRET_KEY = 'x'\n", "SURFACE: none of the declared security invariants", proj)
+    assert t.fires and any("security.tokens" in w for w in t.why) and not t.touched_security_path
+    t = l4_trigger(["src/x.py"], "--- a/src/x.py\n-SECRET_KEY = 'x'\n", "SURFACE: none of the declared security invariants", proj)
+    assert not t.fires, "a token the change REMOVED is not a reason to fire"
+    t = l4_trigger(["src/x.py"], "", "SURFACE: touches authorization on the records endpoint", proj)
+    assert t.fires and t.surface.startswith("touches authorization")
+
+
+def test_a_surface_line_that_names_nothing_does_not_fire_from_the_line():
+    proj = _project()
+    t = l4_trigger(["src/x.py"], "", "SURFACE: none of the declared security invariants", proj)
+    assert not t.fires and t.surface == "none of the declared security invariants"
+
+
+def test_no_surface_line_fires_and_says_why():
+    """The planner's contract puts one on every task; a task without one is a task
+    nobody asked the question of. Doubt fires."""
+    t = l4_trigger(["src/x.py"], "", "T-1 [task/open] a thing\n\nno surface line here", _project())
+    assert t.fires and t.surface is None and any("no SURFACE: line" in w for w in t.why)
+
+
+def test_an_area_trigger_fires_l4_as_the_area_map_declares():
+    proj = _project(areas=[("api/", "api", ("security",))])
+    t = l4_trigger(["api/routes.py"], "", "SURFACE: none of the declared security invariants", proj)
+    assert t.fires and any("area `api`" in w for w in t.why)
+
+
+def test_added_lines_excludes_the_file_header():
+    assert added_lines("--- a/x\n+++ b/x\n@@\n-old\n+new\n") == ["new"]
+
+
+def test_the_l4_section_in_the_brief_agrees_with_the_trigger():
+    b = a_brief(l4=L4(fires=True, why=("security.paths `src/auth/`: src/auth/x.py",), surface="x", touched_security_path=True))
+    text = render(b)
+    assert "`verifier-security` must run" in text and "src/auth/x.py" in text
+    b = a_brief(l4=L4(fires=False, why=(), surface="none of the declared security invariants"))
+    assert "is not required" in render(b)
 
 
 def test_missing_bead_text_is_noted_not_silently_empty():
@@ -144,6 +230,10 @@ def test_build_against_head_produces_a_brief_far_smaller_than_the_diff(tmp_path)
     b = build("PROJ-1", "HEAD", tmp_path / "b")
     brief_md = (b.root / "brief.md").read_text()
     full = (b.diff_dir / "full.patch").read_text()
+    assert b.diff_dir == tmp_path / "b-diff", "--out X puts the diff at X-diff, beside the brief"
+    assert (b.diff_dir / "artefacts.md").exists() and (b.root / "l4.json").exists()
+    assert b.l4 is not None and b.hygiene is not None
+    assert "## Commit hygiene" in brief_md and "## L4 trigger" in brief_md
 
     assert not DIFF_BODY.findall(brief_md), "the real brief leaked a diff body"
     # A brief carries a fixed explanatory header, so on a SMALL diff it is legitimately

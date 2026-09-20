@@ -53,8 +53,8 @@ Repeat until **Stop conditions** (§8) are met:
 5. **Test adversarially** and add the test data needed to prove it (§5).
 6. **Fidelity-check** against any handover code/UI/spec (§6).
 7. **Update all affected documentation** (§7).
-8. **Verify** — independent three-lens agent review (§9). This gate is mandatory before closing.
-9. **Commit** the task as one clean commit (§10).
+8. **Commit** the task as one clean commit (§10) — the gate judges a commit.
+9. **Verify** — `${CLAUDE_PLUGIN_ROOT}/harness/swarm/lens-gate.sh <id> <sha> --lane <lane>` (§9). This gate is mandatory before closing; a FAIL means fix, commit, gate again.
 10. **Close, sync and push** (§10): one call, `${CLAUDE_PLUGIN_ROOT}/harness/swarm/close-wave.sh <id>="<reason>" --message "chore(tasks): close <id>" --restore-autosync`. Record durable insights with `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh remember "<insight>"`.
 11. Go to step 1.
 
@@ -156,44 +156,42 @@ Final summary must include: tasks completed (with ids), tasks filed (with ids an
 
 ## 9. Verification gate — independent lenses (mandatory before closing)
 
-**Before dispatching a lens, build the brief once and tell the lens to batch.**
-`${CLAUDE_PLUGIN_ROOT}/harness/verify/brief.sh <task-id> <sha>` replaces a ~96,000-token `git show` with a
-~1,700-token brief; `${CLAUDE_PLUGIN_ROOT}/harness/verify/scan.sh` and `peek.sh` collapse the searches and
-reads that make up ~63% of a lens's calls. The doctrine lives in the
-`evidence-gathering` skill, which all four lenses preload — but a lens still needs
-the brief *path* in its prompt, and `verifier-spec` (L3) must be given `brief.md`
-**without** anything under `diff/`.
+Commit the task first (§10's one clean commit), then — before closing — one call:
 
-Before closing **each** task, dispatch the verification lenses through the harness boundary
-(`${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh <lens> --prompt-file <path> --task <id>`), in parallel — one
-background Bash call each, all in a single message. No `--worker`: lenses are read-only. Do
-not close on your own say-so.
+```bash
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/lens-gate.sh <id> <sha> --lane <lane>       # no --branch: the change is on the primary
+```
 
-| Lens | Agent | Give it | Owns | When |
-|---|---|---|---|---|
-| L1 | `verifier` | task + acceptance criteria + the diff | correctness; one clean commit | always |
-| L2 | `verifier-tests` | the diff + the tests you added | are the tests adversarial or decorative | always |
-| L3 | `verifier-spec` | **the task id only — not the diff, not your summary** | docs, specs, ADRs, callers, blast radius | always |
-| L4 | `verifier-security` | the task + the diff | **what the wrong person can now reach** | **on trigger** |
+It builds the brief once (task text, acceptance criteria, commit hygiene and **the L4
+trigger** — `security.paths`, `security.tokens` in added lines, the area map, the task's
+`SURFACE:` line, and its absence), runs the suite **once** and hands its output to the
+lenses by path, dispatches L1–L3 (and L4 when the trigger fires) at once with L3 handed
+no diff path, applies unanimity, and on all-PASS writes the `VERIFIED <sha>` note the
+next run reads. **A lens that hung, was denied, was cut off or returned no `VERDICT:` line
+is NONE — never PASS**; the gate exits 2 and writes nothing. `/swarm` step 7 has the lens
+table and the per-step table.
 
-**L4 fires when the diff touches anything declared as a security surface** in `harness.yaml`
-(`security.paths`, `security.tokens`), plus **a new or changed response shape**, code reading
-another user's data, client-side auth or token handling, or anything naming a declared
-`security.invariants` entry. **Compute the trigger from
-`git diff --name-only` plus a grep of the diff body — never from your own summary of what you
-did.** You are the least reliable witness to a surface you did not realise you touched. When
-in doubt, dispatch: L4 returns `PASS (no security surface)` cheaply.
+| Lens | Agent | Owns | When |
+|---|---|---|---|
+| L1 | `verifier` | correctness; one clean commit | always |
+| L2 | `verifier-tests` | are the tests adversarial or decorative | always |
+| L3 | `verifier-spec` | docs, specs, ADRs, callers, blast radius — **from the repo, never the diff** | always |
+| L4 | `verifier-security` | **what the wrong person can now reach** | **on trigger** |
 
-The agents are defined once by the harness and are used by **both** this command and
-`/swarm`, so the gate cannot drift between the serial and parallel modes. All are read-only;
-L1 and L2 preload `test-doctrine` — the same standard you built to.
+**You are the least reliable witness to a surface you did not realise you touched** —
+which is why the trigger is computed from the diff and the task, never from your summary,
+and why doubt fires.
 
 **Unanimity to pass: any FAIL from any lens blocks the close.** L3 and L4 tag findings
 `blocking` (caused by this change) or `filed` (pre-existing); only `blocking` can FAIL you,
-and `filed` findings become new tasks. **L4 carries one deliberate exception:** a change that
-puts a *pre-existing* hole materially more in reach is `blocking`, because the change is what
-put it there. An L4 `critical` or `high` on a low-priority task means the task was
+and `filed` findings become new tasks. **L4 carries one deliberate exception:** a change
+that puts a *pre-existing* hole materially more in reach is `blocking`, because the change
+is what put it there. An L4 `critical` or `high` on a low-priority task means the task was
 mis-priced — **raise its priority**, do not discount the finding.
+
+On FAIL the gate prints the route (test-shaped → your own tests need hardening; L1/L3
+blocking → fix the code or the doc; L4 → fix and re-price). Fix every defect, commit the
+fix, and run the gate again on the new sha. Only a PASS clears the task for close.
 
 **Quality review — once per grind session, not per task.** Efficiency, robustness,
 reliability, clarity, performance, cross-codebase consistency, **exception strategy** and
@@ -205,26 +203,14 @@ for debugging. See `/swarm` step 8b for the full checklist.) Consistency finding
 two tasks can each be clean while introducing two idioms for one thing. Include the accretion
 check from `/swarm` step 8b: report any file past `signals.megafile_lines` that grew.
 
-Give it: the task id and acceptance criteria, the diff, the list of tests added, and any relevant handover. It will:
-
-- Confirm every acceptance criterion is met by the code (not just claimed).
-- Re-run the test suite and confirm green, and judge whether the tests are adversarial enough or merely decorative.
-- Check for missing edge cases, weakened assertions, skipped tests, and untested new code paths.
-- Confirm docs were updated to match behavior.
-- Return a clear **PASS** or **FAIL with specific, actionable defects.**
-
-If it returns FAIL, fix every defect and re-verify. Only a PASS clears the task for commit and close.
-
----
-
 ## 10. Version control — one commit per task
 
-After the verification gate passes:
+Before the verification gate — it judges a commit — and again after any fix it asks for:
 
 - Stage only the files belonging to this task and commit them as a **single, focused commit.**
 - Commit message: a concise imperative subject that references the task id, e.g. `feat: add rate limiting to login endpoint (bd-a1b2)`, with a body summarizing what changed and how it was verified.
 - Do not bundle multiple tasks into one commit. Keep the history one-task-per-commit so it's trivially reviewable. Do not open PRs — push straight to the branch.
-- **Then close the task, sync tasks state, and push — one call:**
+- **Then, once the gate has passed on that sha, close the task, sync tasks state, and push — one call:**
 
   ```bash
   ${CLAUDE_PLUGIN_ROOT}/harness/swarm/close-wave.sh <id>="<what changed, how verified>" --message "chore(tasks): close <id>" --restore-autosync

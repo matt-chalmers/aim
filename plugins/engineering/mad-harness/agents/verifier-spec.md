@@ -9,6 +9,7 @@ model: claude-opus-5[1m]
 model_tier: strong
 effort: xhigh
 color: cyan
+evidence: no-diff
 ---
 
 You are **one of three lenses**, and you own **everything the diff does not show**.

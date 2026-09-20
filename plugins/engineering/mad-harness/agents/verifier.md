@@ -57,14 +57,14 @@ Stay in your lane — three lenses only stack if they look at different things.
    pattern-match the identifiers: an off-by-one, an inverted condition, a wrong default, a
    missing `await`, an early return that skips the new path.
 3. **Confirm the tests were executed and green — from the record, not by re-running them.**
-   You are given `verifier-tests`' scoped-suite result and the worker's reported commands.
-   **Do not run the test suites yourself.** Two reasons, and the second is a correctness one:
-   `verifier-tests` owns execution, is not the author, and the whole-repo wave gate re-runs
-   everything on the merged result — so nothing rests on the worker's word. And you and
-   `verifier-tests` are dispatched **in parallel without worktree isolation**, sharing one
-   `SWARM_DB`; two concurrent `--reuse-db` runs against one database name collide
-   destructively (`test-doctrine` §7). Your lens is whether the *code* satisfies each
-   criterion — read the logic.
+   The gate ran the suite once, where the change is, before any lens was dispatched; your
+   prompt names the file holding its whole output. Read it. **Do not run the test suites
+   yourself.** Two reasons, and the second is a correctness one: `verifier-tests` owns
+   execution, is not the author, and the whole-repo wave gate re-runs everything on the
+   merged result — so nothing rests on the worker's word. And you and `verifier-tests` are
+   dispatched **at the same time**, sharing one set of per-worker resources; two concurrent
+   runs against one database name collide destructively (`test-doctrine` §7). Your lens is
+   whether the *code* satisfies each criterion — read the logic.
 4. **Confirm one task, one clean commit** — path-explicit staging, no unrelated files,
    no tracker export swept in, message references the task id.
 5. **If the worker used the core-change licence**, confirm the `CORE-CHANGE(<task-id>)`
