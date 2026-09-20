@@ -133,7 +133,9 @@ def test_the_happy_path_in_auto_runs_every_stage_and_applies(repo):
     fm = (folder / "spec-index.md").read_text()
     assert "generated_sha:" in fm and "verdict: ADEQUATE" in fm and "  - docs/features/widgets/README.md" in fm
     assert "next free decision-record number is 0008" in d.seen[2][1]
-    assert r.calls[-1][0].endswith("apply-plan.sh") and "--render" in r.calls[-1]
+    applied = [c for c in r.calls if c[0].endswith("apply-plan.sh")]
+    assert applied and "--render" in applied[-1]
+    assert r.keys()[-1] == "git status", "the sync (commit and push of the staging folder) follows the apply"
 
 
 def test_interactive_stops_at_the_design_and_at_the_dag_with_the_resume_command(repo):
@@ -297,6 +299,38 @@ def test_a_park_commits_and_pushes_the_tracker_state_and_never_restores_autosync
     add = next(c for c in r.calls if key(c) == "git add")
     assert "docs/tasks/issues.jsonl" in add, "the export is what the next session reads"
     assert "committed and pushed" in text and "campaign-signals.sh E-1 --outcome parked" in text
+
+
+def test_a_successful_plan_commits_the_staging_folder_too(repo):
+    """Measured: merge-wave.sh refused the first wave's merge on a dirty tree — the staged
+    design and spec index from plan-epic were never committed on the success path."""
+    r = Runner()
+    d = results_for(**{"analyst-survey": SURVEY, "architect": DESIGN, "planner": PLAN, "analyst": "VERDICT: PASS\n"})
+    text, code = seq(repo, r, d).run()
+    assert code == 0, text
+    keys = r.keys()
+    assert keys.index("apply-plan.sh") < keys.index("git commit") < keys.index("git push")
+    commit = next(c for c in r.calls if key(c) == "git commit")
+    assert "plan E-1" in " ".join(commit)
+    assert "committed and pushed" in text
+
+
+def test_detach_runs_the_same_argv_through_fanout_and_wait_exits_5_while_running(repo, monkeypatch):
+    from models import fanout
+    from models import plan_epic as mod
+
+    seen = {}
+    monkeypatch.setattr(fanout, "detach", lambda jobs, cap: seen.update(jobs=jobs, cap=cap) or "20260921-000000-1")
+    rc = mod.main(["E-1", "--mode", "auto", "--triage", "READY", "--detach"])
+    assert rc == 0 and seen["cap"] == 1
+    (job,) = seen["jobs"]
+    assert job.argv[0].endswith("swarm/plan-epic.sh") and list(job.argv[1:]) == ["E-1", "--mode", "auto", "--triage", "READY"]
+    assert "--detach" not in job.argv and job.task == "E-1"
+    monkeypatch.setattr(fanout, "wait", lambda run_id, timeout: (False, [], []))
+    assert mod.main(["--wait", "20260921-000000-1", "--timeout", "1"]) == 5
+    done = fanout.JobResult(name="plan-epic E-1", argv=("x",), rc=4, status="done", seconds=3, stdout="PARKED at architect", stderr="")
+    monkeypatch.setattr(fanout, "wait", lambda run_id, timeout: (True, [done], []))
+    assert mod.main(["--wait", "20260921-000000-1"]) == 4
 
 
 def test_no_push_parks_and_commits_without_pushing(repo):

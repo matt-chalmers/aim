@@ -26,8 +26,15 @@ genuine product, spec or design question, you do not resolve it and you do not g
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create "<the question>" -t decision -p 1 --description "<options and trade-offs>"
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh park <epic-id> --reason "<one line: what decision is owed>"     # the gate AND the status, one verb
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/halt.sh pause <epic-id>     # park (gate AND status), a resume point per claim, claims released, export committed and pushed, worktrees pruned
 ```
+
+**`halt.sh pause` is the whole park.** Measured: an orchestrator that parked with `tk.sh
+park` alone then spent 18 turns on what follows — four attempts at `tk.sh release`, the
+sync, the sweep, a run log, a commit, a push. `pause` is those as one call; it prints what
+it did and what is left. (`tk.sh park <epic> --reason …` is the verb underneath it, for a
+park with nothing in flight.) A `Permission:` record filed by the hook is a decision too:
+never answer it; pause.
 
 **`park` is two steps the tracker owns, not one the loop remembers.** `gate create <epic>`
 alone does NOT park an epic on beads — it refuses the blocking edge (*"epics can only block
@@ -242,8 +249,13 @@ epic before §5.
 ## 3. Design and plan — THE EPIC YOU ARE CURRENTLY ON — one call
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/swarm/plan-epic.sh <epic> --mode <interactive|auto> --triage <UNPLANNED|PARTIAL|READY>
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/plan-epic.sh <epic> --mode <interactive|auto> --triage <UNPLANNED|PARTIAL|READY> --detach   # prints a run id
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/plan-epic.sh --wait <run-id> --timeout 540                                                   # exit 5 = still running: call it again; otherwise the report, with the exit code below
 ```
+
+It runs ten to twenty-five minutes — longer than one Bash call may — so it is detached and
+waited on, two commands, like `fanout.sh`. Measured: an orchestrator that ran it inline
+had the call backgrounded by the cap and spent 22 turns polling for it by hand.
 
 Exit 0 planned and applied · 4 parked (the report says on what, and which command un-parks
 it; **the tracker export and the staging folder are already committed and pushed** — record

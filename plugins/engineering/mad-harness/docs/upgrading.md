@@ -1267,6 +1267,14 @@ config note: a stack may now declare `bootstrap.strategy: none`.
   judge by reading and re-running. A void lens's `NONE` line now carries the denials
   that voided it, with the remedy, and every lens prompt states the one-plain-command
   rule (measured: two rounds, $6.80, voided by `;`-joined status commands).
+- **And from the first run that completed waves** (2 waves, 1 task closed, a second
+  verified and merged; 112 orchestrator turns). Twenty-two of them polled a
+  `plan-epic.sh` call the 10-minute Bash cap had backgrounded: it now runs detached
+  through `fanout` (`--detach`, then `--wait <run-id>` until it stops exiting 5). Seven
+  turns found that `merge-wave.sh` refuses a dirty tree and that the sequencer's staged
+  design and spec index were committed on a park but not on success: it syncs on both.
+  Eighteen turns parked by hand — four attempts at `tk.sh release`, the sync, the sweep, a
+  run log, a commit, a push — where `halt.sh pause` is one call; the hard line now names it.
 - **The measurement the series owed.** `harness/wavelab/ab.sh release` A/Bs two plugin
   commits (default: 0.10.18 against HEAD); `--orchestrated` runs one headless
   `campaign-orchestrator` per arm and records its turns and cost per epic. The lab epic

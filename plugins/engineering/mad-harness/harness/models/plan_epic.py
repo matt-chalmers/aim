@@ -489,20 +489,23 @@ class Sequencer:
             if self.stop:
                 break
         code = self.stop[0] if self.stop else EXIT_OK
-        if code == EXIT_PARKED:
-            self.sync_park()
+        if code in (EXIT_PARKED, EXIT_OK):
+            self.sync_staging(code)
         return self.report(code), code
 
-    def sync_park(self) -> None:
-        """A park leaves tracker state behind — the gate, the PARKED note, the `decision`
-        or `REQUIREMENT:` tasks it filed, the staged spec index or proposal — and the
-        next session (or the owner answering the decision) reads it from the export.
-        Committed and pushed HERE, as `halt.sh pause` does, because the sequencer knows it
-        parked. Measured (the first orchestrated wavelab run of 0.10.28): told only "4
-        parked — move to the next epic", the orchestrator spent 16 of its 26 turns reading
-        preflight.py, campaign_auto.py and tracker_sync.py to decide what to commit and
-        whether autosync would be restored. autosync is NOT restored here: `campaign.sh`
-        (auto) and §5 (interactive) own that, as for every wave."""
+    def sync_staging(self, code: int) -> None:
+        """What §3 leaves on disk is committed by §3. A park leaves the gate, the PARKED
+        note, the `decision` or `REQUIREMENT:` tasks it filed and the staged spec index;
+        a SUCCESS leaves the staged `spec-index.md`, `design.md`, the draft decision
+        records and the applied plan's export and view — and `merge-wave.sh` refuses a
+        dirty tree before it takes the slot, so an uncommitted staging folder blocked the
+        first wave's merge until the orchestrator worked out what to commit (measured:
+        seven turns, `--help` on three scripts). Committed and pushed HERE, as `halt.sh
+        pause` does, because the sequencer knows what it wrote. Measured earlier: told
+        only "4 parked — move to the next epic", the orchestrator spent 16 of its 26 turns
+        reading preflight.py, campaign_auto.py and tracker_sync.py to decide what to
+        commit. autosync is NOT restored here: `campaign.sh` (auto) and §5 (interactive)
+        own that, as for every wave."""
         from . import tracker_sync
 
         export, raw = tracker_sync.export_path(self.runner, self.cwd)
@@ -513,15 +516,16 @@ class Sequencer:
         folder = self.folder()
         if folder and folder.is_dir():
             extra.append(str(folder.relative_to(self.cwd)) if folder.is_absolute() else str(folder))
+        what = f"park {self.epic} at {self.stop[1]}" if code == EXIT_PARKED else f"plan {self.epic} — staged survey, design and plan"
         self.results += tracker_sync.sync(
-            message=f"chore(tracker): park {self.epic} at {self.stop[1]}", epics=[self.epic], export=export, extra_paths=extra,
+            message=f"chore(tracker): {what}", epics=[self.epic], export=export, extra_paths=extra,
             push=self.push, stop_if_upstream_moved=False, restore_autosync=False, project=self.project, runner=self.runner, cwd=self.cwd,
         )
 
     def report(self, code: int) -> str:
         out = [f"plan-epic {self.epic} (MODE={self.mode})", render(self.results)]
         if code == EXIT_OK:
-            out.append("\nPLANNED — the DAG is in the tracker; `tk.sh validate` and the view ran with the apply. Next: §4, `wave-plan.sh <lane> --parent " + self.epic + "`.")
+            out.append("\nPLANNED — the DAG is in the tracker; `tk.sh validate` and the view ran with the apply; the staging folder and the export are committed and pushed (the sync lines above). Next: §4, `wave-plan.sh <lane> --parent " + self.epic + "`.")
         elif code == EXIT_STOP:
             stage = self.stop[1]
             art = self.state.art("staged_design") or self.state.art("design") if stage == "architect" else self.state.art("plan")
@@ -546,13 +550,27 @@ def main(argv: list[str] | None = None) -> int:
     from .project import ProjectError, load
 
     ap = argparse.ArgumentParser(prog="plan-epic.sh", description="campaign-loop §3 as a sequencer: survey → fold-in ① → architect → stage → planner → audit (≤2) → gate → apply. Interactive stops at the two approvals (exit 6); auto self-approves and parks on absent scope or an open decision.")
-    ap.add_argument("epic")
+    ap.add_argument("epic", nargs="?", help="the epic to plan (not needed with --wait)")
     ap.add_argument("--mode", choices=["auto", "interactive"], default="interactive")
     ap.add_argument("--from", dest="start", choices=STAGES, default="survey", help="resume at this stage (the state file carries the earlier artefacts)")
     ap.add_argument("--triage", choices=["UNPLANNED", "PARTIAL", "READY"], default=None, help="what epic-queue.sh said; READY asks the architect for a sanity-check")
     ap.add_argument("--reset", action="store_true", help="forget the state file first — plan from nothing")
     ap.add_argument("--no-push", action="store_true", help="a park commits the tracker state but does not push it")
+    ap.add_argument("--detach", action="store_true", help="run in the background through fanout; prints the run id to --wait on")
+    ap.add_argument("--wait", metavar="RUN_ID", help="block up to --timeout for a detached run; exit 5 while it is still running")
+    ap.add_argument("--timeout", type=int, default=540, help="seconds --wait blocks (default 540, under the 10-minute Bash cap)")
     args = ap.parse_args(argv)
+    # TEN TO TWENTY-FIVE MINUTES, longer than one Bash call may run. Measured: an
+    # orchestrator whose plan-epic.sh call was backgrounded by the cap spent 22 of its
+    # 110 turns polling for it — `ls`, `date`, `pgrep`, a hand-written wait script. The
+    # detach-and-poll shape fanout already has (exit 5 = still running) applies to this
+    # one long job too; the orchestrator types two commands and reads one report.
+    if args.wait:
+        return _wait(args.wait, args.timeout)
+    if not args.epic:
+        ap.error("the following arguments are required: epic")
+    if args.detach:
+        return _detach(argv if argv is not None else sys.argv[1:], args.epic)
     try:
         project = load()
     except ProjectError as exc:
@@ -568,6 +586,39 @@ def main(argv: list[str] | None = None) -> int:
     text, code = seq.run(args.start)
     print(text)
     return code
+
+
+def _detach(argv: list[str], epic: str) -> int:
+    from . import fanout
+
+    plain = [a for a in argv if a != "--detach"]
+    wrapper = HARNESS / "swarm" / "plan-epic.sh"
+    job = fanout.Job(name=f"plan-epic {epic}", argv=(str(wrapper), *plain), cwd=str(REPO), timeout=4 * 3600, task=epic)
+    run_id = fanout.detach([job], 1)
+    print(f"detached: plan-epic {epic} → run {run_id}")
+    print(f"next: `plan-epic.sh --wait {run_id} --timeout 540` — repeat while it exits 5; the report is printed when it lands")
+    return EXIT_OK
+
+
+def _wait(run_id: str, timeout: int) -> int:
+    from . import fanout
+
+    try:
+        done, results, jobs = fanout.wait(run_id, timeout)
+    except (OSError, ValueError) as exc:
+        print(f"no such run {run_id}: {exc}", file=sys.stderr)
+        return EXIT_FAILED
+    if not done:
+        print(f"still running: plan-epic run {run_id} — `plan-epic.sh --wait {run_id} --timeout {timeout}` again")
+        return 5
+    r = results[0] if results else None
+    if r is None:
+        print(f"run {run_id} finished with no result recorded", file=sys.stderr)
+        return EXIT_NO_JUDGE
+    print(r.stdout.rstrip())
+    if r.stderr.strip():
+        print(r.stderr.rstrip(), file=sys.stderr)
+    return r.rc if r.rc is not None else EXIT_NO_JUDGE
 
 
 if __name__ == "__main__":
