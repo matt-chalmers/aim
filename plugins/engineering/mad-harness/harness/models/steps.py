@@ -82,15 +82,22 @@ def execute(
     cwd: str,
     timeout: int = DEFAULT_TIMEOUT,
     runner=None,
+    env: dict[str, str] | None = None,
 ) -> Raw:
     """Run one command and report what happened. Never raises.
 
     :param runner: injected for tests; defaults to :func:`subprocess.run` and must
-        accept its keyword form (`argv, cwd=, capture_output=, text=, timeout=`).
+        accept its keyword form (`argv, cwd=, capture_output=, text=, timeout=`, and
+        `env=` when one is given).
+    :param env: the child's whole environment, when `cwd` alone does not place it —
+        every wrapper records `MAD_HARNESS_CALLER_PWD` and a child inherits the
+        caller's, so a script run in a worktree from a module run in the primary
+        resolves its checkout to the primary unless told otherwise.
     """
     run = runner or subprocess.run
+    kw = {"env": env} if env is not None else {}
     try:
-        proc = run(argv, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        proc = run(argv, cwd=cwd, capture_output=True, text=True, timeout=timeout, **kw)
     except subprocess.TimeoutExpired:
         return Raw(
             None,

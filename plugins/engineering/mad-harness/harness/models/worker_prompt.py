@@ -120,7 +120,7 @@ def build(task_id: str, *, lane: str | None, worker: int | None, extra: str = ""
         "",
         f"- Tests: `{HARNESS}/verify/run.sh {lane_arg}test_scoped <path>` (and `test` for the scoped suite). It loads this worktree's `.swarm-env` — your own per-worker resources — itself. Never `source .swarm-env`, never retype it, never prefix a command with `VAR=value`.",
         f"- Commit: `{HARNESS}/swarm/commit.sh {task.id} -m \"<type>(<scope>): … ({task.id})\" -- <every path you changed>` — one task, one commit, inside the merge slot; it refuses a contaminated index and the tracker's export. Do not push.",
-        f"- Claim: your claim on {task.id} was taken by the dispatcher under your actor; `tk.sh claim {task.id}` is idempotent for you. Close with `tk.sh close {task.id} --reason \"<what shipped, how verified>\"`.",
+        f"- Claim: your claim on {task.id} was taken by the dispatcher under your actor; `tk.sh claim {task.id}` is idempotent for you. NEVER `tk.sh close` it: the lens gate judges your commit and the orchestrator closes the task after it passes — a task its worker closed is reopened (measured). Put what shipped and how you verified it in your return line and in a `tk.sh note`.",
         "",
         "## What binds this task",
         "",

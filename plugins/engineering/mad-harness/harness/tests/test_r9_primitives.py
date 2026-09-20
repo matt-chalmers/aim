@@ -261,7 +261,7 @@ def test_no_mutation_log_is_said_to_l2_as_a_finding_not_omitted(tmp_path):
 
     assert lens_gate.mutation_log(str(tmp_path)) is None
     pr = lens_gate.prompts("T-1", "abc", _INFO, None, None, "--l4 always", None)
-    assert "No `mutate.sh` log was found" in pr["L2"] and "run your own aimed mutants" in pr["L2"]
+    assert "No `mutate.sh` log was found" in pr["L2"] and "no mutation evidence" in pr["L2"] and "cannot author a mutations file" in pr["L2"]
 
 
 # --- a reader's tracker is read-only by environment -----------------------------------

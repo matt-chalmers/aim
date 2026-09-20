@@ -38,6 +38,7 @@ Exit 0 every lens PASS and the VERIFIED note written · 1 any lens FAIL (nothing
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from . import fanout
@@ -59,7 +60,10 @@ EXIT_PASS, EXIT_FAIL, EXIT_NO_JUDGE, EXIT_USAGE = 0, 1, 2, 3
 BATCH = (
     "Gather evidence with the batch primitives: put every search into ONE `scan.sh` call and "
     "every slice you already know you want into ONE `peek.sh` call (the `evidence-gathering` "
-    "skill has the forms). Never `git show <sha>`."
+    "skill has the forms). Never `git show <sha>`. EVERY Bash call is ONE plain command — no "
+    "`;`, `&&`, `|`, `echo`, `python3 -c`, `VAR=x cmd`: a compound command is denied, and a "
+    "lens denied anything is VOID whatever verdict it writes (measured: two rounds, $6.80, "
+    "voided by `;`-joined status commands)."
 )
 
 
@@ -81,7 +85,13 @@ def _suite(lane: str | None, cwd: str, root: Path, runner) -> tuple[Path | None,
     """The suite, once, where the change is. Its whole output goes to a file the lenses
     read by path; the line carries the last few lines."""
     argv = [str(RUN)] + (["--lane", lane] if lane else []) + ["test"]
-    raw = execute(argv, cwd=cwd, timeout=SUITE_TIMEOUT, runner=runner)
+    # WHERE THE CHANGE IS, IN THE ENVIRONMENT TOO. `run.sh` resolves its checkout from
+    # `MAD_HARNESS_CALLER_PWD`, which this module's own wrapper exported as the PRIMARY;
+    # `cwd=` alone left the suite running at main without the commit under judgement, and
+    # reading green — measured, an orchestrated wavelab run, L1 noticed the log's location.
+    # The same inheritance the dispatcher strips for a worker (STRIPPED_FROM_CHILDREN).
+    env = {**os.environ, "MAD_HARNESS_CALLER_PWD": cwd}
+    raw = execute(argv, cwd=cwd, timeout=SUITE_TIMEOUT, runner=runner, env=env)
     name = "run.sh test (once, where the change is)"
     out = root / "suite.txt"
     out.write_text((raw.stdout or "") + ("\n--- stderr ---\n" + raw.stderr if raw.stderr else ""))
@@ -90,6 +100,26 @@ def _suite(lane: str | None, cwd: str, root: Path, runner) -> tuple[Path | None,
     if raw.returncode != 0:
         return None, Result(name, FAIL, f"could not judge — the suite is RED before any lens ran (exit {raw.returncode}); a lens over a red suite is the believe-the-report failure:\n{tail(raw.stdout) or tail(raw.stderr)}\nfull: {out}", raw)
     return out, Result(name, OK, f"{tail(raw.stdout, 1) or 'green'}\nfull: {out}", raw)
+
+
+def denials_for(agent: str, task: str, where: str, limit: int = 3) -> str:
+    """What the dispatcher refused this lens, from `harness.denied.jsonl`, as a suffix for
+    the NONE line — the reason and the remedy, so the orchestrator reads them here and
+    not by opening the events (measured: ten turns finding out why two lenses were void)."""
+    path = Path(where) / ".harness" / "run" / "events" / "harness.denied.jsonl"
+    try:
+        rows = [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
+    except (OSError, ValueError):
+        return ""
+    mine = [r.get("payload", r) for r in rows]
+    mine = [r for r in mine if r.get("agent") == agent and (r.get("task") in (task, None))]
+    if not mine:
+        return ""
+    lines = [f"\n  denied ({len(mine)}): " + "; ".join(str(r.get("command", ""))[:90].replace("\n", " ") for r in mine[-limit:])]
+    remedy = mine[-1].get("remedy")
+    if remedy:
+        lines.append(f"\n  remedy: {remedy}")
+    return "".join(lines)
 
 
 def mutation_log(where: str) -> Path | None:
@@ -108,7 +138,7 @@ def prompts(task: str, sha: str, info: dict, suite: Path | None, branch: str | N
     where = f"The change is on branch `{branch}`; your working directory is its worktree." if branch else "The change is on the branch you are in, at HEAD."
     suite_line = f"The suite already ran once, where the change is; its whole output is at `{suite}`. Read it; do not re-run the whole suite." if suite else "The suite was not run by the gate."
     mut_line = (f"The worker's mutation log is at `{mutants}` — confirm its provenance (right sha, the recheck line present) and spot-re-run THREE of its mutants; re-run the full set only if the log is absent, hand-rolled, or its recheck line is missing."
-                if mutants else "No `mutate.sh` log was found in the worktree — the worker did not run the mutation harness, which is itself a finding to weigh; run your own aimed mutants.")
+                if mutants else "No `mutate.sh` log was found in the worktree — the worker did not run the mutation harness. That is a FINDING (tag it; test-shaped): report `no mutation evidence`. You have no Write tool and cannot author a mutations file — do not try (a heredoc or `printf > file` is a compound command and voids your verdict); judge the tests by reading them and by re-running them through `run.sh`.")
     p = {
         "L1": f"""Judge task {task} for CORRECTNESS — commit {sha}. {where}
 Read the brief at `{brief}` (it carries the task text, the acceptance criteria, the L4 trigger and the commit-hygiene facts) and the diff artefacts listed in `{artefacts}` — the per-file patches for the files you reason about.
@@ -241,7 +271,7 @@ def run(
         text = (read_result or _read)(path)
         v = verdict_mod.parse(text)
         if out.status != fanout.OK:
-            why = "hung" if out.status == fanout.HUNG else f"dispatch exit {out.rc} — a denial, a refusal or a budget kill; the work did not happen whatever the text claims"
+            why = "hung" if out.status == fanout.HUNG else f"dispatch exit {out.rc} — a denial, a refusal or a budget kill; the work did not happen whatever the text claims" + denials_for(LENSES[job.name], task, where)
             verdicts[job.name] = verdict_mod.Verdict(verdict_mod.NONE, why)
             results.append(Result(f"{job.name} {LENSES[job.name]}", FAIL, f"NONE — {why}  ({out.seconds}s)\nfull: {out.full_path or path}"))
             continue

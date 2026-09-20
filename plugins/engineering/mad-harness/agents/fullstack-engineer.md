@@ -54,8 +54,10 @@ immediately and return `SKIPPED <id> already claimed`.** Never steal a task, nev
 different one. The claim is an atomic mutex and it is what keeps the swarm honest.
 
 Every tracker command must name an **explicit ID**. A bare `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update` hits whatever task was
-touched last by *any* agent. Close with `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close <id> --reason "…"` — the positional form
-`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close <id> "msg"` is wrong and errors.
+touched last by *any* agent. **You never close your task.** The lens gate judges your commit and
+the orchestrator closes the task once it passes; a task closed by its worker is reopened and
+noted as a protocol breach (measured). What shipped and how you verified it goes in your
+return line and a `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh note <id>`.
 
 ## 2. Understand before you build
 

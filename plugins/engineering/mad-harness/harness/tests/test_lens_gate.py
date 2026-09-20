@@ -40,6 +40,7 @@ class Runner:
 
     def __call__(self, argv, **kw):
         self.calls.append(list(argv))
+        self.kwargs = getattr(self, "kwargs", []) + [kw]
         a = self.answers[key(argv)]
         if isinstance(a, BaseException):
             raise a
@@ -116,11 +117,16 @@ def test_the_suite_runs_in_the_branch_worktree_and_l2_l3_are_dispatched_there(ro
     r = Runner(root)
     d = fake_dispatch({})
     gate(root, r, d, branch="harness-w2-T-1", lane="backend", worker=2)
-    suite = r.calls[r.keys().index("run.sh")]
+    i = r.keys().index("run.sh")
+    suite = r.calls[i]
     assert suite[1:] == ["--lane", "backend", "test"]
-    # the runner records cwd via kw; check through the jobs instead
-    by = {j.name: j.argv for j in d.seen["jobs"]}
     wt = str(root.parent.parent / "wt" / "harness-w2-T-1")
+    # IN THE ENVIRONMENT, not only the cwd: run.sh resolves its checkout from
+    # MAD_HARNESS_CALLER_PWD, which this module's wrapper exported as the primary. Measured:
+    # the suite ran at main without the commit, and read green, until L1 noticed the log's path.
+    assert r.kwargs[i]["cwd"] == wt
+    assert r.kwargs[i]["env"]["MAD_HARNESS_CALLER_PWD"] == wt, "cwd alone leaves the suite in the primary"
+    by = {j.name: j.argv for j in d.seen["jobs"]}
     assert "--cwd" in by["L2"] and by["L2"][by["L2"].index("--cwd") + 1] == wt
     assert "--cwd" in by["L3"] and by["L3"][by["L3"].index("--cwd") + 1] == wt
     assert "--cwd" not in by["L1"], "L1 reads the diff by sha; it needs no worktree"
@@ -176,6 +182,15 @@ def test_a_missing_verdict_or_a_denied_lens_is_exit_2_never_pass(root):
     r = Runner(root)
     text, code, _ = gate(root, r, fake_dispatch({}, statuses={"L1": "fail"}))
     assert code == 2 and "dispatch exit 1" in text and "tk.sh note" not in r.keys()
+
+    # The denials that voided it are on the NONE line — reason and remedy — so the
+    # orchestrator does not open the events to learn why (measured: ten turns doing so).
+    ev = root.parent.parent / ".harness" / "run" / "events"
+    ev.mkdir(parents=True, exist_ok=True)
+    (ev / "harness.denied.jsonl").write_text(json.dumps({"payload": {"agent": "verifier", "task": "T-1", "command": "git status; echo ===; git log -1", "reason": "no rule matched", "remedy": "A compound command matches no permission rule. Issue the parts as separate calls."}}) + "\n")
+    r = Runner(root)
+    text, code, _ = gate(root, r, fake_dispatch({}, statuses={"L1": "fail"}))
+    assert code == 2 and "denied (1): git status; echo ===; git log -1" in text and "remedy: A compound command" in text
 
     r = Runner(root)
     text, code, _ = gate(root, r, fake_dispatch({}, statuses={"L3": HUNG}))

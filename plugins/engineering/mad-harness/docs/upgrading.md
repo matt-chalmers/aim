@@ -1253,6 +1253,20 @@ config note: a stack may now declare `bootstrap.strategy: none`.
   cause is fixed": the orchestrator re-ran the stage three times unchanged, then parked
   and synced by hand in 13 turns. The report now names the choice — fix and `--from`, or
   file it and `halt.sh pause <epic>` as one call — and says a deterministic failure repeats.
+- **And from the first run that reached a wave.** The lens gate's suite step ran in the
+  primary at `main` — without the commit under judgement — and read green: `run.sh`
+  resolves its checkout from `MAD_HARNESS_CALLER_PWD`, which the gate's own wrapper had
+  exported as the primary, and `cwd=` alone did not move it (the R3 test used a fake
+  runner that could not see an environment). L1 noticed the log's path. The suite now
+  runs with the worktree in its environment too, and the test asserts it. The worker's
+  prompt told it to `tk.sh close` its task while `/swarm` step 9 closes after the lenses
+  — the worker did, and the orchestrator reopened it as a breach; the prompt and both
+  writer agents now say never. L2, given no worker mutation log, was told to "run your
+  own aimed mutants" — a reader with no Write tool authored a heredoc, was denied, and
+  its round was void: it is now told to report `no mutation evidence` as a finding and
+  judge by reading and re-running. A void lens's `NONE` line now carries the denials
+  that voided it, with the remedy, and every lens prompt states the one-plain-command
+  rule (measured: two rounds, $6.80, voided by `;`-joined status commands).
 - **The measurement the series owed.** `harness/wavelab/ab.sh release` A/Bs two plugin
   commits (default: 0.10.18 against HEAD); `--orchestrated` runs one headless
   `campaign-orchestrator` per arm and records its turns and cost per epic. The lab epic

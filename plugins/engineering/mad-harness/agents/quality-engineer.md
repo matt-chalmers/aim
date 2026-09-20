@@ -82,7 +82,7 @@ hard to write is a design smell, but the fix is a scalpel, not a rewrite.
 ## Process
 
 1. `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh claim <id>`. If already claimed by someone else, return `SKIPPED`. Always
-   name explicit IDs. Close with `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close <id> --reason "…"`.
+   name explicit IDs. Never close your task — the orchestrator closes it after the lens gate passes; a task its worker closed is reopened.
 2. `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh show <id>`, plus the diff you are hardening — the per-file patches under the brief
    your prompt names (`diff/by-file/<slug>.patch`), or `git show --stat <sha>` and `peek.sh --rev <sha>`
    for the files you reason about; never `git show <sha>`, which is the ~96k-token path — and

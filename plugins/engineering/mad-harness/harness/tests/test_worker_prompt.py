@@ -247,3 +247,12 @@ def test_the_wrappers_are_executable_and_run_the_modules():
     for n, m in (("commit.sh", "commit"), ("worker-prompt.sh", "worker_prompt")):
         sh = root / n
         assert sh.exists() and os.access(sh, os.X_OK) and f"python -m models.{m}" in sh.read_text(), n
+
+
+def test_the_worker_is_told_never_to_close_its_task(repo):
+    """Measured: a worker closed its own task after committing; the orchestrator reopened
+    it as a protocol breach — and the prompt had told it to. The lens gate judges, the
+    orchestrator closes."""
+    text = wp.build("T-7", lane="backend", worker=2, store=Store(a_task()), memories=[], project=project())
+    assert "NEVER `tk.sh close`" in text
+    assert "Close with `tk.sh close" not in text
