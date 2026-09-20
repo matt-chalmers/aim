@@ -131,6 +131,15 @@ for ARM in "${ARM_LIST[@]}"; do
     ENVS+=("MAD_HARNESS_EXPERIMENT=$LEVER:$ARM:$RUN")
     if [ "$ORCHESTRATED" = "1" ]; then
       LAB_REPO="$RUN_ROOT/$BACKEND"
+      EPIC=$(cd "$LAB_REPO" && "$FHARNESS/tracker/tk.sh" list --type epic --json | python3 -c 'import json,sys; r=[t for t in json.load(sys.stdin) if t["status"]!="closed"]; print(r[0]["id"] if r else "")')
+      [ -n "$EPIC" ] || { echo "!! no open epic in $LAB_REPO after reset" >&2; exit 4; }
+      # WHAT AN OWNER WOULD HAVE ANSWERED. The seeded epic contradicts itself — task A
+      # lowercases the address, the base test asserts `out == raw` with "A@B.com" — and
+      # says nothing about non-str values; an architect that reads carefully raises both as
+      # DECISION: lines and the hard line parks the epic at §3b (measured: the first run
+      # that got that far). Settled here, on the epic, as an owner does — the same words
+      # for both arms, so neither arm is measured on a park the other could not avoid.
+      ( cd "$LAB_REPO" && "$FHARNESS/tracker/tk.sh" note "$EPIC" "OWNER DECISION (wavelab, pre-answered), VERBATIM: 'Two things the tasks leave open, settled now. (1) tests/test_contact.py: its fixture may be changed to already-normalised values (a@b.com, +61400000000) so that its copy-not-the-original assertion still holds; the criterion \"still passes unchanged\" means that assertion, not the literal fixture. (2) Non-str values for email or phone (an int, a list) pass through clean_contact unchanged; only str values are normalised, and None becomes the empty string as the normalisers already say.' WHAT THIS SETTLES: the fixture and the non-str contract. Do not raise either as a DECISION." >/dev/null )
       # A real remote, so the close-out's push is a push and not a failure the arm pays for.
       # INSIDE THE REPOSITORY (gitignored), because the orchestrator pushes from inside its
       # sandbox, whose write set is the checkout and the caches: a remote beside the run
@@ -158,16 +167,7 @@ else:
     text = text.rstrip("\n") + f"\n\nharness:\n  version: {ver}\n"
 open(path, "w").write(text)
 PY
-      git -C "$LAB_REPO" -c user.email=wavelab@example.com -c user.name=wavelab commit -q -am "wavelab: stamp harness.version $ARM_VERSION" && git -C "$LAB_REPO" push -q
-      # WHAT AN OWNER WOULD HAVE ANSWERED. The seeded epic contradicts itself — task A
-      # lowercases the address, the base test asserts `out == raw` with "A@B.com" — and
-      # says nothing about non-str values; an architect that reads carefully raises both as
-      # DECISION: lines and the hard line parks the epic at §3b (measured: the first run
-      # that got that far). Settled here, on the epic, as an owner does — the same words
-      # for both arms, so neither arm is measured on a park the other could not avoid.
-      ( cd "$LAB_REPO" && "$FHARNESS/tracker/tk.sh" note "$EPIC" "OWNER DECISION (wavelab, pre-answered), VERBATIM: 'Two things the tasks leave open, settled now. (1) tests/test_contact.py: its fixture may be changed to already-normalised values (a@b.com, +61400000000) so that its copy-not-the-original assertion still holds; the criterion \"still passes unchanged\" means that assertion, not the literal fixture. (2) Non-str values for email or phone (an int, a list) pass through clean_contact unchanged; only str values are normalised, and None becomes the empty string as the normalisers already say.' WHAT THIS SETTLES: the fixture and the non-str contract. Do not raise either as a DECISION." >/dev/null )
-      EPIC=$(cd "$LAB_REPO" && "$FHARNESS/tracker/tk.sh" list --type epic --json | python3 -c 'import json,sys; r=[t for t in json.load(sys.stdin) if t["status"]!="closed"]; print(r[0]["id"] if r else "")')
-      [ -n "$EPIC" ] || { echo "!! no open epic in $LAB_REPO after reset" >&2; exit 4; }
+      git -C "$LAB_REPO" -c user.email=wavelab@example.com -c user.name=wavelab commit -q -am "wavelab: stamp harness.version $ARM_VERSION; the owner's settlement on the epic" && git -C "$LAB_REPO" push -q
       echo "-- orchestrated: campaign.sh --epic $EPIC from $FHARNESS"
       ( cd "$LAB_REPO" && env "${ENVS[@]}" "$FHARNESS/swarm/campaign.sh" --epic "$EPIC" --max-epics 1 ) || true
       # WHAT THE EPIC CAME TO, from the tracker — the orchestrator judged as it went, so
