@@ -78,35 +78,32 @@ worktree you did not just create.**
 inside the merge slot and you own integration. `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh memories` is the index;
 `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh recall <key>` pulls a body.
 
-## 2. Compute the wave
+## 2–3. Compose the wave, and the contention re-check — one call
 
-`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh ready --label <lane> --limit 20 --json`, take the top `n` by priority, clamp to the cap.
+```bash
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/wave-plan.sh <lane> [n] [--parent <epic>]      # opens the epic's wave manifest with --parent
+```
 
-## 3. Contention re-check — the last line of defence
+| what it does | rule |
+|---|---|
+| `tk.sh ready` for the lane | tasks carrying the lane's label; none labelled → every ready task, and it says so |
+| top `n` by priority, oldest first among equals | clamped to `min(n, lanes.<lane>.cap, CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS)` — **the global cap is the real ceiling; the lane cap decides the MIX** |
+| `resume-point.sh` for every candidate | **MERGE** needs no worker and is listed for step 8; VERIFY and REATTACH carry their branch into step 5 |
+| the paths each task names, that exist | **two candidates sharing a path → the lower-priority one is dropped, and it says which path.** The planner should have caught it; this is the backstop |
+| any shared path past `signals.megafile_lines` | **a lane of width 1 for this wave, however disjoint the functions look** — the check the dependency graph physically cannot do: `tk.sh validate` rated an epic 11-wide when five of its six wave-1 tasks touched one very large shared file |
+| `git merge-tree` between candidates that already have branches | a pair that conflicts drops the lower; git unable to say is *said*, never read as clean |
 
-For each candidate, pull the paths named in its description and notes. **If two candidates
-share a path, drop the lower-priority one from this wave and say so.** The planner should
-have caught it; this is the backstop.
+Then **two judgements on what it prints, and they are yours**:
 
-**Megafile check.** `wc -l` every candidate path. **Any file past `signals.megafile_lines`
-is a lane of
-width 1 for this wave** — at most one task may touch it, however disjoint the functions look.
-Name which task won the file and which was deferred. This is the check the dependency graph
-physically cannot do: `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh validate` has rated an epic 11-wide when five of its six wave-1
-tasks touched one very large shared file. The threshold is `harness.yaml` → `signals.megafile_lines`.
+**Shared vocabulary.** Read the candidate titles and first lines side by side and name any
+**shared new thing** — the same new field, error code, decision-record number, component or
+schema. If two tasks would each *introduce* it, one must **consume** it instead: drop the
+second and say so. Same failure class as a shared path, different surface.
 
-**Shared-vocabulary check.** Read the candidate descriptions side by side and name any
-**shared new thing** — the same new field, error code, decision-record number, component or schema.
-If two tasks would each *introduce* it, one must **consume** it instead: drop the second and
-say so. Same failure class as a shared path, different surface.
-
-**New-file check — the one the path sweep structurally cannot do.** Every check above
-operates on files that **already exist**: you pull the paths a task names and `wc -l` them. So
-two tasks that each *create* the same new file collide **invisibly** — no description names it,
-and the sweep returns nothing.
-
-Ask of every candidate: **what will this task create?** Then compare the answers. The usual
-suspects, in order of how often they collide:
+**New files — the one the path sweep structurally cannot do.** Every mechanical check above
+operates on files that **already exist**. Two tasks that each *create* the same new file
+collide **invisibly**. The script lists what each candidate says it will create; compare
+the answers. The usual suspects, in order of how often they collide:
 
 | Likely new file | Why it collides |
 |---|---|
@@ -120,19 +117,6 @@ This is not theoretical: two tasks in one wave each created the same new test-fa
 the contention check passed clean, and the conflict surfaced at merge. **If two tasks in a wave
 touch the same context's tests at all, treat a shared factory module as presumed contention and
 name which task owns it.**
-
-**And verify mechanically before you merge anything** — `git merge-tree` is instant, needs no
-worktree, and has no side effects:
-
-```bash
-git merge-tree --write-tree <branchA> <branchB>     # exit 0 = clean
-git merge-tree <base> <branchA> <branchB> | grep -c '<<<<<<<'
-```
-
-It reports `added in both` / `changed in both` by path. Run it at **step 3** against your
-predicted paths if you can, and **always at step 8** against the real branches before the first
-merge — a conflict discovered mid-merge costs a re-plan; the same conflict discovered here
-costs one line of the wave report.
 
 ## 4. Confirm
 
@@ -163,9 +147,20 @@ one) and prefixes its prompt with *RESUMING — do not start over*, the commit c
 uncommitted changes exist. It also lists any *other* refs holding work for the task; the sweep
 reports those as IN FLIGHT and they are yours to adopt or prune.
 
-**Dispatch every agent with `${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh`, not the Agent tool.** Write each
-prompt to a file, then run all `n` in ONE message as background Bash calls — otherwise they
-run sequentially and you have gained nothing.
+**Dispatch every agent with `${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh`, not the Agent tool — and all
+`n` through one `fanout.sh` call.** Write each prompt to a file, write the `n` dispatch lines
+to a jobs file, then:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/fanout.sh --jobs <file> --cap <n> --wave <epic>-w<k>     # every job at once, each with a timeout; records `dispatched`
+```
+
+It answers for every job — first line and `full:` path each — and a job past its timeout is
+**HUNG**, never left to hold the wave. Headless, `--detach` then `--wait <id>` (exit 5 = still
+running, call it again). Before it existed you ran `n` background Bash calls in one message
+and read `n` rc files; sequential dispatch was the known lapse.
+
+The jobs file, one per line, no shell:
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh <agent> --prompt-file <path> --task <id> --worker <n> --lane <lane> --digest
@@ -320,68 +315,39 @@ A near-zero FAIL rate across the lenses is not reassurance — it means the gate
 
 ## 8. Integrate + wave gate — serial, yours alone
 
-**Merge every passing branch first, then gate the result once.** That includes every branch
-step 5 found at **MERGE**, and every VERIFY branch that passed in step 7 without a worker being
-dispatched — adopted work merges exactly like this wave's. Inside a single
-`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-acquire` / `release`, merge each passing branch in ascending task-id order,
-recording `git rev-parse HEAD` after each so you have an ordered list `M1…Mn`. **Run no suite
-between merges.**
-
-Then run the gate **once**, on the merged result, on the **default** `DB_NAME` — as **two
-Bash calls in a single message**, so the halves run concurrently:
-
-Issue **one Bash call per stack**, and let the harness compose it — the commands come
-from that stack's config, so nothing in this file has to know which runner your project
-uses:
-
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/verify/run.sh --stack <name> lint typecheck test
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/merge-wave.sh <branch>... --lane <lane> --wave <epic>-w<k>
 ```
 
-For a two-stack repo that is two calls. Every key you name produces a line, **including
-one the stack does not declare** — reported as `--`, never silently skipped, so a gate
-cannot look green because a step quietly did not run.
+Every passing branch — this wave's, every branch step 5 found at **MERGE**, every VERIFY branch
+the gate passed without a worker. Adopted work merges exactly like this wave's.
 
-**Every call must be green — one green and one red is a red gate.** Separate stacks share no
-file, port, database or process, so running them concurrently is a scheduling change only.
-Issue them in *one* message; separate messages run serially and you have paid for the
-serialisation you were removing. **Do not split further than one call per stack** — type
-checkers and bundlers each hold 1–2 GB, and four at once is where a machine dies.
+| step | rule |
+|---|---|
+| every argument is a ref; the tree is clean | checked **before** the slot is taken; a typo merges nothing |
+| `tk.sh slot-acquire` … `slot-release` | the release is in a `finally` — **a slot held by a dead run blocked the next wave forever**, and `/halt` §4 existed for it |
+| merge each **from the ref**, ascending by task id, `--no-ff` | never from a worktree you did not just create: one was found holding a **staged revert** of its own fix while `git log` on the branch showed the good commit |
+| a conflict | `git merge --abort`, the branch left unmerged with its paths named, **the rest of the wave continues** — never resolved here |
+| the gate, **once, on the merged result** | one `run.sh --stack <s> lint typecheck test` per declared stack, concurrently and never split further (type checkers and bundlers each hold 1–2 GB). Every key answers; an undeclared one is `--`; **a stack with nothing declared is not green**. Per-merge gating certifies states that are never pushed — `M1+M2+M3` is the only state that ships |
+| red → attributed | the failing paths in the gate's digest → the commits since the wave base that touched them → the task ids their subjects name. `git revert -m 1 <merge sha>` is **suggested, never done**; zero extra suite runs |
 
-Gating once rather than per merge is not a weakening. Per-merge gating certifies `M1` and
-`M1+M2` — states that are never pushed and do not survive the wave. `M1+M2+M3` is the only
-state that ships, and it is gated identically. Per-merge is arguably *weaker*: it invites
-treating "M1 was green" as evidence about M1's task, when that task actually ships inside the
-full merge, where an M1↔M3 interaction defect is invisible to the M1 gate.
+**Merge conflicts: never resolved by a worker, and never quietly by you.** A conflict is a
+**planning defect first** — step 3's contention check missed a shared path — and its count is
+health signal ④. **Default: re-queue.** The task re-dispatches next wave on top of the merged
+result; one task = one commit = one small change by construction, so the worker re-derives it
+in minutes. Rebase-and-retry is almost always cheaper and safer than a resolution, and it
+preserves the authorship-independence principle the whole design rests on — the two authors
+are the worst parties to arbitrate, and you chose the wave, so you are the party least
+motivated to record the miss honestly. **Only if a re-queue would lose real work** — both
+tasks legitimately extend the same file and the second change was large or hard-won — resolve
+it yourself as the neutral party, taking the union of both acceptance criteria, state which
+hunks came from whom and why, and send the result through every lens before the gate.
 
-**Red → attribute before you re-run anything:**
-
-1. **Read the failure.** The gate names the failing test and file;
-   `git log --oneline -- <failing path>` names the task. This is unambiguous by construction —
-   step 3 guarantees no two tasks in a wave share a path, and every task is one commit with
-   path-explicit staging. **Zero extra suite runs**, and it resolves most reds.
-2. **Only if that is ambiguous** (a cross-task interaction with no shared path — rare, by the
-   same construction): `git reset --hard <wave-base>`, re-merge `M1`, and run **only the
-   failing test ids** — seconds, not the suite. Add one merge at a time until it goes red.
-3. Revert the culprit, re-run the gate once, and file a fix task against that task id. Record
-   the attribution in the wave report; it is health-signal ④ evidence.
-
-**Merge conflicts: never resolved by a worker, and never quietly by you.**
-
-- A conflict is a **planning defect first** — step 3's contention check missed a shared path.
-  **Record which path in the wave report**; that count is health signal ④.
-- **Default: abort and re-queue.** `git merge --abort`, leave that branch unmerged, and
-  re-dispatch the task next wave on top of the merged result. One task = one commit = one
-  small change by construction, so the worker re-derives it in minutes. Rebase-and-retry is
-  almost always cheaper and safer than a resolution, and it preserves the
-  authorship-independence principle the whole design rests on — the two authors are the worst
-  parties to arbitrate, and you chose the wave, so you are the party least motivated to record
-  the miss honestly.
-- **Only if a re-queue would lose real work** — both tasks legitimately extend the same file
-  and the second change was large or hard-won — resolve it yourself as the neutral party,
-  taking the union of both acceptance criteria, and state which hunks came from whom and why.
-  Then send the result through every lens that applies before the gate, like any other change. Whole-repo checks belong here and nowhere else — run inside a
-worker they produce phantom failures from siblings' in-flight edits.
+**Red → the attribution names the task.** Revert the culprit (the suggested command), re-run
+the gate once (`run.sh --stack <s> lint typecheck test`), file a fix task against that id, and
+record the attribution in the wave report. Only if the attribution is empty — a cross-task
+interaction with no shared path, rare by construction — bisect: `git reset --hard <wave-base>`,
+re-merge one at a time, run **only the failing test ids**.
 
 ## 8b. Wave-stage code review — quality, once per wave, non-blocking
 
@@ -431,17 +397,12 @@ Ask it for, in priority order:
    - **The silent paths.** A branch that swallows, degrades or falls back and logs *nothing*
      is the one that costs hours later. Flag it even when the swallow itself is correct.
 
-**Plus a mechanical accretion check — two lines, no agent:**
-
-```bash
-for f in $(git diff --name-only <wave-base>..HEAD); do
-  [ -f "$f" ] && [ "$(wc -l < "$f")" -gt "${MEGAFILE:-1000}" ] && echo "MEGAFILE GREW: $f now $(wc -l < "$f")"
-done
-```
-
-Report every hit. A file past `signals.megafile_lines` that grew in this wave while its
-decomposition task sat untouched is the campaign quietly making the problem worse, and the
-number belongs in the wave report where it is visible — not discovered a year later.
+**The accretion check is signal ①c** — `wave-report.sh` (step 10) computes it from the
+manifest's wave base against `signals.megafile_lines`. A file past the threshold that grew in
+this wave while its decomposition task sat untouched is the campaign quietly making the
+problem worse, and the number belongs in the wave report where it is visible — not discovered
+a year later. (This used to be a bash `for` loop pasted here with `${MEGAFILE:-1000}` where
+the declared threshold should have been read.)
 
 ## 9. Tasks sync and push — once per wave, never per worker
 
@@ -471,24 +432,29 @@ push fails, resolve and re-run `close-wave.sh --sync-only --restore-autosync`.
 ## 10. Report, then offer the next wave
 
 
-Tasks completed / filed / blocked, wave-gate result, and a fresh
+```bash
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/wave-report.sh <epic>-w<k>       # the four signals, computed, with direction against the previous wave
+```
+
+Tasks completed / filed / blocked, the wave-gate result, the report's table, and a fresh
 `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh ready --label <lane>`.
 
 **To stop mid-wave**, see `/halt`: `Esc` interrupts the orchestrator, `/tasks` stops
 individual in-flight workers, and `/halt` cleans up after — claims, the merge slot,
 uncommitted worker edits, and `export.auto`.
 
-**Report these four numbers every wave, and say which direction each moved.** A signal you do
-not write down is not a signal.
+**The four numbers are computed every wave and written to the manifest; what each one MEANS
+is yours to say.** A signal you do not write down is not a signal — and until 0.10.22 nothing
+wrote them down.
 
-| # | Signal | Source | Bad value, and what it means |
-|---|---|---|---|
-| ① | **First-pass PASS rate** — tasks clearing every applicable lens first time | the gate | above `signals.baselines.first_pass_ceiling` sustained → the gate has gone soft. Below `first_pass_floor` → the *tasks* are underspecified; fix the planner, never the worker (a worker cannot ask a question) |
-| ①b | **L4 dispatch rate** — waves touching a declared `security.path` where L4 never fired | the trigger | a wave that changed an endpoint without dispatching L4 has a broken trigger, not a clean record |
-| ①c | **Megafiles that grew** (step 8b) | the accretion check | any file past `signals.megafile_lines` growing while its decomposition task sits untouched |
-| ② | **Escape rate** — `fix:`/`revert:` share of the last 200 commits | `git log --oneline -200 \| grep -ciE '^[0-9a-f]+ (fix\|revert)'`, against `signals.baselines.escape_rate` | rising materially above your recorded baseline, or **any `revert:` of a swarm commit**. This is the defect the gate missed, and the number that says whether L3 earned its keep |
-| ③ | **Changed lines per satisfied acceptance criterion** | `git show --stat <sha>` | any single task over ~400 changed lines → the "one task = one reviewable change" slicing rule has slipped. Published agent benchmarks show *less* code for the same grade, so growth here is a warning, not throughput |
-| ④ | **Wave yield** (dispatched → closed same wave) **+ merge conflicts** | this report | **<60% yield**, or **any non-zero conflict count** — a conflict is a step-3 miss by definition. The shape of the losses names the fix: contention drops → step 3; `SKIPPED already claimed` → stale queue; `NEEDS-SERIAL-LANE` → planner ignored the singletons; `BLOCKED` → the split-brain pass is not running |
+| # | Signal | Bad value, and what it means |
+|---|---|---|
+| ① | **First-pass PASS rate** — tasks clearing every applicable lens first time | above `signals.baselines.first_pass_ceiling` sustained → the gate has gone soft. Below `first_pass_floor` → the *tasks* are underspecified; fix the planner, never the worker (a worker cannot ask a question) |
+| ①b | **L4 dispatch rate** — rounds touching a declared `security.path` where L4 never fired | a wave that changed an endpoint without dispatching L4 has a broken trigger, not a clean record |
+| ①c | **Megafiles that grew** | any file past `signals.megafile_lines` growing while its decomposition task sits untouched |
+| ② | **Escape rate** — `fix:`/`revert:` share of the last 200 commits, against `signals.baselines.escape_rate` | rising materially above your recorded baseline, or **any `revert:` of a swarm commit**. This is the defect the gate missed, and the number that says whether L3 earned its keep. No baseline yet → the report says so; record the first measurement |
+| ③ | **Changed lines per satisfied acceptance criterion** | any single task over ~400 → the "one task = one reviewable change" slicing rule has slipped. Published agent benchmarks show *less* code for the same grade, so growth here is a warning, not throughput |
+| ④ | **Wave yield** (dispatched → closed same wave) **+ merge conflicts** | **<60% yield**, or **any non-zero conflict count** — a conflict is a step-3 miss by definition. The shape of the losses names the fix: contention drops → step 3; `SKIPPED already claimed` → stale queue; `NEEDS-SERIAL-LANE` → planner ignored the singletons; `BLOCKED` → the split-brain pass is not running |
 
 **Cost proxy.** `make models-cost` reports real per-dispatch cost from the boundary's own
 telemetry. If a wave costs materially more than the same tasks under `/grind` without a quality

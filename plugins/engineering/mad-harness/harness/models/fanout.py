@@ -198,19 +198,20 @@ def detach(jobs: list[Job], cap: int, base: Path | None = None, popen=None) -> s
     return run_id
 
 
+def _write_result(d: Path, jobs: list[Job], r: JobResult) -> None:
+    """`job-<i>.{out,err,json,rc}` — i is the job's position in the jobs file."""
+    i = next(i for i, j in enumerate(jobs) if j.name == r.name)
+    (d / f"job-{i}.out").write_text(r.stdout)
+    (d / f"job-{i}.err").write_text(r.stderr)
+    (d / f"job-{i}.json").write_text(json.dumps({**asdict(r), "argv": list(r.argv)}) + "\n")
+    (d / f"job-{i}.rc").write_text(f"{r.rc if r.rc is not None else 'hung'}\n")
+
+
 def supervise(d: Path) -> int:
     """The detached side: run the jobs, write each result as it lands, then `done`."""
     spec = json.loads((d / "jobs.json").read_text())
-    jobs = [Job(**j) if isinstance(j.get("argv"), tuple) else Job(**{**j, "argv": tuple(j["argv"])}) for j in spec["jobs"]]
-
-    def on_done(r: JobResult) -> None:
-        i = jobs.index(next(j for j in jobs if j.name == r.name))
-        (d / f"job-{i}.out").write_text(r.stdout)
-        (d / f"job-{i}.err").write_text(r.stderr)
-        (d / f"job-{i}.json").write_text(json.dumps({**asdict(r), "argv": list(r.argv)}) + "\n")
-        (d / f"job-{i}.rc").write_text(f"{r.rc if r.rc is not None else 'hung'}\n")
-
-    run_jobs(jobs, spec.get("cap", 4), on_done=on_done)
+    jobs = [Job(**{**j, "argv": tuple(j["argv"])}) for j in spec["jobs"]]
+    run_jobs(jobs, spec.get("cap", 4), on_done=lambda r: _write_result(d, jobs, r))
     (d / "done").write_text(time.strftime("%Y-%m-%dT%H:%M:%S") + "\n")
     return 0
 
@@ -280,6 +281,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--detach", action="store_true", help="start a supervisor and print the run id")
     ap.add_argument("--wait", metavar="RUN_ID", help="block for a detached run")
     ap.add_argument("--wave", help="record `dispatched` on this wave manifest (<epic>-w<n>)")
+    ap.add_argument("--out-dir", help="run mode: also write each job's out/err/rc/json under this directory, as --detach does")
     ap.add_argument("--supervise", metavar="DIR", help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
 
@@ -318,7 +320,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{len(jobs)} job(s) started under a supervisor; `fanout.sh --wait {run_id} --timeout 540` — exit 5 means still running, call it again")
         return 0
 
-    results = run_jobs(jobs, args.cap)
+    on_done = None
+    if args.out_dir:
+        d = Path(args.out_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "jobs.json").write_text(json.dumps({"cap": args.cap, "jobs": [asdict(j) for j in jobs]}, indent=2) + "\n")
+        on_done = lambda r: _write_result(d, jobs, r)  # noqa: E731
+    results = run_jobs(jobs, args.cap, on_done=on_done)
     text, code = report(results, jobs, True)
     print(text)
     if args.wave:

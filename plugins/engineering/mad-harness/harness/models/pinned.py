@@ -75,7 +75,7 @@ def in_flight() -> dict[str, Any]:
     """Everything a campaign leaves on disk while it runs. Empty when idle."""
     import tracker
 
-    state: dict[str, Any] = {"claims": [], "slot": None, "worktrees": worktrees()}
+    state: dict[str, Any] = {"claims": [], "slot": None, "worktrees": worktrees(), "waves": []}
     try:
         co = tracker.coordination()
         state["claims"] = co.claims()
@@ -83,6 +83,22 @@ def in_flight() -> dict[str, Any]:
         state["slot"] = None if slot.free else f"{slot.holder}{' (STALE)' if slot.stale else ''}"
     except Exception as exc:  # noqa: BLE001 — a tracker that cannot answer is reported, never fatal here
         state["error"] = str(exc)[:200]
+    # THE OPEN WAVES — what the breakers' counters live on. A compaction that loses the
+    # orchestrator's memory of "this is wave 3 and T-4 is on its second round" loses
+    # nothing the manifest holds; this line is where it finds it again.
+    try:
+        from . import wave_manifest as wm
+
+        d = wm.waves_dir()
+        for path in sorted(d.glob("*-w*.json")) if d.is_dir() else []:
+            try:
+                doc = wm.load(path)
+            except ValueError:
+                continue
+            if not doc.get("closed_at"):
+                state["waves"].append(wm.summary_line(doc))
+    except Exception as exc:  # noqa: BLE001 — same rule: reported, never fatal
+        state.setdefault("error", str(exc)[:200])
     return state
 
 
@@ -149,6 +165,11 @@ def render(state: dict[str, Any], summary: str | None = None, source: str = "") 
     if state.get("worktrees"):
         for task, path in state["worktrees"]:
             lines.append(f"- `{task}` → {path}")
+    else:
+        lines.append("- none")
+    lines.append("\n## Open waves")
+    if state.get("waves"):
+        lines += [f"- {w}  (`breakers.sh <epic>` says what tripped; `wave-report.sh` the signals)" for w in state["waves"]]
     else:
         lines.append("- none")
     rules = invariants()

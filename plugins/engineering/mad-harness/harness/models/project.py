@@ -573,6 +573,30 @@ class Project:
             )
         return str(prefix)
 
+    def lanes(self) -> dict[str, dict[str, Any]]:
+        """`lanes:` as declared — each with its stacks, agent, `cap` and the constraint that
+        set it. A cap is a measured property of the machine, so it lives here, not in prose."""
+        return {str(k): dict(v or {}) for k, v in (self.raw.get("lanes") or {}).items()}
+
+    def lane_cap(self, lane: str) -> int | None:
+        raw = self.lanes().get(lane, {}).get("cap")
+        try:
+            return int(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def signals(self) -> dict[str, Any]:
+        """`signals:` — the megafile threshold and the health-signal baselines the wave
+        report and the breakers read. Absent keys are None, never a guessed default."""
+        return dict(self.raw.get("signals") or {})
+
+    def megafile_lines(self) -> int | None:
+        raw = self.signals().get("megafile_lines")
+        try:
+            return int(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            return None
+
     def security_paths(self) -> list[str]:
         return list(self.security.get("paths") or [])
 

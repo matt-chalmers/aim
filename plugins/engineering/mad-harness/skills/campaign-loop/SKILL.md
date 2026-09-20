@@ -798,10 +798,12 @@ remain the `decision`-task hard line and the circuit breakers.
 
 Repeat, up to **`MAX_WAVES = 6`** per epic:
 
-1. **Pick the dominant lane** from `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh ready --parent <epic> --json` and clamp `n` to the
-   lane cap from `harness.yaml` → `lanes.<name>.cap`. `/swarm`'s per-class table is
-   authoritative for agent classes and caps `verifier-tests` and `fidelity-auditor` at 2
-   regardless of the lane.
+1. **Pick the dominant lane** from `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh ready --parent <epic> --json`, then
+   compose the wave with `${CLAUDE_PLUGIN_ROOT}/harness/swarm/wave-plan.sh <lane> --parent <epic>` — it clamps
+   `n` to the lane cap and the global cap, asks every candidate's resume point, drops shared
+   paths and megafiles, and opens the epic's wave manifest (`<epic>-w<k>`) that every wave
+   script below writes to. `/swarm`'s per-class table is authoritative for agent classes and
+   caps `verifier-tests` and `fidelity-auditor` at 2 regardless of the lane.
 2. **Run the `/swarm` procedure, steps 2–9**, scoped to this epic's ready queue: contention
    re-check (including the megafile width-1 rule and the shared-vocabulary check), dispatch
    all `n` in a single message, collect, **the verification gate** — one call per `PASS`
@@ -856,11 +858,22 @@ Repeat, up to **`MAX_WAVES = 6`** per epic:
    of the fix, while `git log` on the branch still showed the good commit. Sweeping after every
    wave keeps the count near zero, so the one that is left is always the one that means
    something. It never touches uncommitted work.
-5. **Circuit breakers — check after every wave:**
+5. **Circuit breakers — one call after every wave:**
+
+   ```bash
+   ${CLAUDE_PLUGIN_ROOT}/harness/swarm/breakers.sh <epic>        # exit 0 clear · 1 tripped, your call · 2 hard park · 3 stop the run
+   ```
+
+   Every trip is a count over the wave manifests — which is why they are on disk: until
+   0.10.22 these counters lived only in your context, which a compaction loses (a summary
+   kept 2 of 9 task ids), and the recorded consequence was overriding the third-round breaker
+   three times across three tasks in one run. The script says **which** tripped and quotes
+   the action; **the action is yours** to take, or to override — saying in the report that
+   you did, why, and that it is an override.
 
    | Trip | Action |
    |---|---|
-   | Wave gate red twice in a row | gate the culprit task, then **re-check** (below) |
+   | Wave gate red twice in a row | gate the culprit task (the gate attributed it), then **re-check** (below) |
    | The same task FAILs the lenses twice | gate that task (not the epic), continue |
    | **A task enters a THIRD lens round** | **SPLIT it, do not remediate again** — see below |
    | A `decision` task appears | gate that task — the hard line — then **re-check** |

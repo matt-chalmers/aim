@@ -8,10 +8,14 @@
 # usable identity, and whether two workers racing for the same task actually exclude each
 # other. Everything up to the dispatch is already covered by test_wave_integration.py.
 #
-# NOT a reimplementation of /swarm. It runs the ready set at the lane cap and, with
-# --lens, the correctness lens over each result. The contention matrix, the unanimity
-# rule and the circuit breakers are the orchestrator's judgement, and an agent reading
-# /swarm is what exercises those.
+# THROUGH THE PRODUCTION SCRIPTS since 0.10.22: `swarm/wave-plan.sh` composes the wave
+# (the ready set for the lane at its cap, resume points, shared paths dropped) and opens
+# the wave manifest; `swarm/fanout.sh` runs the dispatches at once, each with a timeout,
+# and records `dispatched` on the manifest; `--lens` is `lens-wave.sh`, which is
+# `swarm/lens-gate.sh` per task. The shared-vocabulary and new-file checks, the routing of
+# a FAIL and the breakers' actions are the orchestrator's judgement, and an agent reading
+# /swarm is what exercises those. Until 0.10.22 this was its own dispatch loop with a
+# hand-written prompt template — a lab-grade copy of what /swarm had the orchestrator do.
 set -euo pipefail
 
 
@@ -55,27 +59,37 @@ tk autosync off
 # THE SEEDED EPIC'S TASKS ONLY, as /swarm scopes a wave to one epic. A worker filed a bug
 # it found into the tracker mid-task — correctly — and the unscoped ready set dispatched
 # that bug as the next wave's work, where a worker spent the whole ceiling trying to fix
-# the harness from inside the lab repository.
+# the harness from inside the lab repository. `wave-plan.sh --parent` is that scope, plus
+# the lane cap, the resume point of every candidate and the contention cut — and it opens
+# the epic's wave manifest, which fanout and the lens gate then write to.
 EPIC=$(tk list --type epic --json | python3 -c 'import json,sys; r=[t for t in json.load(sys.stdin) if t["status"]!="closed"]; print(r[0]["id"] if r else "")')
-READY=$(tk ready --parent "$EPIC" --json | python3 -c '
-import json, sys
-rows = json.load(sys.stdin)
-print(" ".join(t["id"] for t in rows if t["type"] != "epic"))')
+[ -n "$EPIC" ] || { echo "no open epic — run seed-epic.sh"; exit 0; }
+set +e
+PLAN=$("$HARNESS/swarm/wave-plan.sh" backend --parent "$EPIC" --json 2> "$SCRATCH/wave-plan.err")
+PRC=$?
+set -e
+if [ "$PRC" -ne 0 ]; then
+  cat "$SCRATCH/wave-plan.err"
+  echo "${PLAN:-nothing ready — the epic may be complete}"
+  exit 0
+fi
+READY=$(printf '%s' "$PLAN" | python3 -c 'import json,sys; p=json.load(sys.stdin); print(" ".join(r["id"] for r in p["wave"]))')
+MANIFEST=$(printf '%s' "$PLAN" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("manifest",""))')
 [ -n "$READY" ] || { echo "nothing ready — the epic may be complete"; exit 0; }
 echo "ready: $READY"
+[ -n "$MANIFEST" ] && echo "manifest: $MANIFEST"
 
-# One background dispatch per task, all launched together — the shape /swarm requires, and
-# the only shape that tests the claim mutex under real concurrency.
+# One dispatch per task, all at once — the shape /swarm requires, and the only shape that
+# tests the claim mutex under real concurrency. The prompt is the worker's task record
+# plus the lab's four-line contract; `dispatch.sh` injects the card, the whereabouts and
+# the conventions, and the worker's doctrine rides in its system prompt.
 # STAGGER: worker 1 alone first, so its cache write is warm before the rest read it. A
 # fan-out of N cold prefixes costs N x 1.25P; sequenced it is 1.25P + 0.1(N-1)P — at N=8
 # that is 5x. Only true when the prefix is static (the static_prefix lever); measured.
 STAGGER="${STAGGER:-${MAD_HARNESS_STAGGER_SECONDS:-0}}"
-PIDS=(); N=0
+JOBS="$SCRATCH/jobs.txt"; : > "$JOBS"
+N=0
 for TASK in $READY; do
-  if [ "$N" = "1" ] && [ "$STAGGER" -gt 0 ]; then
-    echo "-- stagger: waiting ${STAGGER}s for worker 1's first request before the rest"
-    sleep "$STAGGER"
-  fi
   N=$((N+1))
   PROMPT="$SCRATCH/prompt-$TASK.txt"
   tk show "$TASK" --json | python3 -c "
@@ -107,23 +121,33 @@ YOUR CONTRACT
 5. Close the task with a reason, then return at most ten lines:
    <id> · PASS|FAIL|BLOCKED|SKIPPED · files touched · tests run and result · commit sha
 ''')" > "$PROMPT"
-
-  echo "-- dispatching worker $N on $TASK"
-  # `set +e` FIRST, or the exit code is never recorded. Under `set -e` a non-zero
-  # dispatch kills this subshell before the `echo` runs, so no rc file is written at
-  # all — and every wave printed "(exit ?)" while two workers were in fact returning
-  # NOT OK. The wave then judged success from the text a worker returned rather than
-  # from its status, which is the believe-the-report failure this lab exists to catch.
-  ( set +e
-    "$HARNESS/models/dispatch.sh" fullstack-engineer \
-      --prompt-file "$PROMPT" --worker "$N" --task "$TASK" --lane backend \
-      > "$SCRATCH/out-$TASK.txt" 2> "$SCRATCH/err-$TASK.txt"
-    echo "$?" > "$SCRATCH/rc-$TASK" ) &
-  PIDS+=($!)
+  printf '%q %q --prompt-file %q --worker %q --task %q --lane backend\n' \
+    "$HARNESS/models/dispatch.sh" fullstack-engineer "$PROMPT" "$N" "$TASK" >> "$JOBS"
 done
 
-echo "-- ${#PIDS[@]} workers in flight, waiting..."
-for p in "${PIDS[@]}"; do wait "$p" || true; done
+FAN="$SCRATCH/fanout"; rm -rf "$FAN" "$FAN-rest"
+WAVE_ARG=(); [ -n "$MANIFEST" ] && WAVE_ARG=(--wave "$MANIFEST")
+echo "-- dispatching $N worker(s) through fanout"
+set +e
+if [ "$STAGGER" -gt 0 ] && [ "$N" -gt 1 ]; then
+  head -1 "$JOBS" > "$SCRATCH/jobs-1.txt"; tail -n +2 "$JOBS" > "$SCRATCH/jobs-rest.txt"
+  "$HARNESS/swarm/fanout.sh" --jobs "$SCRATCH/jobs-1.txt" --cap 1 --out-dir "$FAN" "${WAVE_ARG[@]}"
+  echo "-- stagger: waited for worker 1; the rest follow"
+  "$HARNESS/swarm/fanout.sh" --jobs "$SCRATCH/jobs-rest.txt" --cap "$N" --out-dir "$FAN-rest" "${WAVE_ARG[@]}"
+  # Re-index the second batch after the first so job-i lines up with READY's order.
+  i=1; for f in "$FAN-rest"/job-*.json; do [ -e "$f" ] || continue; b=$(basename "${f%.json}"); for ext in out err json rc; do mv "$FAN-rest/$b.$ext" "$FAN/job-$i.$ext"; done; i=$((i+1)); done
+else
+  "$HARNESS/swarm/fanout.sh" --jobs "$JOBS" --cap "$N" --out-dir "$FAN" "${WAVE_ARG[@]}"
+fi
+set -e
+# The lab's files, by task, from fanout's by-index files (job-i is READY's i-th task).
+i=0
+for TASK in $READY; do
+  cp "$FAN/job-$i.out" "$SCRATCH/out-$TASK.txt" 2>/dev/null || : > "$SCRATCH/out-$TASK.txt"
+  cp "$FAN/job-$i.err" "$SCRATCH/err-$TASK.txt" 2>/dev/null || : > "$SCRATCH/err-$TASK.txt"
+  cp "$FAN/job-$i.rc" "$SCRATCH/rc-$TASK" 2>/dev/null || echo "?" > "$SCRATCH/rc-$TASK"
+  i=$((i+1))
+done
 
 echo
 FAILED=0; WARNED=0
@@ -155,14 +179,8 @@ for TASK in $READY; do
   echo
 done
 
-# Regenerate the epic's view, as /swarm step 9 and campaign-loop §4 now do. Without it
-# the staging folder still shows the plan as it stood at seed time — which is precisely
-# the rot the `--check` mode exists to catch.
-EPIC=$(tk list --type epic --json | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r[0]["id"] if r else "")')
-if [ -n "$EPIC" ]; then
-  VIEW=$(ls -d "$REPO"/docs/proposed/"$EPIC"* 2>/dev/null | head -1)
-  [ -n "$VIEW" ] && "$HARNESS/tracker/render-epic.sh" "$EPIC" --write "$VIEW/tasks.md"
-fi
+# The epic's view is regenerated by merge-wave.sh's close-wave --sync-only, as /swarm
+# step 9 does; nothing here renders it early.
 
 echo "== tracker state after the wave =="
 tk list | sed "s/^/  /"

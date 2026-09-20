@@ -995,3 +995,38 @@ pre-flight that finishes.** No config change.
 - **mechanical** — re-stamp `harness.version`, when convenient. Briefs built before
   this version have their diff under `<brief>/diff/`; a lens gate rebuilds the brief, so
   nothing needs moving.
+
+### 0.10.22
+
+**Deterministic steps out of the prose, part 4: the wave, on a record.** No config change.
+
+- **What was wrong.** `/swarm` steps 2–3 (compose the wave), 8 (merge and gate) and 10 (the
+  four health signals), and `campaign-loop` §4.5 (the circuit breakers), were sequences the
+  orchestrator ran by hand at its context price: `tk.sh ready`, clamp to the caps, a
+  `resume-point.sh` per candidate, `wc -l` every path against `signals.megafile_lines`,
+  pairwise path intersection, `git merge-tree`; then `slot-acquire`, a merge per branch, a
+  `run.sh` per stack, `git log` to attribute a red gate, `slot-release`; then a shell
+  pipeline in a table cell for the escape rate and a bash `for` loop pasted into the prose
+  for the accretion check, with `${MEGAFILE:-1000}` where the declared threshold should
+  have been read. And every circuit breaker was a counter across waves that existed only
+  in the orchestrator's context — which the skill itself says a compaction loses.
+- **Four scripts, one record.** `wave-plan.sh` composes the wave and opens the epic's
+  **wave manifest** (`.harness/run/waves/<epic>-w<n>.json`); `fanout.sh`, `lens-gate.sh`,
+  `merge-wave.sh` and `close-wave.sh` each write their keys to it under a lock;
+  `wave-report.sh` computes the signals from it and `breakers.sh` evaluates the seven
+  breakers over it, each trip printed with the table's prescribed action. The judgement
+  that stays with the orchestrator is explicit and printed with its inputs: the
+  shared-vocabulary and new-file checks, the re-queue-or-resolve call on a conflict, the
+  revert on a red gate, and the ACTION on a tripped breaker. The pinned state a compaction
+  restores now names the open waves.
+- **Rules that became code.** Every branch is verified as a ref and the tree as clean
+  BEFORE the merge slot is taken; the slot is released in a `finally`; a conflict is
+  aborted and left unmerged, never resolved; a stack with nothing declared is not green;
+  git unable to run `merge-tree` is said, never read as clean; a null escape-rate baseline
+  is "first measurement", never zero; a manifest with no `dispatched` falls back to
+  `planned` and says so.
+- The wavelab's `dispatch-wave.sh` and `merge-wave.sh` are thin callers of the production
+  scripts now (wave-plan → fanout → lens-gate → merge-wave → close-wave), so the lab
+  exercises the production path.
+
+- **mechanical** — re-stamp `harness.version`, when convenient.
