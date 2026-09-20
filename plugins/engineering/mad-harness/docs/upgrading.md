@@ -1092,3 +1092,32 @@ commit.** No config change.
   that parses every documented `dispatch.sh` line uses it rather than a copy of its flags.
 
 - **mechanical** — re-stamp `harness.version`, when convenient.
+
+### 0.10.25
+
+**Deterministic steps out of the prose, part 7: the campaign's queue, lease, signals and
+heartbeats.** No config change.
+
+- **`epic-queue.sh`** is §1 and §2 as one call: every open epic P0→P3 then oldest, each
+  excluded with its reason — a gate holds it, a `PARKED` note, a lease another machine
+  holds — or triaged UNPLANNED / PARTIAL / READY with its dispatchable-on-entry count.
+  `campaign.sh` used to do one of §1's five steps and *assume* `status=blocked` covered the
+  gate exclusion, which 0.10.19 found it did not; and nothing in code acquired or released
+  a lease — cross-machine double work was guarded by prose alone. `campaign.sh` now reads
+  the queue from the script, takes each epic's lease before its session and releases it in
+  a `finally`, and records the signals with the outcome the session reported.
+- **`campaign-signals.sh`** is §6 as a script: the eight signals from the wave manifests,
+  the dispatch telemetry, the epic's `ADEQUACY:`/`AUDIT:` notes and git; `--record` files
+  them with the outcome, so forgetting `--outcome parked` — which filed a parked epic as a
+  catastrophically bad closed one — is no longer a thing the orchestrator can do.
+  `campaign.py` gains bands for `l4_dispatch_rate` and `analyst_gate_rate`, which were
+  recorded blind.
+- **The phase heartbeats** (DISPATCH, COLLECTED, LENSES, GATE, PUSHED) are written by the
+  wave scripts that run each phase, not by the orchestrator — they were the most skippable
+  lines in the loop.
+- **`tk.sh decisions --rank`** walks the DAG once and ranks open decisions by the work each
+  unblocks (transitive dependents; epics parked on it). `/decision`'s stated value — "the
+  outstanding owner decision that unblocks the most work" — was up to fifty `show` +
+  `ready --parent` calls to compute by hand, and in practice three were sampled.
+
+- **mechanical** — re-stamp `harness.version`, when convenient.

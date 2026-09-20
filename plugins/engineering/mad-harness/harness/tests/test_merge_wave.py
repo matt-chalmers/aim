@@ -29,6 +29,7 @@ class Runner:
             "tk.sh slot-acquire": (0, "", ""),
             "tk.sh slot-release": (0, "", ""),
             "tk.sh slot-check": (0, '{"free": false, "holder": "w9", "stale": true}\n', ""),
+            "tk.sh note": (0, "", ""),
             "git merge": (0, "Merge made by the 'ort' strategy.\n", ""),
             "git merge --abort": (0, "", ""),
             "git diff": (0, "src/x.py\n", ""),

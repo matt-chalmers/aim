@@ -274,6 +274,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("epic")
     p.add_argument("--gate", default=None, help="the gate to resolve, when more than one holds the epic")
 
+    # THE DECISION QUEUE, RANKED BY WHAT IT UNBLOCKS. /decision's stated value is "the
+    # outstanding owner decision that unblocks the most work"; its text had the orchestrator
+    # compute that from up to fifty `show` + `ready --parent` calls, and in practice it
+    # sampled three. The DAG is in graph.py; this walks it once.
+    p = add("decisions", help="open decisions, ranked by the work each unblocks (--rank) — transitive dependents, epics parked on it")
+    p.add_argument("--rank", action="store_true", help="most-unblocking first (the default order is the tracker's)")
+    p.add_argument("--limit", type=int, default=None)
+
     p = add(
         "autosync",
         help="whether the backend may write its tracked artefact unasked (a wave "
@@ -604,6 +612,22 @@ def main(argv: list[str] | None = None) -> int:
                 _rows(store.gate_list(), getattr(args, 'json', False))
             else:
                 store.gate_resolve(args.target)
+        elif v == "decisions":
+            from tracker.graph import rank_decisions
+
+            ranked = rank_decisions(store)
+            if not args.rank:
+                ranked.sort(key=lambda r: r["id"])
+            if args.limit:
+                ranked = ranked[: args.limit]
+            if getattr(args, "json", False):
+                print(json.dumps(ranked))
+            else:
+                for r in ranked:
+                    park = f"  PARKS {', '.join(r['parks'])}" if r["parks"] else ""
+                    print(f"{r['id']:<20} P{r['priority'] if r['priority'] is not None else '-'}  unblocks {r['unblocks']:>3}  ({r['direct']} direct){park}  {r['title'][:60]}")
+                if not ranked:
+                    print("no open decisions")
         elif v == "park":
             from tracker.port import park
 

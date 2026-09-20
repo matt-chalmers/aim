@@ -244,6 +244,8 @@ def record_dispatched(manifest: str, results: list[JobResult]) -> None:
     from . import wave_manifest
 
     path = wave_manifest.path_for(manifest)
+    ok = sum(1 for r in results if r.status == OK)
+    wave_manifest.heartbeat(path, "COLLECTED", f"{ok}/{len(results)} ok")
     for r in results:
         if not r.task:
             continue

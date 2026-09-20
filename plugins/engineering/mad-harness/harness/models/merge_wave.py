@@ -253,6 +253,7 @@ def run(
             for c in conflicts:
                 wave_manifest.append(path, "conflicts", c)
             wave_manifest.set_key(path, "gate", gate_facts)
+            wave_manifest.heartbeat(path, "GATE", f"{gate_facts['status']} merged={len(merged)} conflicts={len(conflicts)}", runner=runner)
             results.append(Result("manifest", INFO, f"{path.name}: {len(merged)} merged, {len(conflicts)} conflict(s), gate {gate_facts['status']}"))
         except (OSError, ValueError) as exc:
             results.append(Result("manifest", INFO, f"not recorded — {exc}"))

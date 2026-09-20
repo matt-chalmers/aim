@@ -271,6 +271,7 @@ def run(
             doc = wave_manifest.load(path)
             facts["round"] = len(doc.get("lenses", {}).get(task, [])) + 1
             wave_manifest.append(path, "lenses", {**facts, **{k: statuses.get(k) for k in ("L1", "L2", "L3", "L4")}}, task=task)
+            wave_manifest.heartbeat(path, "LENSES", f"{task} round {facts['round']}: " + " ".join(f"{k}={v}" for k, v in statuses.items()), runner=runner)
             results.append(Result("manifest", INFO, f"{path.name}: round {facts['round']} recorded"))
         except (OSError, ValueError) as exc:
             results.append(Result("manifest", INFO, f"not recorded — {exc}"))

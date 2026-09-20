@@ -144,76 +144,45 @@ failure. **Never refuse to start a run, and never stop one, on a memory, swap or
 reading.** If a wave runs long on a loaded machine, that is expected — record it against the
 health signals and carry on.
 
-**Write a phase heartbeat** before each phase of every wave, so a stall is diagnosable:
+**The phase heartbeats are written for you.** Each wave script notes the epic before its
+phase — `wave-plan.sh` DISPATCH, `fanout.sh` COLLECTED, `lens-gate.sh` LENSES,
+`merge-wave.sh` GATE, `close-wave.sh` PUSHED — so a stall is diagnosable: "8.5 hours with
+zero activity" tells you it stalled but not **where**, which is the difference between
+diagnosing a permission prompt and an approval gate. They used to be five `tk.sh note`
+lines per wave for you to remember, and were the most skippable lines in this file.
+
+## 1–2. The epic queue, and the triage of each — one call
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh note <epic> "wave <k>: DISPATCH n=3 ids=<...> @$(date -Iseconds)"   # then COLLECTED, LENSES, GATE, PUSHED
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/epic-queue.sh          # exit 0 at least one runnable epic · 1 none · 2 the tracker could not answer
 ```
 
-Two seconds a wave. Without it, "8.5 hours with zero activity" tells you it stalled but not
-**where** — which is the difference between diagnosing a permission prompt and an approval
-gate.
+| what it does | rule |
+|---|---|
+| every open epic, **P0 → P3, tie-break oldest** | `list --type epic --status open` |
+| **gated → EXCLUDED, with the gate's reason** | a human gate blocks an issue from `ready` but **not** from `list --status open`, so a gated epic keeps reappearing here — the loop never terminates unless it is dropped explicitly. `tk.sh park` also leaves a `PARKED` note, which counts even where the backend cannot record the gate's target |
+| **leased by another machine → EXCLUDED, naming the holder and the host** | claims and the merge slot are local to a checkout and no protection between machines: two campaigns can claim the same task, both merge, and the export conflicts on push or silently takes the last write. A lease *this* machine holds is a stopped run's own epic, not an exclusion. The remote unreachable is *said* — "leases NOT checked" — never read as free |
+| each runnable epic **triaged** | `UNPLANNED` (no children) · `PARTIAL` (children, but none ready or none carrying acceptance criteria) · `READY` (ready children carrying criteria) — and its **dispatchable-on-entry count**, which is signal ⑤ |
 
-## 1. Build the epic queue
+An epic you parked earlier in *this* run is excluded for the rest of it — **never re-enter
+an epic you have already parked.** Report the queue up front — ids, titles, priorities,
+excluded-or-not with the reason, the triage state of each — so the owner can see the whole
+run before it starts.
 
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh list --type epic --status open --limit 50 --json
-```
+**The lease.** `MODE=auto` (`campaign.sh`) takes each epic's lease before its session and
+releases it in a `finally`, whatever the session did. In `MODE=interactive`, take it
+yourself before §3 — `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh lease acquire <epic-id>` exits non-zero if
+held — and `close-epic.sh` releases it at §5. A crashed machine leaves its lease behind;
+`lease steal <epic-id>` reclaims one past its TTL and refuses while it is still fresh, and
+the steal is a ref update on the remote, never silent.
 
-Order **P0 → P3, tie-break oldest**.
+**Triage sets the DEPTH of the review, never whether it happens:**
 
-**Then drop every gated epic — and do this explicitly, or the loop never terminates.** A
-human gate blocks an issue from `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh ready`, but **not** from `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh list --type epic --status
-open`, so a gated epic keeps reappearing in this queue. Build the exclusion set first:
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh gate list                              # every open gate and the issue it blocks
-```
-
-Exclude any epic named there, and say in the report that you did, with the reason on each
-gate. An epic you gated earlier in *this* run is excluded for the rest of it — **never
-re-enter an epic you have already parked.**
-
-**Then drop every epic another machine is working.** Claims and the merge slot are local to
-a checkout, so they are no protection at all between machines: two campaigns can claim the
-same task, both merge, and the tracked export conflicts on push or silently takes the last
-write.
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh lease list            # epics held, and by whom
-```
-
-Exclude every epic listed as held by someone else, and name the holder in the report — a
-refusal that cannot say which machine holds the epic sends someone to the wrong one.
-
-**Take the lease before starting an epic, and release it at close-out:**
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh lease acquire <epic-id>   # exits non-zero if held
-# ... the epic runs ...
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh lease release <epic-id>
-```
-
-A crashed machine leaves its lease behind. `lease steal <epic-id>` reclaims one past its
-TTL and refuses while it is still fresh; the steal is a ref update, so it is recorded on
-the remote rather than silent.
-
-**Report the queue up front** — ids, titles, priorities, gated-or-not, and the triage state
-of each (§2) — so the owner can see the whole run before it starts.
-
-## 2. Triage each epic — this sets the DEPTH of the review, never whether it happens
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh show <epic>
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh list --parent <epic> --status open --json     # children, and how many carry acceptance criteria
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh ready --parent <epic> --json                  # how many are actually dispatchable
-```
-
-| State | Test | Architect is asked to | Planner is asked to |
-|---|---|---|---|
-| **UNPLANNED** | no children | design it from scratch | decompose it into a DAG |
-| **PARTIAL** | children, but none ready or none carrying acceptance criteria | design it, reconciling whatever already exists | complete the DAG and write the missing criteria |
-| **READY** | ready children carrying acceptance criteria | **sanity-check the existing design** | **revise the existing task plan** |
+| State | Architect is asked to | Planner is asked to |
+|---|---|---|
+| **UNPLANNED** | design it from scratch | decompose it into a DAG |
+| **PARTIAL** | design it, reconciling whatever already exists | complete the DAG and write the missing criteria |
+| **READY** | **sanity-check the existing design** | **revise the existing task plan** |
 
 **This table measures PLAN COMPLETENESS, not whether the epic is specified well enough to
 build.** Those are different axes and the architect answers the second one separately at §3b —
@@ -233,8 +202,6 @@ wave-1 tasks touched the same ~1,900-line shared module, and two of them said **
 text** that they should be done together. Dispatching that queue as-is is a pile-up.
 
 Report the state of each epic and what depth of review you are therefore running.
-
----
 
 ## THE LOOP IS SERIAL. ONE EPIC AT A TIME, ALL THE WAY THROUGH.
 
@@ -1005,14 +972,19 @@ Owner decisions are the exception and must NOT move: they outlive the epic and
 the staging folder does not survive close. They stay on the `decision` task verbatim, and fold
 into the corpus if they change a contract.
 
-**Record the signals, do not only narrate them.** At epic close:
+**The signals are computed and recorded, not narrated.** At epic close (`MODE=interactive`;
+`campaign.sh` does it for `auto`, with the outcome the session reported):
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/campaign/campaign-telemetry.sh record <epic-id> '{"first_pass_rate":72,"escape_rate":14,"wave_yield":83,"lines_per_ac":210,"merge_conflicts":0,"dispatchable_on_entry":6,"l4_dispatch_rate":40,"analyst_gate_rate":100,"beads_closed":11,"waves":3,"mode":"auto"}'
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/campaign-signals.sh <epic-id> --outcome closed --mode interactive --record     # or --outcome parked | stopped
 ```
 
-It writes an **event** record — invisible to `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh ready` and `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh list --status=open`, exported
-to the tracked export, so the series is versioned with everything else. Run
+Every input is on disk — the wave manifests (rounds, L4, merges, conflicts, closes), the
+dispatch telemetry (every agent that ran, with its cost and outcome), the epic's `ADEQUACY:`
+and `AUDIT:` notes (signal ①d counts them), and git — so the eight numbers are arithmetic,
+and the eleven-key payload the loop used to have you type by hand is derived. `--record`
+writes an **event** record — invisible to `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh ready` and `list --status=open`, exported to
+the tracked export, so the series is versioned with everything else. Run
 `${CLAUDE_PLUGIN_ROOT}/harness/campaign/campaign-telemetry.sh` with no arguments to read it back; it flags any value outside the
 bands above and, from three epics on, prints the direction each signal is moving.
 
@@ -1023,15 +995,12 @@ degrading, and until now it had no memory. Record even a partial payload: a miss
 
 **An epic that did not close records its outcome.** Parking (§3, §4) and stopping are outcomes
 too, and their payloads are the ones where `dispatchable_on_entry` matters most — that is where
-planning cost was paid and nothing landed. File them as what they are:
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/campaign/campaign-telemetry.sh record <epic-id> '{"dispatchable_on_entry":2,"waves":0,"mode":"auto"}' --outcome parked    # or stopped
-```
-
-The reader prints every row with its outcome and draws the trend through **closed** epics
-only. Without the flag a parked epic is filed as closed with `beads_closed: 0` — which reads
-as a catastrophically bad completed epic, and bends the trend line through it.
+planning cost was paid and nothing landed. `--outcome parked` (or `stopped`) files them as
+what they are: the reader prints every row with its outcome and draws the trend through
+**closed** epics only. Without the flag a parked epic is filed as closed with
+`beads_closed: 0` — a catastrophically bad completed epic, bending the trend line through
+it. In `MODE=auto` the outcome comes from your return contract's outcome line, so put it
+first.
 
 **Being stopped by a human.** `Esc` interrupts you; `/tasks` stops individual in-flight
 workers. Neither cleans up — claims stay held, the merge slot may be stuck, and `export.auto`

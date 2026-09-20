@@ -30,6 +30,7 @@ from .resolve import HARNESS, REPO
 
 DISPATCH = HARNESS / "models" / "dispatch.sh"
 PREFLIGHT = HARNESS / "swarm" / "preflight.sh"
+SIGNALS = HARNESS / "swarm" / "campaign-signals.sh"
 TK = HARNESS / "tracker" / "tk.sh"
 RUN_DIR = REPO / ".harness" / "run" / "campaign"
 
@@ -47,21 +48,37 @@ def _run(argv: list[str], *, cwd: Path, runner: Runner | None = None, timeout: i
     return run(argv, cwd=str(cwd), capture_output=True, text=True, timeout=timeout)
 
 
+EPIC_QUEUE = HARNESS / "swarm" / "epic-queue.sh"
+
+
 def open_epics(*, runner: Runner | None = None, cwd: Path = REPO) -> list[dict[str, Any]]:
-    """Every open epic, in the tracker's order. A gated epic is `blocked`, not `open`, when
-    the loop's hard line was followed — both steps — so it is excluded here by status."""
-    out = _run([str(TK), "list", "--type", "epic", "--status", "open", "--json"], cwd=cwd, runner=runner)
-    if out.returncode != 0:
-        raise RuntimeError(f"tk.sh list failed: {(out.stderr or out.stdout).strip()[:300]}")
-    rows = json.loads(out.stdout or "[]")
-    return [r for r in rows if isinstance(r, dict) and r.get("id")]
+    """The runnable epics, in the loop's order — §1 and §2 as `epic-queue.sh` computes
+    them: P0→P3 then oldest, every gated, parked or leased-elsewhere epic excluded with its
+    reason, each with its triage state. This used to be `list --type epic --status open`
+    and ASSUMED `status=blocked` covered the gate exclusion; 0.10.19 found a park that set
+    no status, and this loop would have re-dispatched that epic forever."""
+    out = _run([str(EPIC_QUEUE), "--json"], cwd=cwd, runner=runner)
+    if out.returncode == 2:
+        raise RuntimeError(f"epic-queue.sh failed: {(out.stderr or out.stdout).strip()[:300]}")
+    try:
+        doc = json.loads(out.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"epic-queue.sh did not answer in JSON: {exc}") from exc
+    for n in doc.get("notes") or []:
+        print(f"campaign: note — {n}", file=sys.stderr)
+    for e in doc.get("epics") or []:
+        if e.get("excluded"):
+            print(f"campaign: {e['id']} excluded — {e['excluded']}", file=sys.stderr)
+    return [{"id": e["id"], "title": e.get("title", ""), "triage": e.get("triage"), "ready": e.get("ready")} for e in (doc.get("epics") or []) if not e.get("excluded")]
 
 
 def prompt_for(epic: dict[str, Any]) -> str:
+    triage = f" It triaged {epic['triage']} with {epic.get('ready', '?')} task(s) dispatchable on entry." if epic.get("triage") else ""
     return (
         f"Run the campaign loop, MODE=auto, for epic `{epic['id']}` — {epic.get('title', '')} — and no other.\n"
-        f"§0 pre-flight has been done by the script that started you. Do §1 and §2 for this epic only,\n"
-        f"then §3 through §6, then stop with the return contract. If the epic parks, say so and stop.\n"
+        f"§0 pre-flight, §1 (the queue) and §2 (triage) have been done by the script that started you, and\n"
+        f"the epic's lease is held for you.{triage}\n"
+        f"Do §3 through §6 for this epic only, then stop with the return contract. If the epic parks, say so and stop.\n"
     )
 
 
@@ -83,25 +100,55 @@ def last_terminal(cwd: Path = REPO) -> str:
     return ""
 
 
+def outcome_of(digest: str) -> str:
+    """`closed`, `parked` or `stopped`, from the orchestrator's return contract — the
+    outcome line the loop tells it to put first. Unknown reads as `stopped`: a session
+    that said nothing recognisable did not close the epic."""
+    text = (digest or "").lower()
+    for word in ("parked", "closed", "stopped"):
+        if word in text:
+            return word
+    return "stopped"
+
+
 def run_epic(epic: dict[str, Any], *, runner: Runner | None = None, cwd: Path = REPO, timeout: int = 4 * 3600) -> dict[str, Any]:
     RUN_DIR.mkdir(parents=True, exist_ok=True)
     prompt = RUN_DIR / f"{epic['id']}-prompt.md"
     prompt.write_text(prompt_for(epic))
     out_file = RUN_DIR / f"{epic['id']}-result.md"
     started = time.monotonic()
-    proc = _run(
-        [str(DISPATCH), "campaign-orchestrator", "--prompt-file", str(prompt), "--task", str(epic["id"]),
-         "--digest", "12", "--out", str(out_file)],
-        cwd=cwd, runner=runner, timeout=timeout,
-    )
+    # THE LEASE, HELD FOR THE EPIC'S WHOLE SESSION and released in a `finally`. §1 told the
+    # orchestrator to acquire it and §5 to release it; nothing in code did either, and a
+    # session cut off at its ceiling released nothing. A lease another machine holds is
+    # already excluded by the queue; a lease this machine holds from a stopped run is
+    # re-acquired here (the remote refuses only a ref that would not fast-forward).
+    lease = _run([str(TK), "lease", "acquire", str(epic["id"])], cwd=cwd, runner=runner)
+    if lease.returncode != 0:
+        return {
+            "epic": epic["id"], "exit": EXIT_REFUSED, "terminal": "lease", "seconds": 0,
+            "digest": f"lease for {epic['id']} not acquired — {(lease.stderr or lease.stdout).strip()[:200]}",
+            "stderr_tail": "", "result": None, "outcome": "stopped",
+        }
+    try:
+        proc = _run(
+            [str(DISPATCH), "campaign-orchestrator", "--prompt-file", str(prompt), "--task", str(epic["id"]),
+             "--digest", "12", "--out", str(out_file)],
+            cwd=cwd, runner=runner, timeout=timeout,
+        )
+    finally:
+        released = _run([str(TK), "lease", "release", str(epic["id"])], cwd=cwd, runner=runner)
+        if released.returncode != 0:
+            print(f"campaign: lease for {epic['id']} not released — it expires on its TTL", file=sys.stderr)
+    digest = (proc.stdout or "").strip()
     return {
         "epic": epic["id"],
         "exit": proc.returncode,
         "terminal": last_terminal(cwd),
         "seconds": int(time.monotonic() - started),
-        "digest": (proc.stdout or "").strip(),
+        "digest": digest,
         "stderr_tail": "\n".join((proc.stderr or "").strip().splitlines()[-4:]),
         "result": str(out_file) if out_file.exists() else None,
+        "outcome": outcome_of(digest) if proc.returncode == EXIT_OK else ("stopped" if proc.returncode != EXIT_OK else "closed"),
     }
 
 
@@ -145,7 +192,15 @@ def main(argv: list[str] | None = None, *, runner: Runner | None = None) -> int:
             r = run_epic(epic, runner=runner)
             results.append(r)
             print(r["digest"])
-            print(f"-- exit {r['exit']}, terminal {r['terminal'] or '?'}, {r['seconds']}s", flush=True)
+            print(f"-- exit {r['exit']}, terminal {r['terminal'] or '?'}, outcome {r.get('outcome', '?')}, {r['seconds']}s", flush=True)
+            # THE SIGNALS, RECORDED WITH THE OUTCOME the session reported. §6 had the
+            # orchestrator compose an 11-key payload by hand and remember `--outcome
+            # parked`; forgetting it filed a parked epic as a catastrophically bad closed
+            # one (tracker/campaign.py). The script that owns the run records them.
+            if r["exit"] != EXIT_REFUSED:
+                sig = _run([str(SIGNALS), str(epic["id"]), "--outcome", r.get("outcome", "stopped"), "--record"], cwd=REPO, runner=runner)
+                if sig.returncode != 0:
+                    print(f"campaign: signals for {epic['id']} not recorded — {(sig.stderr or sig.stdout).strip()[:200]}", file=sys.stderr)
             if r["terminal"] == "usage_limit":
                 print("campaign: the account's usage window closed — stopping; rerun when it reopens", file=sys.stderr)
                 return STOP_USAGE

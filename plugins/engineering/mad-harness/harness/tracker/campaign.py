@@ -41,6 +41,10 @@ CHECKS: tuple[tuple[str, str, str, str], ...] = (
      "any conflict is a step-3 miss by definition"),
     ("dispatchable_on_entry", "dispatchable on entry", "v <= 2",
      "1 or 2 explains a bad cost ratio — the epic is decision-blocked"),
+    ("l4_dispatch_rate", "L4 dispatch %", "v < 100",
+     "a round that touched a declared security path where L4 never fired = a broken trigger"),
+    ("analyst_gate_rate", "analyst gate %", "v < 100",
+     "an epic reaching §3b without ADEQUACY: or §3e without AUDIT: is a skipped gate"),
 )
 
 

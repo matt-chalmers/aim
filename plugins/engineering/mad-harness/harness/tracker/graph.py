@@ -88,3 +88,47 @@ def validate(tasks: list[Task]) -> Validation:
         cycles = (tuple(sorted(pending)),)
 
     return Validation(waves=tuple(waves), cycles=cycles, orphans=orphans)
+
+
+def rank_decisions(store) -> list[dict]:
+    """Every open `decision`, with what it unblocks: the tasks that depend on it directly,
+    everything downstream of those (transitively, through open tasks), and the epics
+    whose PARKED note names it. Sorted most-unblocking first, then by priority, then
+    oldest — the order /decision should work the queue in. One walk of the DAG."""
+    from .port import DECISION, EPIC, OPEN_STATUSES, PARKED
+
+    tasks = store.list()
+    by_id = _by_id(tasks)
+    children: dict[str, list[str]] = {}
+    for t in tasks:
+        if t.status not in OPEN_STATUSES:
+            continue
+        for b in t.depends_on:
+            children.setdefault(b, []).append(t.id)
+
+    def downstream(start: str) -> set[str]:
+        seen: set[str] = set()
+        stack = list(children.get(start, []))
+        while stack:
+            n = stack.pop()
+            if n in seen:
+                continue
+            seen.add(n)
+            stack.extend(children.get(n, []))
+        return seen
+
+    epics = [t for t in tasks if t.type == EPIC]
+    out = []
+    for d in tasks:
+        if d.type != DECISION or d.status not in OPEN_STATUSES:
+            continue
+        direct = children.get(d.id, [])
+        parks = sorted(e.id for e in epics if e.status in OPEN_STATUSES and (
+            d.id in (e.notes or "") and PARKED.search(e.notes or "")
+        ) or d.id in (getattr(by_id.get(e.id), "description", "") or ""))
+        out.append({
+            "id": d.id, "title": d.title, "priority": d.priority, "created_at": d.created_at,
+            "direct": len(direct), "unblocks": len(downstream(d.id)), "parks": parks,
+        })
+    out.sort(key=lambda r: (-(r["unblocks"] + 5 * len(r["parks"])), r["priority"] is None, r["priority"] or 0, r["created_at"], r["id"]))
+    return out

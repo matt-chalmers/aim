@@ -38,7 +38,7 @@ import sys
 from . import tracker_sync
 from .project import ProjectError, load
 from .resolve import HARNESS, REPO
-from .steps import FAIL, OK, Result, execute, failure_detail, render, tail
+from .steps import FAIL, INFO, OK, Result, execute, failure_detail, render, tail
 
 TK = HARNESS / "tracker" / "tk.sh"
 
@@ -134,6 +134,7 @@ def run(
     project=None,
     runner=None,
     cwd: str | None = None,
+    wave: str | None = None,
 ) -> tuple[str, int]:
     """The whole command. Returns the report and the exit status."""
     at = cwd or str(REPO)
@@ -171,7 +172,22 @@ def run(
         message=msg, epics=which, export=export, push=push, stop_if_upstream_moved=True,
         restore_autosync=restore_autosync, project=project, runner=runner, cwd=at,
     )
-    return _report(head, results), (1 if any(r.status == FAIL for r in results) else 0)
+    failed = any(r.status == FAIL for r in results)
+    if wave:
+        try:
+            from . import wave_manifest
+
+            path = wave_manifest.path_for(wave)
+            for tid in ids:
+                wave_manifest.append(path, "closed", tid)
+            if not failed:
+                head_raw = execute(["git", "rev-parse", "HEAD"], cwd=at, runner=runner)
+                wave_manifest.close(path, head_raw.stdout.strip() if head_raw.ran else "")
+                wave_manifest.heartbeat(path, "PUSHED", f"closed={len(ids)}", runner=runner)
+            results.append(Result("manifest", INFO, f"{path.name}: {len(ids)} closed" + ("" if failed else "; wave closed")))
+        except (OSError, ValueError) as exc:
+            results.append(Result("manifest", INFO, f"not recorded — {exc}"))
+    return _report(head, results), (1 if failed else 0)
 
 
 def _report(head: str, results: list[Result]) -> str:
@@ -207,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--restore-autosync", action="store_true", help="`tk.sh autosync on` at the end — for a run that is the whole run (/swarm, /grind), never for a wave inside a campaign")
     ap.add_argument("--sync-only", action="store_true", help="no closes; export, render, commit, push")
     ap.add_argument("--check", action="store_true", help="verify every id exists and is open; write nothing")
+    ap.add_argument("--wave", default=None, help="record `closed` on this wave manifest and close it (<epic>-w<n>)")
     args = ap.parse_args(argv)
 
     if not args.tasks and not args.sync_only:
@@ -221,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     text, code = run(
         closes, message=args.message, epics=args.epic, push=args.push,
-        restore_autosync=args.restore_autosync, sync_only=args.sync_only, check_only=args.check, project=project,
+        restore_autosync=args.restore_autosync, sync_only=args.sync_only, check_only=args.check, project=project, wave=args.wave,
     )
     print(text)
     return code

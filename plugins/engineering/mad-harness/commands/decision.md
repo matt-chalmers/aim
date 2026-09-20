@@ -65,23 +65,22 @@ ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh gate list                           
 If `$ARGUMENTS` names a task, go straight to it. If it names an epic, scope to that epic's
 decisions. Otherwise rank the whole set.
 
-**Rank by how much work each answer releases**, not by priority alone:
+**Rank by how much work each answer releases**, not by priority alone — one call:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh show <decision-id>                # its BLOCKS edges
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh ready --parent <epic> --limit 100 --json     # what is already dispatchable there
+${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh decisions --rank        # per decision: direct dependents, transitive unblocks, the epics parked on it
 ```
 
-Order by, in this priority:
+It walks the DAG once: **the most transitive dependents first** (one that unblocks a chain of
+four beats one that unblocks a leaf), **an epic parked on it** weighted above the task count
+(answering all of an epic's gates un-parks it), then priority, then oldest. This used to be
+up to fifty `show` + `ready --parent` calls to compute by hand, and in practice three were
+sampled and the rest guessed — for the number that is this command's whole point.
 
-1. **Decisions blocking a currently-running epic** — they convert directly into dispatchable
-   work this session.
-2. **Decisions with the most dependents**, counting transitively. One that unblocks a chain of
-   four beats one that unblocks a leaf.
-3. **Decisions that park an entire epic** — answering all of an epic's gates un-parks it,
-   which is worth more than the task count suggests.
-4. **Cheapness to answer** — a decision the owner can settle from the evidence in front of
-   them beats one needing outside input.
+Two things the walk cannot see are yours: **a decision blocking a currently-running epic**
+converts directly into dispatchable work this session, and **cheapness to answer** — a
+decision the owner can settle from the evidence in front of them beats one needing outside
+input.
 
 Report the ranked shortlist in one short table (id, gloss, what it blocks, why it ranks where
 it does) so the owner can redirect before you invest in one.

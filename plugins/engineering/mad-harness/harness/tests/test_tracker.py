@@ -473,7 +473,7 @@ def test_every_write_verb_the_cli_exposes_is_declared_as_one():
 
     reads = {
         "backend", "show", "list", "ready", "validate", "events", "memories",
-        "recall", "prime", "slot-check", "foreign-claims", "claims",
+        "recall", "prime", "slot-check", "foreign-claims", "claims", "decisions",
         # `render` reads the tracker. Its `--write` touches a FILE, not tracker state,
         # and is refused under --readonly separately.
         "render",

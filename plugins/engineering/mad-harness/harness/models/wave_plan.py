@@ -266,6 +266,9 @@ def main(argv: list[str] | None = None) -> int:
 
         path = wave_manifest.open_wave(args.parent, lane=args.lane, planned=[r["id"] for r in plan["wave"]], dropped=plan["dropped"], wave_base=plan["wave_base"] or "")
         plan["manifest"] = str(path)
+        why = wave_manifest.heartbeat(path, "DISPATCH", f"n={len(plan['wave'])} ids={','.join(r['id'] for r in plan['wave'])}")
+        if why:
+            plan["notes"].append(f"heartbeat not written — {why}")
     print(json.dumps(plan) if args.json else render(plan))
     return 0
 

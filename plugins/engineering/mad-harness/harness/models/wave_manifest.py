@@ -163,6 +163,29 @@ def close(path: Path, head: str) -> dict[str, Any]:
     return _locked(path, mutate)
 
 
+def heartbeat(path: Path, phase: str, detail: str = "", runner=None) -> str | None:
+    """`tk.sh note <epic> "wave <n>: <PHASE> <detail> @<time>"` — the phase heartbeat §0
+    asked the orchestrator to write before each of five phases per wave ("two seconds a
+    wave; without it, '8.5 hours with zero activity' tells you it stalled but not WHERE").
+    Written by the script that runs the phase, so it cannot be skipped. Returns the reason
+    it was not written, or None."""
+    import subprocess
+
+    from .resolve import HARNESS
+
+    try:
+        doc = load(path)
+    except (OSError, ValueError) as exc:
+        return str(exc)
+    line = f"wave {doc['wave']}: {phase} {detail} @{_now()}".replace("  ", " ")
+    run = runner or subprocess.run
+    try:
+        proc = run([str(HARNESS / "tracker" / "tk.sh"), "note", doc["epic"], line], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return str(exc)[:200]
+    return None if proc.returncode == 0 else (proc.stderr or proc.stdout).strip()[:200]
+
+
 def summary_line(doc: dict[str, Any]) -> str:
     """One line for the pinned state: what a compaction must not lose about the wave."""
     verified = sum(1 for rounds in doc.get("lenses", {}).values() if rounds and rounds[-1].get("verified"))
