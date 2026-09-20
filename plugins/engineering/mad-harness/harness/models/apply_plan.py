@@ -348,6 +348,18 @@ class Tracker:
             self._known[task_id] = self.run("show", task_id).returncode == 0
         return self._known[task_id]
 
+    def status_of(self, task_id: str) -> str | None:
+        """The record's status, from one `show --json`; None when it cannot be read."""
+        proc = self.run("show", task_id, "--json")
+        if proc.returncode != 0:
+            return None
+        try:
+            rows = json.loads(proc.stdout.strip() or "[]")
+            row = rows[0] if isinstance(rows, list) else rows
+            return str(row.get("status")) if isinstance(row, dict) else None
+        except (ValueError, IndexError, AttributeError):
+            return None
+
 
 def validate(
     commands: list[Command], epic: str, state: State, tracker: Tracker, labels: set[str] | None = None
@@ -373,6 +385,16 @@ def validate(
                 problems.append(f"{where}: `{ref}` is not a label this plan creates and not a record the tracker knows")
         if c.verb == "delete" and c.refs and c.refs[0] == epic:
             problems.append(f"{where}: `delete {epic}` — never delete the epic")
+        # NEVER TOUCH A TASK THAT IS IN PROGRESS OR CLOSED — campaign-loop §3c's rule on
+        # destructive edits, which the applier did not check until 0.10.27: someone may
+        # be working it right now, and a closed one is the record. Re-scoping around
+        # it is fine (a new create); editing it is not.
+        if c.verb in ("update", "delete", "supersede", "label", "close") and c.refs:
+            target = c.refs[0]
+            if target not in plan_labels and target != epic:
+                status = tracker.status_of(target)
+                if status in ("in_progress", "closed"):
+                    problems.append(f"{where}: `{c.verb} {target}` — the record is {status}; a plan never edits a task in progress or closed (supersede it with a new create instead)")
         if c.creates:
             if not c.label and state.rerun:
                 problems.append(
@@ -532,7 +554,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     # §3f, in the same call: the DAG check, and the view. The records are written by now,
     # so a failure here still reports what was applied.
-    val = tracker.run("validate", args.epic)
+    # `--paths` too: the dependency waves ignore file contention, and the recorded
+    # pile-up (an epic rated 11-wide, five wave-1 tasks on one module) is exactly what a
+    # plan applied clean and validated OK looks like. The edges are printed, not refused —
+    # the records are written by now; resolving an edge is the planner's call.
+    val = tracker.run("validate", args.epic, "--paths")
     if val.returncode != 0:
         print(summary)
         print(val.stdout.rstrip())
@@ -543,7 +569,14 @@ def main(argv: list[str] | None = None) -> int:
         v = json.loads(val.stdout)
         waves = v.get("waves") or []
         width = max((len(w.get("task_ids") or ()) for w in waves), default=0)
-        shape = f"{len(waves)} waves, max parallelism {width} (dependency-only; ignores file contention)"
+        edges = [e for w in ((v.get("contention") or {}).get("waves") or []) for e in (w.get("edges") or [])]
+        shape = f"{len(waves)} waves, max parallelism {width} by dependency; {len(edges)} file-contention edge(s)"
+        if edges:
+            shape += " — RESOLVE before dispatch (merge, serialise with `tk.sh dep`, or split):"
+            for e in edges:
+                mega = " MEGAFILE" if e.get("megafile") else ""
+                both = " (both would create it)" if e.get("both_create") else ""
+                shape += f"\n    {' × '.join(e['tasks'])}: {e['path']}{mega}{both}"
     except (json.JSONDecodeError, AttributeError):
         shape = "ok"
     summary += f"; validate {args.epic}: {shape}"

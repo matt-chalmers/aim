@@ -13,9 +13,11 @@ shape as `check-model-config.sh`, which does this for tiers versus frontmatter.
 
 from __future__ import annotations
 
+import re
 import sys
+from pathlib import Path
 
-from .project import ProjectError, load, plugin_version, upgrade_status
+from .project import PROJECT_FILE, ProjectError, load, plugin_version, upgrade_status
 from .resolve import HARNESS, REPO, ConfigError, _prompts_dir
 
 INIT_SCRIPT = HARNESS / "swarm" / "swarm-worktree-init.sh"
@@ -33,8 +35,43 @@ def _lane(p) -> str:
 EXIT_UPGRADE = 3
 
 
+STAMP = re.compile(r"^(?P<indent>[ \t]*)version:[ \t]*\S+[ \t]*$", re.M)
+
+
+def stamp(path: Path, installed: str) -> str:
+    """Write `harness.version: <installed>` into the config IN PLACE — the one line
+    /harness-setup and every upgrade note end with, which nothing scripted did. The
+    value is read from the plugin manifest, never typed: an unbumped or mistyped stamp
+    is a config that reads as current while missing every block the version reads.
+    Returns what happened."""
+    text = path.read_text()
+    m = re.search(r"^harness:[ \t]*\n((?:[ \t]+.*\n?)*)", text, re.M)
+    if m:
+        block = m.group(0)
+        if STAMP.search(block):
+            new_block = STAMP.sub(lambda mm: f"{mm.group('indent')}version: {installed}", block, count=1)
+        else:
+            new_block = block.rstrip("\n") + f"\n  version: {installed}\n"
+        text = text[: m.start()] + new_block + text[m.end():]
+        what = "re-stamped"
+    else:
+        text = text.rstrip("\n") + f"\n\nharness:\n  version: {installed}\n"
+        what = "stamped (a harness: block was added)"
+    path.write_text(text)
+    return f"{what} harness.version: {installed}"
+
+
 def main(argv: list[str] | None = None) -> int:
-    strict = "--strict" in (sys.argv[1:] if argv is None else argv)
+    args = list(sys.argv[1:] if argv is None else argv)
+    strict = "--strict" in args
+    if "--stamp" in args:
+        installed = plugin_version()
+        try:
+            print(stamp(PROJECT_FILE, installed))
+        except OSError as exc:
+            print(f"FAIL: cannot stamp {PROJECT_FILE}: {exc}", file=sys.stderr)
+            return 2
+        args.remove("--stamp")
     try:
         p = load()
     except ProjectError as exc:

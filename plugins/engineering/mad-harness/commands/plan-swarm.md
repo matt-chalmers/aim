@@ -20,7 +20,7 @@ Plan and decompose: **$ARGUMENTS**
 
 ## 1. Load context
 
-`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh prime`; `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh --readonly show <epic>`; the corpus index and the relevant feature folder
+`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh prime`; `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh show <epic>`; the corpus index and the relevant feature folder
 (`harness.yaml` → `paths.index`, `paths.features`).
 
 ## 2. Architecture gate — mandatory, with an explicit skip test
@@ -46,7 +46,7 @@ carries an `ARCHITECTURE:` note, reuse it rather than re-deriving it.
 `${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh planner --prompt-file <path>`. Naming it explicitly is what
 selects its tier; the boundary is what makes that tier actually apply.
 
-Carry in the prompt string: the goal, the epic's current children (`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh --readonly show`),
+Carry in the prompt string: the goal, the epic's current children (`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh show`),
 any `ARCHITECTURE:` note, the lane-label vocabulary and concurrency caps, and the
 instruction to produce a file-contention matrix. The prompt string is the only channel.
 

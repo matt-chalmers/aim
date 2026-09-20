@@ -81,8 +81,8 @@ this epic existed where they bind it: that is exactly the context the next reade
 reconstruct, and `analyst-survey` treats a closed decision as settled, not irrelevant.
 
 **Nothing may cite a draft decision record as settled** — it has no number until the owner
-decides, and on resolution it is `git mv`d into `paths.adrs` at `tk.sh adr-next`. Make the
-dependent work depend on the `decision` task.
+decides, and on resolution `staged.sh promote-adr <draft> --decision "<verbatim>"` moves it into
+`paths.adrs` at the next free number. Make the dependent work depend on the `decision` task.
 
 ## 5. Hand off
 

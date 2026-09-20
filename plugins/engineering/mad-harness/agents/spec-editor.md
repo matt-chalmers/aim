@@ -70,17 +70,26 @@ and it is why this dispatch is cheap.
    proposal cites what those docs said when it was written. If they have since moved, say so and
    stop — a proposal applied against a base that shifted underneath it is how a plausible,
    confidently wrong claim enters the corpus. Re-derivation is the owner's call, not yours.
+
+   **Read a section with the tool, never with a grep**:
+
+   ```bash
+   ${CLAUDE_PLUGIN_ROOT}/harness/swarm/staged.sh section <proposal.md> "Base assumed"           # the body, line-anchored, to the next heading of the same level
+   ${CLAUDE_PLUGIN_ROOT}/harness/swarm/staged.sh section <proposal.md> "Acceptance criteria"    # exit 1: no such heading — report it, do not guess
+   ```
+
 > **A heading name quoted in prose is not a heading.** These files discuss their own structure,
 > so `## Acceptance criteria` and `## Base assumed` appear inside sentences and inline code spans
-> as well as at the start of lines. A first-occurrence replace, or a `grep` for `## Base assumed`
-> without anchoring to `^`, lands inside the prose and silently mangles it — that has already
-> happened once, on a staged proposal folder, and was caught only by a post-edit audit.
-> Anchor every heading match to line start, and re-read what you edited.
+> as well as at the start of lines. A `grep` without `^` once landed inside the prose of a staged
+> proposal and folded in nothing, silently; `staged.sh section` matches headings at line start
+> only and refuses a heading that appears twice. Anchor any edit you make the same way, and
+> re-read what you edited.
 >
-> **A proposal with no `## Acceptance criteria` heading folds in nothing, silently.** If one is
-> missing — or split into per-scope variants like `## Scope A — acceptance criteria` — stop and
-> report it rather than guessing which section you were meant to read. An epic covering two
-> requirement gaps keeps ONE canonical heading with `###` subsections beneath it.
+> **A proposal with no `## Acceptance criteria` heading folds in nothing.** `section` exits 1
+> for a missing one — or one split into per-scope variants like `## Scope A — acceptance
+> criteria` — and you stop and report it rather than guessing which section you were meant to
+> read. An epic covering two requirement gaps keeps ONE canonical heading with `###`
+> subsections beneath it.
 
 2. **Apply the change to each doc in the frontmatter's `lands_in` list.** Acceptance criteria go into the
    owning feature doc under `## Acceptance criteria`, **verbatim and
@@ -91,8 +100,8 @@ and it is why this dispatch is cheap.
 4. **Record an `INFERABLE` verdict's inferences as unchecked criteria too.** An inference kept
    only in the epic's `ARCHITECTURE:` note disappears when the epic closes; written as an unbuilt
    criterion it stays visible to the next reader.
-5. **Set the proposal's frontmatter `status: folded-in` and `folded_in: <ISO date>`. Do not
-   delete it.** It is the only statement
+5. **Mark the proposal folded in — `${CLAUDE_PLUGIN_ROOT}/harness/swarm/staged.sh set-status <proposal.md> folded-in`
+   (frontmatter `status` and today's `folded_in`, in place). Do not delete it.** It is the only statement
    of this epic's delta once the feature doc shows the merged end-state, and the architect and
    planner both run after you. The whole folder is deleted at §5 — one deletion point, not two.
    That is still the rule dozens of orphan changelog files and stale plan documents broke: no delta
@@ -111,11 +120,17 @@ already says where each part lands. Route by content, then delete the file:
 | a mechanism others will reuse | the owning `<paths.architecture>/<doc>.md` |
 | a changed contract | the owning feature doc |
 
-A **resolved** draft decision record is `git mv`d into `paths.adrs` as `NNNN-<slug>.md` — the number
-from `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh adr-next`; never guess, two streams picking independently have collided — with
-`**Status**: Accepted` and `## Decision` filled in from the owner's settlement. It *moves* rather
-than merging, because an decision record is a standalone append-only file while a proposal is an edit into
-shared prose.
+A **resolved** draft decision record is promoted in one call:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/staged.sh promote-adr <adr-draft-N-slug.md> --decision "<the owner's settlement, verbatim>"
+```
+
+It `git mv`s the draft into `paths.adrs` as `NNNN-<slug>.md` at the number `tk.sh adr-next`
+allocates — never guessed; two streams picking independently have collided — and fills in
+`**Status**: Accepted` and `## Decision` from the settlement, printing the destination. It
+*moves* rather than merging, because a decision record is a standalone append-only file while
+a proposal is an edit into shared prose.
 
 An **unresolved** draft decision record means its `decision` task is still open. Report it and stop; the epic
 gates on it rather than closing over it.

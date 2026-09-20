@@ -119,6 +119,13 @@ def bootstrap(worktree: Path, main: Path, project: Project | None = None) -> lis
             log.append(f"==> {deps} present, skipping ({s.name})")
             continue
         strategy = (s.bootstrap or {}).get("strategy", "install")
+        if strategy == "none":
+            # Nothing to restore: the manager resolves on demand from a tracked file.
+            # `probe-worktree.sh`'s first run found the harness's own stack declaring
+            # this in a comment while its strategy said `symlink` to a directory that
+            # never existed — every worker worktree on it would have refused to init.
+            log.append(f"==> nothing to restore ({s.name})")
+            continue
         if strategy == "symlink":
             source = main / deps
             if not source.exists():

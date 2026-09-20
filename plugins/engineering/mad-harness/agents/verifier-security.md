@@ -47,21 +47,20 @@ The triggers, so you know why you are here:
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh memories
 ```
 
-Then read the task: `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh --readonly show <id>`. Then read the declared `security.invariants`. Then
-look at the diff.
+Then read the task: `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh show <id>`. Then the declared
+invariants — they are in your prompt, under **Declared security invariants**. Then look at
+the diff.
 
 ## The invariants your project declares and nothing enforces
 
-These come from `harness.yaml` → `security.invariants` — the rules the project states and
-nothing mechanically enforces. You are that gate. Read them from the config rather than from
-here, because the project owns them and they change without this file changing. Check each
-against the diff every time you run:
+`harness.yaml` → `security.invariants` is the list of rules the project states and nothing
+mechanically enforces. You are that gate. **The dispatcher appends that list to your prompt
+verbatim** (or says the project declares none — report that; do not go looking for a list
+elsewhere). The project owns them and they change without this file changing, which is why
+they are not restated here. Check each against the diff every time you run, and with them:
 
-1. **Honour every declared privacy invariant** in `harness.yaml` → `security.invariants`.
-2. **Every remaining rule in `security.invariants`**, quoted from the config rather than
-   restated here — the project owns them and they change without this file changing.
-3. **Don't store secrets in the repo or in `.env.example`.**
-4. **Client-side token storage** — check it against the project's declared session
+1. **Don't store secrets in the repo or in `.env.example`.**
+2. **Client-side token storage** — check it against the project's declared session
    mechanism, whatever that is. Browser-accessible storage for a session token is a
    finding unless the project says otherwise.
 

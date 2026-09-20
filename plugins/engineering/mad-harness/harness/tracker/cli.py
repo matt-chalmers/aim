@@ -205,6 +205,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = add("validate", help="wave levelling, cycles and orphans for an epic")
     p.add_argument("epic")
+    # THE LAYER THE PORT CANNOT SEE. `Validation.waves` is dependency-only and says so;
+    # an epic was rated 11-wide with five wave-1 tasks on one file. `--paths` adds the
+    # file-contention edges per wave — the paths each task's text names that exist, and
+    # any past `signals.megafile_lines` — computed above the port, from git and the
+    # filesystem, which the port must not touch.
+    p.add_argument("--paths", action="store_true", help="also report file-contention edges per wave (shared existing paths, megafiles)")
 
     p = add("create")
     p.add_argument("title")
@@ -365,6 +371,11 @@ WRITE_VERBS = frozenset({
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     v = args.verb
+    # THE ENVIRONMENT IS THE FLAG. A dispatched reader gets `TRACKER_READONLY=1` from the
+    # dispatcher (`dispatch.build_env`), so its read-only-ness does not depend on it
+    # remembering `--readonly` on every call.
+    if os.environ.get("TRACKER_READONLY") == "1":
+        args.readonly = True
     # `render` reads the tracker but `--write` puts a file in the corpus. A read-only
     # agent may look at the view; it may not generate one into the repository it is
     # judging.
@@ -567,7 +578,14 @@ def main(argv: list[str] | None = None) -> int:
             _rows(rows, getattr(args, 'json', False))
         elif v == "validate":
             val = store.validate(args.epic)
-            _emit(asdict(val), True)
+            doc = asdict(val)
+            if args.paths:
+                from models.contention import contention_by_wave
+
+                doc["contention"] = contention_by_wave(store, val)
+            _emit(doc, True)
+            if args.paths and any(w["edges"] for w in doc["contention"]["waves"]):
+                print(f"CONTENTION: {sum(len(w['edges']) for w in doc['contention']['waves'])} edge(s) the dependency waves cannot see — see `contention`", file=sys.stderr)
             return 0 if val.ok else 1
         elif v == "create":
             print(

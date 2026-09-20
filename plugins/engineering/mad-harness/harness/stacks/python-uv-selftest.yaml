@@ -1,13 +1,14 @@
-# The harness's own toolchain. `bootstrap` is a no-op because uv resolves the
+# The harness's own toolchain. `bootstrap` is `none` because uv resolves the
 # dependency set from harness/pyproject.toml on demand — there is nothing for a
-# worktree to restore.
+# worktree to restore. (It said `symlink` to a `.venv-none` that never existed until
+# probe-worktree.sh's first run refused to init a worktree on it.)
 name: python-uv-selftest
 description: The harness's own test suite, resolved from its own pyproject.
 root: harness
 detect_any: [pytest.ini]
 dependency_dir: .venv-none
 bootstrap:
-  strategy: symlink
+  strategy: none
 env:
   HARNESS_TEST_SLOT: "{slug}_w{worker}"
 card: |

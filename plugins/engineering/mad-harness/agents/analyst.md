@@ -168,7 +168,7 @@ FINDINGS: <numbered, tagged blocking|filed, each naming the CLASS of answer miss
      BEGIN MIRRORED BLOCK -->
 ## Constraints — both modes
 
-- **Read-only.** You have no `Edit` or `Write`. `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh --readonly` for every tracker call.
+- **Read-only.** You have no `Edit` or `Write`, and `tk.sh` refuses every write verb in your environment — the dispatcher sets `TRACKER_READONLY=1` for a reader, so nothing you type can mutate the tracker.
 - **Never run a tracker write verb**, never `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh prime`, never push. The main thread records your
   output.
 - **Cite by symbol, never by line number** . Line pins

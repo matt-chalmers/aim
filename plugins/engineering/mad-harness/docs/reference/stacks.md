@@ -25,7 +25,7 @@ root: "."                          # the module NEVER names a location; the proj
 dependency_dir: .venv              # relative to root
 
 bootstrap:
-  strategy: install                # install | symlink
+  strategy: install                # install | symlink | none
   command: uv sync
   cwd: <subdir>                    # optional, relative to root
   env_notes: {DB_NAME: "why it matters"}   # printed into .swarm-env as a comment
@@ -113,6 +113,7 @@ answer, and the honest one.
 |---|---|---|
 | `install` | restoring is cheap — the manager hardlinks or caches | minutes per worker, every wave |
 | `symlink` | restoring is expensive **and** concurrent readers are safe | corrupted shared state if readers are not safe |
+| `none` | the manager resolves on demand from a tracked file; nothing to restore | a worker that could have started without it waits on a restore that fails |
 
 ## env — per-worker isolation
 

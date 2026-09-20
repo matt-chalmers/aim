@@ -27,10 +27,16 @@ than the stamp, **oldest first**. An unstamped config is older than all of them.
 tagged: **mechanical** — apply it and say what you did; **ask the owner** — one question,
 carrying whatever the repository already answers, exactly as §1 does for a fresh config.
 
-When the last section is applied, set `harness.version` to the installed plugin's version
-— **read it from `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`, never type it** — and
-re-run the check. It must end `OK` or `WARN`, never `UPGRADE`. Then §7, because an upgrade
-that validates but breaks a worker's worktree has not been tested either.
+When the last section is applied, stamp and re-check in one call:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp   # writes harness.version from the plugin manifest, then checks
+```
+
+It writes the installed version into `harness.yaml` in place — read from the manifest,
+never typed, because a mistyped stamp is a config that reads as current while missing every
+block the version reads — and must end `OK` or `WARN`, never `UPGRADE`. Then §7, because an
+upgrade that validates but breaks a worker's worktree has not been tested either.
 
 A fresh repository has no config: continue with §1.
 
@@ -53,7 +59,7 @@ questionnaire.
 | key | what it is | how to get it wrong |
 |---|---|---|
 | `name`, `slug` | display name; lowercase id for per-worker resources | a slug with a hyphen or space breaks database names |
-| `harness.version` | the plugin version this config was reviewed against | typing a version instead of reading it from the plugin manifest — a wrong stamp hides an upgrade |
+| `harness.version` | the plugin version this config was reviewed against; `check-project-config.sh --stamp` writes it | typing a version instead of reading it from the plugin manifest — a wrong stamp hides an upgrade |
 | `stacks` | which modules under `harness/stacks/` apply | naming one whose `detect` files are absent |
 | `tracker` | which task backend this project uses | omitting it is fine — that means `beads`, the default |
 | `beads.prefix` | what this repo's issue ids start with | guessing — read it off `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh list` |
@@ -278,10 +284,21 @@ usually a real finding rather than a typo: it means the command you declared is 
 command this repository runs. Re-run it as
 `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-stack-commands.sh --repair` and let it derive one.
 
-Then prove the part no check can: create a scratch worktree, run
-`${CLAUDE_PLUGIN_ROOT}/harness/swarm/swarm-worktree-init.sh 1 <lane>` inside it, confirm `.swarm-env`
-sources cleanly and names a per-worker database, and remove the worktree. A config
-that validates but produces a worktree a worker cannot use has not been tested.
+Then prove the part no check can — one call:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/probe-worktree.sh <lane>       # scratch worktree → init inside it → source .swarm-env → identity + per-worker lines → remove
+```
+
+It creates a detached scratch worktree where the dispatcher puts a worker's, runs the init
+from inside it, sources the `.swarm-env` it wrote in a fresh shell (the unquoted value that
+reads fine and fails a real shell is caught here, not mid-wave), checks `TRACKER_ACTOR`,
+`SWARM_LANE` and every per-worker variable the stacks declare, and removes the worktree
+whatever happened (`--keep` leaves it for inspection). A config that validates but produces
+a worktree a worker cannot use has not been tested; on its first run this probe found the
+harness's own stack declaring a restore of a directory that never existed. A project whose
+stacks declare no per-worker variable is told so rather than passed — decide whether that
+is right for its stacks.
 
 ## 8. What stays project-owned
 

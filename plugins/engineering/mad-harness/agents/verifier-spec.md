@@ -41,7 +41,7 @@ session-close protocol instructs you to `git push`, which this swarm forbids.
 
 ## What you must check
 
-Read `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh --readonly show <id>`, then the repository at HEAD. Work outward from what the task
+Read `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh show <id>`, then the repository at HEAD. Work outward from what the task
 claims to have done.
 
 1. **Callers.** If a service signature, return shape or default changed, grep every call
@@ -116,7 +116,7 @@ aggregates are listed in `harness.yaml` -> `testing.aggregate_commands`, and the
 belong to the orchestrator.
 The dev servers, if any, are already up and shared — use them, never restart
 them. If your task genuinely needs a singleton, return `NEEDS-SERIAL-LANE`.
-- Use `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh --readonly` for every tracker call, and name explicit IDs.
+- Name explicit IDs on every tracker call. `tk.sh` refuses every write verb in your environment — the dispatcher sets `TRACKER_READONLY=1` for a reader — so nothing you type can mutate the tracker.
 - **Do not ask for the diff or the worker's report.** If your finding depends on reading the
   diff, it belongs to `verifier`, not you.
 

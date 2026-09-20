@@ -92,12 +92,23 @@ def _suite(lane: str | None, cwd: str, root: Path, runner) -> tuple[Path | None,
     return out, Result(name, OK, f"{tail(raw.stdout, 1) or 'green'}\nfull: {out}", raw)
 
 
-def prompts(task: str, sha: str, info: dict, suite: Path | None, branch: str | None, l4_reason: str) -> dict[str, str]:
+def mutation_log(where: str) -> Path | None:
+    """The worker's `mutate.sh` log, if it ran one: `.harness/run/mut/<slug>-mut/<slug>-mutants.txt`
+    under the checkout the change is in. Until 0.10.27 this artefact had NO transport to
+    L2 — it lived in the worker's worktree, which the sweep reclaims, and the lens ran in
+    the primary — so "spot-re-run three of sixteen" had nothing to spot-check."""
+    hits = sorted(Path(where).glob(".harness/run/mut/*/*-mutants.txt"), key=lambda p: p.stat().st_mtime)
+    return hits[-1] if hits else None
+
+
+def prompts(task: str, sha: str, info: dict, suite: Path | None, branch: str | None, l4_reason: str, mutants: Path | None = None) -> dict[str, str]:
     """One prompt per lens. L3's names the brief and NOTHING under the diff root — asserted."""
     brief = info["brief"]
     artefacts = info["artefacts"]
     where = f"The change is on branch `{branch}`; your working directory is its worktree." if branch else "The change is on the branch you are in, at HEAD."
     suite_line = f"The suite already ran once, where the change is; its whole output is at `{suite}`. Read it; do not re-run the whole suite." if suite else "The suite was not run by the gate."
+    mut_line = (f"The worker's mutation log is at `{mutants}` — confirm its provenance (right sha, the recheck line present) and spot-re-run THREE of its mutants; re-run the full set only if the log is absent, hand-rolled, or its recheck line is missing."
+                if mutants else "No `mutate.sh` log was found in the worktree — the worker did not run the mutation harness, which is itself a finding to weigh; run your own aimed mutants.")
     p = {
         "L1": f"""Judge task {task} for CORRECTNESS — commit {sha}. {where}
 Read the brief at `{brief}` (it carries the task text, the acceptance criteria, the L4 trigger and the commit-hygiene facts) and the diff artefacts listed in `{artefacts}` — the per-file patches for the files you reason about.
@@ -106,7 +117,7 @@ Read the brief at `{brief}` (it carries the task text, the acceptance criteria, 
 Return `VERDICT: PASS` or `VERDICT: FAIL` on the first line, then every acceptance criterion located in the diff, then findings — each tagged blocking or filed, and a FAIL classified test-shaped or not.""",
         "L2": f"""Judge the TESTS of task {task} — commit {sha}. {where}
 Read the brief at `{brief}` and the diff artefacts listed in `{artefacts}`.
-{suite_line} Run targeted tests and the 3-of-N mutation spot-check against the resources `.swarm-env` names for this worktree — never a fixed name.
+{suite_line} {mut_line} Run targeted tests against the resources `.swarm-env` names for this worktree — never a fixed name.
 {BATCH}
 Are the new tests adversarial or decorative — do they pin behaviour a plausible wrong implementation would fail? Return `VERDICT: PASS` or `VERDICT: FAIL` on the first line, then findings tagged blocking or filed.""",
         "L3": f"""Judge task {task} against the SPEC, the DOCS and its BLAST RADIUS. {where}
@@ -199,7 +210,10 @@ def run(
         results.append(Result("run.sh test", INFO, f"skipped (--suite {suite})"))
 
     # ④ prompts
-    pr = prompts(task, info.get("commit", sha), info, suite_path, branch, "; ".join(l4info.get("why") or []) or "--l4 always")
+    mutants = mutation_log(where)
+    pr = prompts(task, info.get("commit", sha), info, suite_path, branch, "; ".join(l4info.get("why") or []) or "--l4 always", mutants)
+    if mutants:
+        results.append(Result("mutation log", INFO, f"{mutants} — handed to L2 by path"))
     pdir = root / "prompts"
     pdir.mkdir(exist_ok=True)
     for lens in lenses:

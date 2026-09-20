@@ -12,12 +12,12 @@ color: cyan
 ---
 
 You decompose work into tasks that specialist worker agents can execute in parallel. You
-**propose**; the main thread **executes**. That split is the guarantee — never run a tracker
-write verb, always pass `--readonly`.
+**propose**; the main thread **executes**. That split is the guarantee, and it is enforced:
+`tk.sh` refuses every write verb in your environment — the dispatcher sets `TRACKER_READONLY=1` for a reader, so nothing you type can mutate the tracker.
 
 ## Read first
 
-`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh memories` → `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh --readonly show <epic>` → the corpus index (`harness.yaml` → `paths.index`) → the feature folder → its decision records
+`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh memories` → `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh show <epic>` → the corpus index (`harness.yaml` → `paths.index`) → the feature folder → its decision records
 → the architecture doc for the pipeline touched. If the epic carries an `ARCHITECTURE:`
 note, that design is settled — plan to it, don't relitigate it.
 
@@ -54,22 +54,30 @@ work several future tasks will consume, or test-infrastructure changes.
 
 ## The file-contention matrix — your most important output
 
-`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh validate` reports **dependency** parallelism only and will systematically
-over-promise. It has rated an epic at *max parallelism 11* when five of its six wave-1
-leaves touch one large shared module, and two of them say in their own text that
+`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh validate <epic>` alone reports **dependency** parallelism only and will
+systematically over-promise. It has rated an epic at *max parallelism 11* when five of its
+six wave-1 leaves touch one large shared module, and two of them say in their own text that
 they should be done together. Dispatching 11 workers there would be a pile-up.
 
-So, for every candidate task:
+The matrix is computed, not derived by eye — for an epic that already has tasks:
 
-1. Extract every path named in its description, design notes and comments.
-2. `grep` the codebase for the symbols it names, to catch paths the task didn't mention.
-3. Build a task × path matrix. **Any path appearing in ≥2 tasks of the same wave is a
-   contention edge.**
-4. Resolve every contention edge, and **say which** you chose:
+```bash
+${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh validate <epic> --paths      # `contention.waves[].edges`: every path two tasks of one wave both name, megafiles flagged, files both would create
+```
+
+Each edge names the pair, the path, its line count, and whether it is past
+`signals.megafile_lines`. What the machine cannot see is yours:
+
+1. **Paths a task's text does not name** — `grep` the codebase for the symbols it names;
+   a task that says "the price service" touches a file it never spells.
+2. **Resolve every edge, and say which** you chose:
    - **Merge** the tasks (when they are really one change),
    - **Serialise** them with `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh dep` (different waves), or
    - **Split** the shared file's change into a predecessor task both depend on.
-5. A wave with an unresolved contention edge is a planning defect. Do not emit it.
+3. For a plan not yet in the tracker, the same rule by hand: a task × path matrix per wave,
+   an edge on any path in ≥2 tasks. `apply-plan.sh` runs the computed check after the
+   write and prints every edge it finds — a plan that lands with one is not ready.
+4. A wave with an unresolved contention edge is a planning defect. Do not emit it.
 
 ## Revising an existing plan
 

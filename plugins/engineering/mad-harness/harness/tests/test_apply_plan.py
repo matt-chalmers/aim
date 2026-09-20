@@ -10,6 +10,7 @@ agent wrote, and the failure that matters is one the CLI would reject mid-plan.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -91,7 +92,7 @@ def test_a_labelled_plan_applies_and_every_record_and_edge_exists(repo, capsys):
     assert f"T1 -> {ids['T1']}  created \"Add the model\"" in out
     assert f"dep {ids['T2']} -> {ids['T1']}" in out
     assert "applied 7 commands: 4 created, 0 already applied, 2 deps, 1 other" in out
-    assert "3 waves" in out and "ignores file contention" in out
+    assert "3 waves" in out and "file-contention edge(s)" in out, "the post-apply validate runs with --paths"
     assert view.is_file() and "Expose the endpoint" in view.read_text()
 
 
@@ -263,3 +264,28 @@ def test_the_planner_contract_states_the_label_form_the_applier_reads():
     assert mod.LABEL.match("data-model: tk.sh create x").group("label") == "data-model"
     assert mod.LABEL.match("1T: tk.sh create x") is None, "a label starts with a letter"
     assert mod.LABEL.match("${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create x") is None
+
+
+def test_a_plan_that_edits_an_in_progress_or_closed_task_is_refused_whole(repo, capsys):
+    """campaign-loop §3c: never touch a task that is in progress or closed — someone may
+    be working it, and a closed one is the record. The applier checks it now."""
+    epic = _tk("create", "An epic", "-t", "epic")
+    busy = _tk("create", "Being worked", "--parent", epic)
+    _tk("update", busy, "--status", "in_progress")
+    done = _tk("create", "Already done", "--parent", epic)
+    _tk("close", done, "--reason", "shipped")
+    for verb_line, which in ((f"{ROOT} update {busy} --title renamed\n", busy), (f"{ROOT} delete {done}\n", done)):
+        plan = _plan(repo, epic, f'T1: {ROOT} create "New" --parent EPIC\n' + verb_line)
+        assert mod.main([str(plan), "--epic", epic]) == 2
+        err = capsys.readouterr().err
+        assert "nothing written" in err and which in err and ("in_progress" in err or "closed" in err), err
+    assert _show(busy)["title"] == "Being worked" and _show(done)["status"] == "closed"
+    assert _tk("list", "--parent", epic).count("\n") == 1, "only the two seeded children exist; the create never ran"
+
+
+def test_readonly_by_environment_refuses_a_write_verb(repo, monkeypatch):
+    """A dispatched reader gets TRACKER_READONLY=1; it need not remember --readonly."""
+    epic = _tk("create", "An epic", "-t", "epic")
+    proc = subprocess.run([str(TK), "close", epic, "--reason", "x"], capture_output=True, text=True, timeout=120, env={**os.environ, "TRACKER_READONLY": "1"})
+    assert proc.returncode == 4 and "REFUSED" in proc.stderr
+    assert _show(epic)["status"] == "open"

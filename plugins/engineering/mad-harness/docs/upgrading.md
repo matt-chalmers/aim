@@ -1156,3 +1156,59 @@ heartbeats.** No config change.
   return contract's first line. The skill went from 1,148 lines to 615.
 
 - **mechanical** — re-stamp `harness.version`, when convenient.
+
+### 0.10.27
+
+**Deterministic steps out of the prose, part 9: the agent-side primitives.** One
+config note: a stack may now declare `bootstrap.strategy: none`.
+
+- **What was wrong.** The last layer of the audit: procedures every dispatched agent
+  re-derived. The planner's "most important output" — the file-contention matrix — was
+  built by eye (extract paths, grep, task × path per wave), and the recorded pile-up was an
+  epic rated 11-wide with five wave-1 tasks on one module. The worker's mutation log had
+  no transport to L2 — it lived in a worktree the sweep reclaims, so "spot-re-run three of
+  sixteen" had nothing to spot-check. Seven reader agents each carried a paragraph asking
+  the model to pass `--readonly` on every tracker call, a rule the dispatcher already knew
+  from the frontmatter. The security lens was told to "read the invariants from the
+  config" — a YAML file to find from a worktree and parse by eye. The spec-editor was
+  warned, in prose, to anchor heading matches to line start (a recorded silent fold-in of
+  nothing), to flip frontmatter, and to `git mv` a decision record at a number two streams
+  once picked independently. `/harness-setup` ended with a stamp typed by hand and a
+  worktree probe of four steps plus cleanup that was never idempotent.
+- **`tk.sh validate <epic> --paths`** adds `contention.waves[].edges` above the
+  dependency waves: every path two tasks of one wave both name, with its line count and
+  the megafile flag, or a file both would create. `apply-plan.sh` runs it after the write
+  and prints every edge; the planner resolves them (merge, serialise, split). The applier
+  also refuses `update`/`delete`/`supersede`/`label`/`close` on a record that is
+  `in_progress` or `closed` — §3c's rule, unchecked until now.
+- **`lens-gate.sh`** finds the newest `mutate.sh` log in the checkout the change is in
+  and names it in L2's prompt — or says none was found, which L2 weighs as a finding.
+- **Readers are read-only by environment.** `dispatch.build_env` sets
+  `TRACKER_READONLY=1` for a reader (`permission_mode == "default"`); `tk.sh` honours it as
+  `--readonly`; a writer never inherits it (it is in `STRIPPED_FROM_CHILDREN`). The seven
+  paragraphs are gone.
+- **The security lens's checklist is injected** like the technology card:
+  `security.invariants` verbatim under "Declared security invariants", or "declares none".
+- **`staged.sh`** — `section <file> "<heading>"` (line-anchored; exit 1 absent, 2
+  duplicated), `set-status <file> folded-in` (frontmatter in place, dated),
+  `promote-adr <draft> --decision "…"` (`git mv` to `paths.adrs` at `adr-next`, status and
+  decision filled in). The spec-editor calls them.
+- **`check-project-config.sh --stamp`** writes `harness.version` from the plugin manifest
+  in place. **`probe-worktree.sh [<lane>]`** is §7's probe as one call: scratch worktree,
+  the init inside it, `.swarm-env` parsed and SOURCED in a fresh shell, identity and
+  per-worker lines checked, the worktree removed whatever happened. Its first run found
+  the harness's own stack declaring `symlink` to a `.venv-none` that never existed — every
+  worker worktree on it would have refused to init — hence `bootstrap.strategy: none`.
+- **Deferred, with the reason.** Four items of the plan's R9 need an environment the
+  suite does not have and ship when it does: `fidelity-compare.mjs --measure/--widths/
+  --states/--zoom` with `serviceWorkers: 'block'` (a computed-style diff table — needs a
+  browser to test); `mutate.sh --dirty/--verify/--baseline` and the `class` column (needs
+  the wavelab); `init-config.sh`, a `harness.yaml` skeleton from `project.detect_*`; and
+  `check-invariants.sh` over `invariant_greps:` declared per framework, run by `brief.py`.
+  None of these leaves a prompt telling an agent to run a bare sequence: the fidelity
+  auditor and the mutation worker keep their by-hand steps, stated as such.
+
+- **mechanical** — re-stamp `harness.version`, when convenient:
+  `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`.
+- **mechanical** — a stack whose bootstrap is a no-op declares `strategy: none`; one that
+  said `symlink` to a directory that does not exist was never restoring anything.

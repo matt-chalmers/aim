@@ -104,11 +104,15 @@ Hold the declaration against the code and ask:
 
 ### 2. Spot-check three, to prove the log is not fiction
 
-`${CLAUDE_PLUGIN_ROOT}/harness/verify/mutate.sh` self-attests (exactly-once, name-recording, mutant-1 recheck), so
-**re-run three of the worker's mutants at the AFTER commit** and confirm the killing tests are
-the ones named. **Trust the recorded BEFORE state** unless the log is self-inconsistent or its
-recheck line is missing — re-deriving a gap the task already documents is the single most
-expensive thing you do, and it has never once changed a verdict.
+**The log's path is in your prompt** — the lens gate finds the worker's `mutate.sh` log in
+the worktree and hands it over (`.harness/run/mut/<slug>-mut/<slug>-mutants.txt`), or says
+none was found, which is itself a finding: the worker did not run the mutation harness.
+Do not go looking for it. `${CLAUDE_PLUGIN_ROOT}/harness/verify/mutate.sh` self-attests (exactly-once,
+name-recording, mutant-1 recheck), so **re-run three of the worker's mutants at the AFTER
+commit** and confirm the killing tests are the ones named. **Trust the recorded BEFORE
+state** unless the log is self-inconsistent or its recheck line is missing — re-deriving a
+gap the task already documents is the single most expensive thing you do, and it has never
+once changed a verdict.
 
 ### 3. Run a NEW mutant only to DEMONSTRATE a gap you already found by reading
 
@@ -202,7 +206,7 @@ aggregates are listed in `harness.yaml` -> `testing.aggregate_commands`, and the
 belong to the orchestrator.
 The dev servers, if any, are already up and shared — use them, never restart
 them. If your task genuinely needs a singleton, return `NEEDS-SERIAL-LANE`.
-- Use `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh --readonly` for every tracker call, and name explicit IDs.
+- Name explicit IDs on every tracker call. `tk.sh` refuses every write verb in your environment — the dispatcher sets `TRACKER_READONLY=1` for a reader — so nothing you type can mutate the tracker.
 
 ## Return contract — ten lines plus the defect list
 

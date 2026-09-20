@@ -78,7 +78,7 @@ from typing import Any
 from . import levers as _levers
 from . import transcript as _transcript
 from .broker import broker, resolved_requests
-from .context import render_card
+from .context import render_card, render_invariants
 from .project import ProjectError
 from .resolve import (
     HARNESS,
@@ -366,7 +366,11 @@ class Outcome:
             ),
         }
 def with_context(
-    prompt: str, lane: str | None, cwd: str | None = None, task: str | None = None
+    prompt: str,
+    lane: str | None,
+    cwd: str | None = None,
+    task: str | None = None,
+    agent: str | None = None,
 ) -> str:
     """The prompt plus the technology card for this lane.
 
@@ -436,9 +440,11 @@ def with_context(
         "Line numbers are fine in your report and in chat.\n"
     )
     card = render_card(lane)
+    # The security lens's checklist, from the config it would otherwise have to find.
+    invariants = render_invariants(agent)
     # The agent's doctrine is in its SYSTEM PROMPT (resolve.doctrine), not here: a message
     # is what a compaction summarises and what a lever once switched off.
-    return "\n\n".join(x for x in (prompt, card, where, answered, conventions) if x)
+    return "\n\n".join(x for x in (prompt, card, invariants, where, answered, conventions) if x)
 
 
 #: WHAT A CHILD MUST NOT INHERIT FROM THE DISPATCHER. The SDK builds the child's
@@ -452,7 +458,10 @@ def with_context(
 #: operator's shell made every `uv run` warn, which is what started the reading.
 #: The only fix the merge allows is to remove them from THIS process before the SDK
 #: spawns; `build_env` pops them too, for the copy it returns.
-STRIPPED_FROM_CHILDREN: tuple[str, ...] = ("MAD_HARNESS_CALLER_PWD", "VIRTUAL_ENV")
+#: `TRACKER_READONLY` is in the list for the opposite reason: it is SET per child by
+#: `build_env` for a reader, and a writer must never inherit it from a dispatcher that
+#: happens to be one — the merge would make the writer's `tk.sh close` refuse, silently.
+STRIPPED_FROM_CHILDREN: tuple[str, ...] = ("MAD_HARNESS_CALLER_PWD", "VIRTUAL_ENV", "TRACKER_READONLY")
 
 
 def scrub_process_env() -> None:
@@ -498,6 +507,14 @@ def build_env(r: Resolved, base: dict[str, str] | None = None) -> dict[str, str]
     # itself is scrubbed in `_run_sdk`, which is the pop that reaches a child.
     for key in STRIPPED_FROM_CHILDREN:
         env.pop(key, None)
+    # A READER'S TRACKER IS READ-ONLY BY ENVIRONMENT, not by a flag it remembers. Seven
+    # agent files each carried "`tk.sh --readonly` for every tracker call"; a lens that
+    # forgot the flag once could `tk.sh close`. The reader profile (`permission_for`:
+    # no Edit/Write in `tools:`) is `permission_mode == "default"`; `tk.sh` refuses every
+    # write verb under this variable exactly as under `--readonly`. Set AFTER the strip,
+    # which is what keeps a writer from inheriting it (see STRIPPED_FROM_CHILDREN).
+    if r.permission_mode == "default":
+        env["TRACKER_READONLY"] = "1"
     # THE CACHE TTL IS A CHOICE, NOT AN ACCIDENT. Nobody had set it: workers through this
     # path wrote cache at the 1-hour rate (2x) while lenses through the Agent tool wrote at
     # 5-minute (1.25x), a difference nobody chose. A worker turns continuously, so the
@@ -662,7 +679,7 @@ def dispatch(
     started = time.monotonic()
     payload = (runner or _run_sdk)(
         r,
-        with_context(prompt, lane, cwd=str(cwd or REPO), task=task),
+        with_context(prompt, lane, cwd=str(cwd or REPO), task=task, agent=agent),
         cwd=str(cwd or REPO),
         env=build_env(r),
         timeout=timeout,

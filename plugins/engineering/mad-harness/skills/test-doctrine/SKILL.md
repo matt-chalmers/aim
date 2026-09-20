@@ -222,7 +222,8 @@ this repo's real defects have lived:
 - **Watch for the indentation-substring trap.** `    x += f(a)` at 12 spaces is a substring of
   the same line at 16. The harness's exactly-once guard catches it — it has, in production —
   but anchor with enough surrounding text to be unambiguous.
-- **`verifier-tests`: verify a worker's mutation log, do not redo it.** The harness self-attests
+- **`verifier-tests`: verify a worker's mutation log, do not redo it.** The lens gate hands
+  the log's path over in the prompt (or says none was found). The harness self-attests
   (exactly-once, name-recording, mutant-1 recheck), so spot-re-run **three** of sixteen and
   confirm the killing tests are the named ones. Re-run in full only when the log is
   self-inconsistent, its recheck line is missing, or the task is high-consequence.

@@ -120,6 +120,36 @@ def render_card(lane: str | None, project: Project | None = None) -> str:
     return "\n".join(out).rstrip() + "\n"
 
 
+#: The lens that judges the project's declared security invariants. It is the one agent
+#: whose prompt gets them appended — keyed by name, asserted to exist by the suite.
+SECURITY_LENS = "verifier-security"
+
+
+def render_invariants(agent: str | None, project: Project | None = None) -> str:
+    """`security.invariants` from `harness.yaml`, as a prompt fragment for the security
+    lens — or "" for every other agent, and for a project that declares none.
+
+    Injected here like the card rather than fetched by the agent: L4's prose said "read
+    them from the config", which is a YAML file the lens had to locate from a worktree
+    and parse by eye, and the one list it exists to check was the step most easily
+    skipped. The dispatcher has the parsed config; the lens gets the list verbatim.
+    A project that declares none is told so — "none declared" is a fact the lens
+    reports, not an absence it should go looking for.
+    """
+    if agent != SECURITY_LENS:
+        return ""
+    p = project or load()
+    rules = p.invariants()
+    out = ["## Declared security invariants", ""]
+    if not rules:
+        out.append("`harness.yaml` → `security.invariants` declares none. Say so in your report; do not go looking for a list elsewhere.")
+        return "\n".join(out) + "\n"
+    out.append("From `harness.yaml` → `security.invariants`, verbatim — the rules this project states and nothing mechanically enforces. Check each against the diff; a violation is blocking.")
+    out.append("")
+    out += [f"{i}. {rule}" for i, rule in enumerate(rules, 1)]
+    return "\n".join(out) + "\n"
+
+
 def main(argv: list[str] | None = None) -> int:
     import sys
 

@@ -124,7 +124,7 @@ aggregates are listed in `harness.yaml` -> `testing.aggregate_commands`, and the
 belong to the orchestrator.
 The dev servers, if any, are already up and shared — use them, never restart
 them. If your task genuinely needs a singleton, return `NEEDS-SERIAL-LANE`.
-- Use `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh --readonly` for every tracker call, and name explicit IDs.
+- Name explicit IDs on every tracker call. `tk.sh` refuses every write verb in your environment — the dispatcher sets `TRACKER_READONLY=1` for a reader — so nothing you type can mutate the tracker.
 
 ## Return contract — ten lines plus the defect list
 

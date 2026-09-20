@@ -201,3 +201,76 @@ def adr_next(adrs: Path) -> int:
             if m:
                 n = max(n, int(m.group("n")))
     return n + 1
+
+
+HEADING = _re.compile(r"^(?P<hashes>#{1,6})\s+(?P<title>.+?)\s*$", _re.M)
+
+
+def section(text: str, heading: str) -> str | None:
+    """The body under `## <heading>` (any level), LINE-ANCHORED, up to the next heading of
+    the same or higher level — or None when there is no such heading. `spec-editor` was
+    told to anchor the match to `^` because an unanchored search once matched the words
+    inside a paragraph and folded in nothing, silently; and to stop on a split heading.
+    Two headings with the same title is an error, not a choice."""
+    hits = [m for m in HEADING.finditer(text or "") if m.group("title").strip().lower() == heading.strip().lower()]
+    if not hits:
+        return None
+    if len(hits) > 1:
+        raise ValueError(f"heading {heading!r} appears {len(hits)} times — split headings; fix the document")
+    m = hits[0]
+    level = len(m.group("hashes"))
+    start = m.end()
+    end = len(text)
+    for n in HEADING.finditer(text, start):
+        if len(n.group("hashes")) <= level:
+            end = n.start()
+            break
+    return text[start:end].strip("\n")
+
+
+FRONT = _re.compile(r"^---\n(?P<fm>.*?)\n---\n", _re.S)
+
+
+def set_status(path: Path, status: str, **also: str) -> None:
+    """Flip `status:` in a staged file's frontmatter (and set any other keys given, e.g.
+    `folded_in: <date>`), in place. A file with no frontmatter gets one."""
+    text = path.read_text()
+    m = FRONT.match(text)
+    fields = {"status": status, **also}
+    if m:
+        body = m.group("fm")
+        for k, v in fields.items():
+            if _re.search(rf"^{k}:", body, _re.M):
+                body = _re.sub(rf"^{k}:.*$", f"{k}: {v}", body, count=1, flags=_re.M)
+            else:
+                body += f"\n{k}: {v}"
+        text = f"---\n{body}\n---\n" + text[m.end():]
+    else:
+        text = "---\n" + "\n".join(f"{k}: {v}" for k, v in fields.items()) + "\n---\n" + text
+    path.write_text(text)
+
+
+def promote_adr(draft: Path, adrs: Path, *, decision: str, cwd: Path) -> Path:
+    """A resolved draft decision record MOVES into `paths.adrs` at the next free number
+    (`git mv` — a tracked file keeps its history; an untracked one is renamed), with
+    `Status: Accepted` and `## Decision` filled in from the owner's settlement. It moves
+    rather than merging because a decision record is a standalone append-only file."""
+    import subprocess
+
+    n = adr_next(adrs)
+    stem = _re.sub(r"^adr-draft-\d+-", "", draft.stem)
+    dest = adrs / f"{n:04d}-{stem}.md"
+    adrs.mkdir(parents=True, exist_ok=True)
+    moved = subprocess.run(["git", "mv", str(draft), str(dest)], cwd=str(cwd), capture_output=True, text=True)
+    if moved.returncode != 0:
+        draft.rename(dest)
+    text = dest.read_text()
+    text = _re.sub(r"^# ADR-XXXX:", f"# ADR-{n:04d}:", text, count=1, flags=_re.M)
+    text = _re.sub(r"^\*\*Status\*\*:.*$", "**Status**: Accepted", text, count=1, flags=_re.M)
+    text = _re.sub(r"^> \*\*Draft\*\*.*?\n(?:>.*\n)*\n?", "", text, count=1, flags=_re.M)
+    if _re.search(r"^## Decision[ \t]*$", text, _re.M):
+        text = _re.sub(r"(^## Decision[ \t]*\n)(.*?)(?=^## |\Z)", lambda m: m.group(1) + "\n" + decision.strip() + "\n\n", text, count=1, flags=_re.M | _re.S)
+    else:
+        text = text.rstrip("\n") + f"\n\n## Decision\n\n{decision.strip()}\n"
+    dest.write_text(text)
+    return dest

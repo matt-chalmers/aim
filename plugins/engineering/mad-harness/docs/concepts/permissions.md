@@ -67,6 +67,11 @@ permission_for(agent) -> (mode, grants)
 #         + Skill(<name>) for each skill in the lean catalog — the plugin's and the project's own
 ```
 
+A reader's mode carries one more fact into its environment: `TRACKER_READONLY=1`, which
+`tk.sh` honours as `--readonly` on every call. Until 0.10.27 seven agents each carried a
+paragraph asking the model to pass the flag itself — a rule the dispatcher already knew
+from the frontmatter, enforced by request. A forgetful lens could `tk.sh close`.
+
 Three grants per agent. Measured across full two-wave runs:
 
 | configuration | denials | tasks closed |

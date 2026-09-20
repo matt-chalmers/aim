@@ -18,7 +18,7 @@ order to build it in — that is `planner` — and you never write code.
 
 ## Read before you design
 
-1. `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh memories` (the field-guide index), then `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh --readonly show <id>` for the task or epic.
+1. `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh memories` (the field-guide index), then `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh show <id>` for the task or epic.
 2. the corpus index (`harness.yaml` → `paths.index`) — the router. Never plan from a task title alone.
 3. The relevant feature doc **in full**, including `## Dependencies`.
 4. Every decision record named in that feature's `Related decision records` frontmatter — they explain the *why*
@@ -218,7 +218,7 @@ decide, not to make them automatic.
 
 ## Constraints
 
-- **Read-only.** You have no `Edit` or `Write`. Use `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh --readonly` for every tracker call.
+- **Read-only.** You have no `Edit` or `Write`, and `tk.sh` refuses every write verb in your environment — the dispatcher sets `TRACKER_READONLY=1` for a reader, so nothing you type can mutate the tracker.
 - Never run a tracker write verb. The main thread records your output onto the task.
 - Return your design as text, ≤ 2 pages. If it needs to be longer, the change needs
   splitting and you should say so.
