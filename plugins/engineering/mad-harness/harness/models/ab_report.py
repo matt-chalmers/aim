@@ -59,6 +59,22 @@ def load(root: Path, lever: str) -> dict[str, list[dict[str, Any]]]:
 
 #: Writers, whose cost a lever is about; everything else in a run is the judging of it.
 WRITERS = ("fullstack-engineer", "quality-engineer")
+#: The one agent whose turns ARE the orchestration cost — present only in an
+#: `ab.sh --orchestrated` run, where it drove the whole epic through `campaign.sh`.
+ORCHESTRATOR = "campaign-orchestrator"
+
+
+def load_outcomes(root: Path, lever: str) -> dict[str, dict[str, dict[str, Any]]]:
+    """arm -> run -> the tracker's end state (`outcome.json`, written by an orchestrated run)."""
+    out: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
+    for path in sorted(root.glob(f"{lever}-*/outcome.json")):
+        run_dir = path.parent.name
+        arm, run = run_dir[len(lever) + 1 :].rsplit("-", 1)
+        try:
+            out[arm][run] = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+    return dict(out)
 LENS_LABEL = {"verifier": "L1", "verifier-tests": "L2", "verifier-spec": "L3", "verifier-security": "L4"}
 
 
@@ -115,6 +131,26 @@ def summarise(by_arm: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, An
         # earlier series measured, so both are kept.
         s["writer_cost_per_run"] = _quartiles(list(writers_per_run.values())) if writers_per_run else None
         s["judged"] = any(r.get("agent") in LENS_LABEL for r in rows)
+        # THE ORCHESTRATOR'S OWN PRICE, kept apart from the work it dispatched. Its turns
+        # are the count the prose-to-code series claims to cut; its cost is those turns at
+        # its context's price; the children are what it spent them on.
+        orch = [r for r in rows if r.get("agent") == ORCHESTRATOR]
+        if orch:
+            s["orch_turns"] = _quartiles([float(r.get("turns") or 0) for r in orch])
+            s["orch_cost"] = _quartiles([float(r.get("cost_usd") or 0) for r in orch])
+            s["orch_input"] = _quartiles([float((r.get("input_tokens") or 0) + (r.get("cache_read_tokens") or 0) + (r.get("cache_creation_tokens") or 0)) for r in orch])
+            s["orch_minutes"] = _quartiles([float(r.get("duration_ms") or 0) / 60000 for r in orch])
+            s["orch_terminals"] = sorted({str(r.get("terminal")) for r in orch})
+            kids: dict[str, int] = defaultdict(int)
+            lens: dict[str, int] = defaultdict(int)
+            for r in rows:
+                if r.get("agent") == ORCHESTRATOR:
+                    continue
+                kids[r["_run"]] += 1
+                if r.get("agent") in LENS_LABEL:
+                    lens[r["_run"]] += 1
+            s["children_per_run"] = _quartiles([float(kids[k]) for k in per_run])
+            s["lens_per_run"] = _quartiles([float(lens[k]) for k in per_run])
         for key, *_ in METRICS:
             xs = [float(r[key]) for r in rows if r.get(key) is not None]
             s[key] = _quartiles(xs) if xs else None
@@ -148,6 +184,7 @@ def main(argv: list[str] | None = None) -> int:
     s = summarise(by_arm)
     off, on = s.get("off"), s.get("on")
     verdicts = load_verdicts(root, lever)
+    outcomes = load_outcomes(root, lever)
     print(f"A/B {lever} — root {root}")
     for arm in ("off", "on"):
         if arm not in s:
@@ -160,6 +197,13 @@ def main(argv: list[str] | None = None) -> int:
         if a.get("judged") and a.get("writer_cost_per_run"):
             wq1, wmed, wq3 = a["writer_cost_per_run"]
             print(f"  writers / run     ${wmed:.2f}   (IQR ${wq1:.2f}–${wq3:.2f})")
+        if a.get("orch_turns"):
+            t, c, i, m = a["orch_turns"], a["orch_cost"], a["orch_input"], a["orch_minutes"]
+            print(f"  orchestrator      {t[1]:.0f} turns (IQR {t[0]:.0f}–{t[2]:.0f})   ${c[1]:.2f} (IQR ${c[0]:.2f}–${c[2]:.2f})   {i[1]:,.0f} input tok   {m[1]:.0f} min   ended: {', '.join(a['orch_terminals'])}")
+            k, ln = a["children_per_run"], a["lens_per_run"]
+            print(f"  dispatched        {k[1]:.0f} agents / epic (IQR {k[0]:.0f}–{k[2]:.0f}), of which {ln[1]:.0f} lenses")
+            for run, o in sorted((outcomes.get(arm) or {}).items()):
+                print(f"  outcome run {run}     epic {o.get('epic_status')}, {o.get('closed')}/{o.get('tasks')} tasks closed" + (f", open: {', '.join(o['open'])}" if o.get("open") else ""))
         if arm in verdicts:
             rates = pass_rates(verdicts[arm])
             cells = "   ".join(f"{k} {p}/{p + f} pass" + (f" ({n} no verdict)" if n else "") for k, (p, f, n) in sorted(rates.items()))
@@ -172,6 +216,11 @@ def main(argv: list[str] | None = None) -> int:
     if off and on:
         print("\ndelta, on vs off (medians; a delta whose IQRs overlap is noise until more runs say otherwise):")
         print(f"  {'cost / run':<18}{verdict(off['cost_per_run'], on['cost_per_run'], True)}")
+        if off.get("orch_turns") and on.get("orch_turns"):
+            print(f"  {'orch turns':<18}{verdict(off['orch_turns'], on['orch_turns'], True)}")
+            print(f"  {'orch cost':<18}{verdict(off['orch_cost'], on['orch_cost'], True)}")
+            print(f"  {'orch input tok':<18}{verdict(off['orch_input'], on['orch_input'], True)}")
+            print(f"  {'agents / epic':<18}{verdict(off['children_per_run'], on['children_per_run'], True)}")
         for key, label, _, lower in METRICS:
             print(f"  {label:<18}{verdict(off.get(key), on.get(key), lower)}")
         if on["kills"] != off["kills"]:

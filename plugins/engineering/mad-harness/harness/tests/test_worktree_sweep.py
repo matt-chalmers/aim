@@ -187,3 +187,17 @@ def test_a_branch_that_still_has_a_worktree_is_not_an_orphan(repo_with_worktree)
     primary, wt = repo_with_worktree
     out = _sweep(primary)
     assert "IN FLIGHT (task still open)       : 0" in out and "UNKNOWN (no task id in its log)   : 0" in out, out
+
+
+def test_a_repo_with_no_origin_head_and_no_main_branch_pin_still_sweeps(repo_with_worktree):
+    """Every other test pins MAIN_BRANCH, which is why this never showed: with no pin and
+    no `refs/remotes/origin/HEAD` (a clone of a bare remote; the wavelab), the default-branch
+    detection was `MAIN=$(git symbolic-ref … | sed …)` under `set -eo pipefail` — the
+    substitution failed, the assignment failed, the script exited 1 with NO message before
+    trying main/master/trunk, and pre-flight read it as a failed sweep and blocked."""
+    primary, _ = repo_with_worktree
+    env = _env()
+    env.pop("MAIN_BRANCH")
+    proc = subprocess.run([str(SWEEP), "--min-age", "0"], cwd=primary, capture_output=True, text=True, timeout=180, env=env)
+    assert proc.returncode == 0, f"exit {proc.returncode}: {proc.stderr!r}"
+    assert "dry run" in proc.stdout

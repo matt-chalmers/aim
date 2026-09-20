@@ -95,6 +95,20 @@ with the three lenses so an arm that is cheaper by doing less of the doctrine sh
 lower first-pass rate. What each measured,
 and which defaults moved on it, is the lever table in [cost](../../docs/concepts/cost.md).
 
+**Two codes, not two environments: `release`.** Its arms are commits — `off` is the
+plugin at `--pin-off` (default 0.10.18, the last release before the prose-to-code
+series), `on` is HEAD — each dispatching from its own frozen tree. With `--orchestrated`
+the arm is not the shell wave loop but one headless `campaign-orchestrator` running the
+whole epic through that tree's `campaign.sh`; its dispatch event's `turns` and `cost_usd`
+are the orchestrator's own price for the epic, the number the series claims to cut and
+the one the shell loop cannot measure because it has no orchestrator. `ab-report.sh`
+prints that block beside the per-dispatch metrics, with the tracker's end state per run.
+
+```bash
+harness/wavelab/ab.sh release --orchestrated --runs 1      # orchestrator turns and $ per epic, 0.10.18 vs HEAD
+harness/wavelab/ab.sh release --lenses --runs 2            # the dispatched agents' cost and first-pass rate, same two trees
+```
+
 **Frozen code.** `ab.sh` checks the plugin out at HEAD into a worktree under the series
 root and dispatches every run from that copy; each run records the commit (`.ab-sha`) and
 the report flags an arm that mixes them. Edits to the live tree mid-series therefore

@@ -54,7 +54,11 @@ done
 # a sweep that dies leaves every worktree behind, which is the state it exists to prevent.
 MAIN="${MAIN_BRANCH:-}"
 if [ -z "$MAIN" ]; then
-  MAIN=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')
+  # `|| true` INSIDE the substitution: under `set -eo pipefail` a repo with no origin/HEAD
+  # (a fresh clone of a bare remote, the wavelab) made this assignment fail and the script
+  # exit 1 with no message — before the candidates below were ever tried. preserve-worktrees.sh
+  # carried the guard; this copy did not, and pre-flight read the silent exit as a failed sweep.
+  MAIN=$( { git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true; } | sed 's|^origin/||')
 fi
 if [ -z "$MAIN" ]; then
   for candidate in main master trunk; do
