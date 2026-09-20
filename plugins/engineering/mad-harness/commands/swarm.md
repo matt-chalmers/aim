@@ -163,8 +163,8 @@ and read `n` rc files; sequential dispatch was the known lapse.
 The jobs file, one per line, no shell:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh <agent> --prompt-file <path> --task <id> --worker <n> --lane <lane> --digest
-${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh <agent> --prompt-file <path> --task <id> --worker <n> --lane <lane> --digest --resume <branch>   # REATTACH, or VERIFY that failed
+${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh <agent> --task-prompt --task <id> --worker <n> --lane <lane> --digest [--prompt-extra <file>]
+${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh <agent> --task-prompt --task <id> --worker <n> --lane <lane> --digest --resume <branch>   # REATTACH, or VERIFY that failed
 ```
 
 **`--digest`** prints the report's first lines and the path of the file holding all of it
@@ -179,8 +179,10 @@ and every call records its own cost, tokens and turns as a `harness.dispatch` ev
 (`make models-cost`). The Agent tool can express none of that.
 
 **`--worker <n>` is mandatory for writers** (`fullstack-engineer`, `quality-engineer`). It
-creates the worktree AND runs `swarm-worktree-init.sh` inside it, so the worker starts with its
-dependencies restored and its own isolated per-worker resources. This is not optional politeness: **`claude -p`
+**claims the task under the worker's actor before the spawn** — a task already held by a
+sibling is `SKIPPED` without paying the dispatch's fixed cost, and the worker's own claim is
+re-entrant — then creates the worktree AND runs `swarm-worktree-init.sh` inside it, so the
+worker starts with its dependencies restored and its own isolated per-worker resources. This is not optional politeness: **`claude -p`
 does NOT honour `isolation: worktree` from frontmatter** — measured. Without `--worker` the
 dispatcher refuses rather than running a writer in the primary checkout, which is what a whole
 wave doing so would corrupt. **Omit `--worker` for the read-only lenses**; they change nothing
@@ -201,34 +203,24 @@ needed more than the ceiling) or split it (the task is too big), and never re-di
 A pipe such as `dispatch.sh … | tail` returns `tail`'s status, so read the exit code from the
 rc file, not the pipeline.
 
-**The prompt file is the only parent→child channel.** The worker sees none of
-this conversation, none of the files you read, none of the planner's output. Each prompt
-must carry, in full:
+**The prompt is assembled by the dispatcher — add only what it cannot know.** The worker
+sees none of this conversation, none of the files you read, none of the planner's output;
+its prompt is the only parent→child channel. `--task-prompt` builds it from what the
+tracker and the harness already hold:
 
-- the task's complete `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh show <id>` text — description, acceptance criteria, notes,
-  including any `ARCHITECTURE:` note
-- **that test commands go through `${CLAUDE_PLUGIN_ROOT}/harness/verify/run.sh`, which loads
-  `.swarm-env` itself** (the worktree and its env are already prepared by `--worker <n>`; the
-  worker does NOT run swarm-worktree-init.sh itself). A worker must never `source .swarm-env`:
-  every Bash call is a fresh shell, so the exports would not survive to the next command even
-  if `source` were permitted — and it is not, because it evaluates its argument as shell code
-  and so matches no permission rule
-- **the per-worker environment as `.swarm-env` actually generated it** — read that file
-  rather than retyping it; it is derived from the stack modules and the worker number, and a
-  hand-typed copy is how a worker ends up sharing a sibling's resources
-- the commit protocol and the merge-slot id
-- the resource ban list
-- the ten-line return contract
-- **the task's slice of the epic's `SPEC INDEX`** — the authoritative feature doc and the
-  sections that govern this task, the ADRs and settled owner decisions its `SURFACE:` line
-  names, with each decision's verbatim answer. **Pointers, never pasted spec prose:** the
-  worker must open the doc, because a paraphrase is how a task gets built from a summary. This
-  is the single highest-value thing in the prompt — the lens failures that cost this campaign
-  most were tasks whose worker never knew which ADR or owner decision bound them.
-- **the memory keys you already know are relevant** — from your pre-flight `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh memories`
-  scan and the paths this task touches — so the worker can `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh recall <key>` directly
-  instead of hunting. You can see across the wave; the worker cannot.
-- for a fidelity **fix**: the auditor's measured defect list from the task
+| in the prompt, assembled | from |
+|---|---|
+| the task's complete record — description, acceptance criteria, notes, any `ARCHITECTURE:` note | `tk.sh show`, verbatim |
+| how to run and commit here — `run.sh` loads `.swarm-env` itself; **never `source` it, never retype it** (a hand-typed copy is how a worker ends up sharing a sibling's resources); `commit.sh` takes the slot | the harness |
+| the claim, already held under the worker's actor | the dispatcher, before the spawn |
+| **the task's slice of the epic's `SPEC INDEX`** — the authoritative feature doc and the sections, ADRs and settled owner decisions its `SURFACE:` line names. **Pointers, never pasted spec prose**: the worker opens the doc, because a paraphrase is how a task gets built from a summary. This is the single highest-value thing in the prompt — the lens failures that cost this campaign most were tasks whose worker never knew which ADR or owner decision bound them | the staged `spec-index.md`, filtered by the task's `SURFACE:` and `AUTHORITATIVE SPEC` lines |
+| the field-guide keys already known to be relevant, so the worker can `tk.sh recall <key>` directly instead of hunting | `tk.sh memories`, matched against the task's title and paths |
+| for a fidelity **fix**: the auditor's measured defect list | the task's `DEFECTS:` note |
+
+The commit protocol, the resource ban list and the ten-line return contract are
+`worker-protocol` doctrine, in the worker's system prompt on every dispatch — not in the
+message, where a copy drifts. What only you can see — a trap specific to this diff, what a
+sibling in this wave is introducing — goes in `--prompt-extra <file>`.
 
 ## 6. Collect
 

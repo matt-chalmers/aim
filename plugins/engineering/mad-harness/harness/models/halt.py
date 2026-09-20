@@ -72,8 +72,8 @@ def assess(runner, cwd: str) -> tuple[list[Result], dict]:
     except Exception:  # noqa: BLE001
         main, wts = "main", {}
     for branch, path in sorted(wts.items()):
-        if not path.is_dir():
-            continue
+        if not path.is_dir() or str(path.resolve()) == str(Path(cwd).resolve()):
+            continue  # the primary checkout is "main tree" above, not a worker's worktree
         ahead_raw = execute(["git", "rev-list", "--count", f"{main}..HEAD"], cwd=str(path), runner=runner)
         ahead = int(ahead_raw.stdout.strip() or 0) if ahead_raw.ran and ahead_raw.returncode == 0 else -1
         try:

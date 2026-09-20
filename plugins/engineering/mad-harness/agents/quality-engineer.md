@@ -40,31 +40,6 @@ every body is not.
 **Do not run `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh prime`.** It costs 5x the index (41,912 characters vs 8,492) *and* its
 session-close protocol instructs you to `git push`, which your commit protocol forbids.
 
-## 0a. Bootstrap your worktree — before any test command
-
-You run in a **fresh git worktree**, branched from the default branch. It shares the main
-repo's `.git` and the main beads database (verified: with beads, `bd info` resolves to
-the PRIMARY checkout's task database, so `--claim` is a real mutex across
-workers). But dependency directories are gitignored,
-so **your worktree has neither**, and every test command will fail until you fix that:
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/swarm/swarm-worktree-init.sh <your worker number> <your lane>
-```
-
-**Do not `source .swarm-env`.** The runner loads it for you, and sourcing could not work
-even if it were permitted: every Bash call is a fresh shell, so the exports would not
-reach your next command. `source` also evaluates its argument as shell code, which
-matches no permission rule, so the call is refused.
-
-The bootstrap restores each per its stack module — install where that is cheap, symlink to the
-main checkout (concurrent readers are safe). **Do not skip this and do not "work around" a
-failing test command** — code whose tests were never executed is the exact failure the
-verification lenses exist to catch, and they will catch it.
-
-If the script is missing or fails, return `BLOCKED` with the error. Do not hand-roll an
-install.
-
 ## Your edge: you are not the author
 
 An author cannot see the case they didn't think of — that is not carelessness, it is
@@ -137,9 +112,9 @@ effectively unretrievable:
   same thing — an append-only store rots (one of ours already carries an inline
   "*** DECISION-RECORD NUMBER: it is the number the task names, not a neighbouring one" correction).
 
-7. Commit inside the mutex: `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-acquire` → `git status --porcelain` (assert
-   only your paths) → `git add <explicit paths, never -A>` → commit → `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-release`.
-   Never `git stash`/`checkout`/`reset`. Do not push.
+7. Commit inside the mutex — one call: `${CLAUDE_PLUGIN_ROOT}/harness/swarm/commit.sh <task-id> -m "test(scope): … (<task-id>)" -- <every path you changed>`.
+   It refuses a contaminated index before taking the slot, stages exactly your paths, and
+   releases the slot in a `finally`. Never `git stash`/`checkout`/`reset`. Do not push.
 
 ## Resource ban list — hard
 

@@ -80,49 +80,29 @@ echo "ready: $READY"
 [ -n "$MANIFEST" ] && echo "manifest: $MANIFEST"
 
 # One dispatch per task, all at once — the shape /swarm requires, and the only shape that
-# tests the claim mutex under real concurrency. The prompt is the worker's task record
-# plus the lab's four-line contract; `dispatch.sh` injects the card, the whereabouts and
-# the conventions, and the worker's doctrine rides in its system prompt.
+# tests the claim mutex under real concurrency. The prompt is ASSEMBLED BY THE DISPATCHER
+# (`--task-prompt`: the task record, how to run and commit here, the SPEC INDEX slice, the
+# memory keys); the lab adds its contract with `--prompt-extra`. Until 0.10.24 this file
+# carried its own heredoc template — a copy of what /swarm step 5 had the orchestrator
+# assemble by hand — and the dispatcher's own claim now precedes the spawn, so a task a
+# sibling holds is SKIPPED without paying the dispatch.
 # STAGGER: worker 1 alone first, so its cache write is warm before the rest read it. A
 # fan-out of N cold prefixes costs N x 1.25P; sequenced it is 1.25P + 0.1(N-1)P — at N=8
 # that is 5x. Only true when the prefix is static (the static_prefix lever); measured.
 STAGGER="${STAGGER:-${MAD_HARNESS_STAGGER_SECONDS:-0}}"
+EXTRA="$SCRATCH/lab-contract.txt"
+cat > "$EXTRA" <<'CONTRACT'
+HOW THIS REPOSITORY WORKS (the wavelab)
+- Python, managed by uv. Source lives under src/wavelab/, tests under tests/.
+- The suite is green right now. Leave it green.
+- Run the full suite and watch it pass before you commit.
+CONTRACT
 JOBS="$SCRATCH/jobs.txt"; : > "$JOBS"
 N=0
 for TASK in $READY; do
   N=$((N+1))
-  PROMPT="$SCRATCH/prompt-$TASK.txt"
-  tk show "$TASK" --json | python3 -c "
-import json, sys
-t = json.load(sys.stdin)[0]
-print(f'''You are implementing one task in an isolated git worktree.
-
-TASK {t['id']} — {t['title']}
-
-{t['description']}
-
-HOW THIS REPOSITORY WORKS
-- Python, managed by uv. Run tests with: uv run pytest
-- Source lives under src/wavelab/, tests under tests/.
-- The suite is green right now. Leave it green.
-
-THE TRACKER
-Every tracker command goes through the shim, never through a backend directly:
-  \$HARNESS_ROOT/tracker/tk.sh claim {t['id']}
-  \$HARNESS_ROOT/tracker/tk.sh note {t['id']} \"<what you did>\"
-  \$HARNESS_ROOT/tracker/tk.sh close {t['id']} --reason \"<what shipped, how verified>\"
-
-YOUR CONTRACT
-1. Claim the task FIRST. If it reports already claimed by someone else, stop and return
-   SKIPPED — never steal it, never pick a different one.
-2. Implement it to the acceptance criteria. Write the tests it names.
-3. Run the full suite and watch it pass.
-4. Commit exactly one clean commit referencing the task id. Do not push.
-5. Close the task with a reason, then return at most ten lines:
-   <id> · PASS|FAIL|BLOCKED|SKIPPED · files touched · tests run and result · commit sha
-''')" > "$PROMPT"
-  printf '%q %q --prompt-file %q --worker %q --task %q --lane backend\n' \
-    "$HARNESS/models/dispatch.sh" fullstack-engineer "$PROMPT" "$N" "$TASK" >> "$JOBS"
+  printf '%q %q --task-prompt --prompt-extra %q --worker %q --task %q --lane backend\n' \
+    "$HARNESS/models/dispatch.sh" fullstack-engineer "$EXTRA" "$N" "$TASK" >> "$JOBS"
 done
 
 FAN="$SCRATCH/fanout"; rm -rf "$FAN" "$FAN-rest"

@@ -1055,3 +1055,40 @@ pre-flight that finishes.** No config change.
   keeping — is the flag, taken after reading `assess`.
 
 - **mechanical** — re-stamp `harness.version`, when convenient.
+
+### 0.10.24
+
+**Deterministic steps out of the prose, part 6: the worker's prompt, its claim and its
+commit.** No config change.
+
+- **`dispatch.sh --task-prompt`.** `/swarm` step 5 had the orchestrator fill a ten-item
+  prompt template N times per wave — the task's `tk.sh show` text, the run/commit rules,
+  `.swarm-env` "as generated, never retyped", the protocol, the slot id, the ban list, the
+  return contract, the task's SPEC INDEX slice, the memory keys, a fidelity defect list.
+  Seven of the ten are derivable and the one most often dropped was the slice ("the lens
+  failures that cost this campaign most were tasks whose worker never knew which ADR or
+  owner decision bound them"). `worker_prompt.build` assembles the record verbatim, how to
+  run and commit here, the SPEC INDEX slice the task's `SURFACE:`/`AUTHORITATIVE SPEC`
+  lines point at (pointers only; no index is *said*), the matching field-guide keys, and a
+  fidelity task's `DEFECTS:` note. The protocol, the ban list and the return contract are
+  not repeated — they are `worker-protocol` doctrine in the system prompt since 0.10.18.
+  `--prompt-extra <file>` is what the orchestrator adds.
+- **The claim precedes the spawn.** A worker's first act was `tk.sh claim`, and one that
+  found the task held by a sibling returned `SKIPPED` — after the dispatch had paid its
+  whole fixed base (~18.7k tokens) to learn it. The dispatcher claims first, under the
+  actor the worker's `.swarm-env` exports (`swarm-w<n>`), so the worker's own claim is
+  re-entrant and a lost claim costs nothing. `--no-claim` for the cases that want the old
+  behaviour.
+- **`commit.sh`.** Both writers carried the same five-step commit sequence in prose
+  (`slot-acquire` → `status` → `add` → `commit` → `slot-release`); `quality-engineer`
+  spelled the release as `slot-acquire release`, not a verb, so its slot stayed held until
+  the stale timeout; a commit that failed mid-sequence left it held too. The script checks
+  the index for paths the worker did not name BEFORE taking the slot, refuses the
+  tracker's export, stages exactly the named paths, and releases the slot in a `finally`.
+- **Removed:** the "bootstrap your worktree" section in both writers, which told them to
+  run `swarm-worktree-init.sh` while their preloaded `worker-protocol` said the dispatcher
+  already had and they must not. The wavelab's `dispatch-wave.sh` drops its heredoc prompt
+  template for `--task-prompt`. `dispatch.main`'s parser is `build_parser()`, and the test
+  that parses every documented `dispatch.sh` line uses it rather than a copy of its flags.
+
+- **mechanical** — re-stamp `harness.version`, when convenient.

@@ -74,10 +74,13 @@ return rather than silently choosing.
 
 - **One task is one clean commit.** Not two, not a commit plus a fixup. A lens
   judging your work reads the diff of a single commit.
-- **Take the merge slot before committing** (`SWARM_SLOT`). The commit phase is
-  serialized precisely so two workers cannot land at once; a wave with a merge
-  conflict is a step-3 planning miss by definition, not something to resolve by
-  force.
+- **Commit through `${CLAUDE_PLUGIN_ROOT}/harness/swarm/commit.sh <task-id> -m "…" -- <paths>`**, which
+  takes the merge slot, stages exactly the paths you name, commits, and releases the slot
+  in a `finally`. The commit phase is serialized precisely so two workers cannot land at
+  once; a wave with a merge conflict is a step-3 planning miss by definition, not
+  something to resolve by force. It refuses a contaminated index — a path you did not
+  name is dirty — and the tracker's export; never `git stash`, `checkout <path>` or `reset`
+  to get past that, they clobber a sibling.
 - **Conventional commit message**, referencing the task id. Bare ids are correct
   in commit messages — the gloss rule applies to prose, not to git.
 

@@ -69,6 +69,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -213,6 +214,24 @@ def prepare_worktree(
             f"swarm-worktree-init.sh failed in {path}: {init.stderr.strip()[:300]}"
         )
     return path
+
+
+def claim_first(task: str, worker: int) -> str | None:
+    """Claim `task` under the worker's actor before the dispatch is paid for. Returns the
+    reason to skip (held by another actor), or None when the claim is held — freshly or
+    re-entrantly, which is what a resumed worker sees."""
+    try:
+        import tracker
+
+        actor = f"swarm-w{worker}"
+        result = tracker.coordination().try_claim(task, actor)
+    except Exception as exc:  # noqa: BLE001 — a tracker that cannot answer must not stop a dispatch silently
+        print(f"-- claim: could not ask the tracker ({exc.__class__.__name__}); the worker claims for itself", file=sys.stderr)
+        return None
+    if result.held:
+        print(f"-- claim: {task} held by {actor}{' (re-entrant)' if result.reentrant else ''}", file=sys.stderr)
+        return None
+    return f"{task} is already claimed by {result.holder} — not dispatched; the dispatch's fixed cost was not paid"
 
 
 def resume_preamble(branch: str, worktree: Path) -> str:
@@ -752,22 +771,33 @@ def record(
     )
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser():
+    """The CLI, as one function so a test can parse every documented invocation against
+    the real flags rather than a copy of them — a vocabulary sweep once renamed a public
+    flag as a side effect of a prose pass, and only luck kept the prompts consistent."""
     import argparse
-    import sys
 
     ap = argparse.ArgumentParser(
         prog="dispatch.sh",
         description="Invoke one agent through the CLI boundary and record its cost.",
     )
     ap.add_argument("agent")
-    ap.add_argument(
+    which = ap.add_mutually_exclusive_group(required=True)
+    which.add_argument(
         "--prompt-file",
         type=Path,
-        required=True,
         help="the dispatch prompt; a file, because prompts are long "
         "and argv quoting is where a prompt gets silently truncated",
     )
+    which.add_argument(
+        "--task-prompt",
+        action="store_true",
+        help="assemble the prompt from the task itself (`worker_prompt.build`: the record, how "
+        "to run and commit here, the SPEC INDEX slice, the memory keys, a fidelity defect list); "
+        "needs --task; --prompt-extra adds what the tracker does not hold",
+    )
+    ap.add_argument("--prompt-extra", type=Path, default=None, help="with --task-prompt: a file appended under 'From the orchestrator'")
+    ap.add_argument("--no-claim", action="store_true", help="do not claim the task before spawning a writer (the default claims it under the worker's actor)")
     ap.add_argument("--tier", default=None, help="explicit override (rank 1)")
     ap.add_argument("--high-risk", action="store_true", help="force the policy tier")
     ap.add_argument("--task", default=None, help="task id, for telemetry")
@@ -814,7 +844,11 @@ def main(argv: list[str] | None = None) -> int:
         "must directly follow the flag) and then `... full: <path> (<M> lines)`; without it "
         "the whole result is printed, then `full: <path>`",
     )
-    args = ap.parse_args(argv)
+    return ap
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     try:
         if args.dry_run:
@@ -833,12 +867,36 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             return 0
 
+        if args.task_prompt and not args.task:
+            print("FAIL: --task-prompt needs --task", file=sys.stderr)
+            return 2
+
+        # CLAIM BEFORE SPAWNING. A worker's first act is `tk.sh claim`; one that finds the
+        # task held by a sibling returns SKIPPED — after the dispatch has paid its whole
+        # fixed base (~18.7k tokens) to learn it. The dispatcher asks first, under the
+        # actor the worker will use (`swarm-w<n>`, from `worker.env_block`), so the
+        # worker's own claim is re-entrant and a lost claim costs nothing.
+        if args.task and args.worker is not None and needs_worktree(args.agent) and not args.no_claim:
+            skipped = claim_first(args.task, args.worker)
+            if skipped:
+                print(f"SKIPPED: {skipped}", file=sys.stderr)
+                return 2
+
         cwd = args.cwd
         if cwd is None and args.worker is not None and needs_worktree(args.agent):
             cwd = prepare_worktree(args.agent, args.worker, args.lane, args.task, resume=args.resume)
             print(f"-- worktree: {cwd}", file=sys.stderr)
 
-        prompt = args.prompt_file.read_text()
+        if args.task_prompt:
+            from .worker_prompt import build as build_prompt
+
+            extra = args.prompt_extra.read_text() if args.prompt_extra else ""
+            prompt = build_prompt(args.task, lane=args.lane, worker=args.worker, extra=extra)
+            kept_prompt = keep_result(prompt, f"prompt-{args.agent}", args.task)
+            if kept_prompt is not None:
+                print(f"-- prompt: {kept_prompt}", file=sys.stderr)
+        else:
+            prompt = args.prompt_file.read_text()
         if args.resume:
             prompt = resume_preamble(args.resume, Path(cwd) if cwd else REPO) + prompt
 

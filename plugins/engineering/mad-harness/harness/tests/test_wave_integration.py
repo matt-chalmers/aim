@@ -16,7 +16,6 @@ Two levels:
 
 from __future__ import annotations
 
-import argparse
 import re
 import subprocess
 from pathlib import Path
@@ -237,15 +236,23 @@ def test_every_documented_dispatch_parses(site):
     orchestrator, which sees an agent that did nothing.
     """
     rel, line, argv = site
-    parser = argparse.ArgumentParser(prog="dispatch.sh")
-    parser.add_argument("agent")
-    parser.add_argument("--prompt-file", required=True)
-    for flag in ("--tier", "--task", "--cwd", "--lane", "--attempt", "--worker", "--resume", "--out"):
-        parser.add_argument(flag)
-    parser.add_argument("--digest", nargs="?")
-    for flag in ("--high-risk", "--dry-run", "--no-record"):
-        parser.add_argument(flag, action="store_true")
+    from models.dispatch import build_parser
+
+    # THE REAL PARSER, not a copy of its flags: a copy is the drift this test exists to
+    # catch. Prose placeholders are normalised first: `<n>` for a typed integer, and an
+    # `[--optional <arg>]` group dropped — the notation, not the flag, is what argparse
+    # cannot read.
+    norm: list[str] = []
+    skipping = False
+    for tok in argv:
+        if tok.startswith("["):
+            skipping = not tok.endswith("]")
+            continue
+        if skipping:
+            skipping = not tok.endswith("]")
+            continue
+        norm.append("1" if tok in ("<n>", "<N>") else tok)
     try:
-        parser.parse_args(argv)
+        build_parser().parse_args(norm)
     except SystemExit:
         pytest.fail(f"{rel}:{line}: `dispatch.sh {' '.join(argv)}` does not parse")
