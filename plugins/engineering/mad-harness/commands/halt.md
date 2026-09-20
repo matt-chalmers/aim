@@ -40,26 +40,17 @@ tidies up after it. In order:
 ## 1. Assess before you touch anything
 
 ```bash
-git status --porcelain                 # the MAIN tree — usually clean; worker edits are not here
-git worktree list                      # every worker worktree, and the branch each is on
-git worktree list --porcelain | awk '/^worktree /{print $2}' | while read -r w; do
-  echo "== $w"; git -C "$w" status --porcelain; git -C "$w" log --oneline main..HEAD
-done                                   # THIS is where uncommitted and unmerged work lives
-git log --oneline -10                  # what actually landed on main
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh claims                        # tasks still CLAIMED — holder, host, age, alive/stale
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-check                    # free, or held by a worker that died?
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh backend --json    # check the autosync state           # almost certainly export.auto=false
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/halt.sh assess        # reads only; changes nothing
 ```
 
-**Look in the worktrees, not the main checkout.** A killed writer leaves both uncommitted
-edits *and* possibly a committed-but-unmerged branch inside its own worktree. Both are
-invisible to `git status` in the main tree — which is exactly how three worktrees (tens to hundreds of megabytes each) went stranded and unnoticed.
-
-**Claims, not status.** A campaign claims a task with `tk.sh claim`, which records a holder
-and leaves the status `open` — so `tk.sh list --status in_progress` finds tasks from other,
-earlier sessions and not the ones being halted. An operator following that literally cleaned
-up four foreign tasks and left the two real ones claimed. `tk.sh claims` reads the claim
-records, which are the authority, and says whether each holder is provably alive.
+One block: the main tree (usually clean — worker edits are not here), **every worktree's
+uncommitted and unmerged state** (this is where a killed writer's work lives: writers are
+dispatched with `--worker <n>`, so their edits are in `.claude/worktrees/`, invisible to
+`git status` in the main tree — which is exactly how three worktrees went stranded and
+unnoticed), what landed on `main`, **the claims with liveness** (`tk.sh claims` — the
+authority on what is held; `list --status in_progress` finds tasks from other sessions, and
+an operator following it literally cleaned up four foreign tasks and left the two real ones
+claimed), the merge slot, the autosync state, and the open waves.
 
 Report this before changing state. **Never discard uncommitted work without showing it
 first** — a killed worker's edits are indistinguishable from your own until you look.
@@ -68,80 +59,66 @@ first** — a killed worker's edits are indistinguishable from your own until yo
 
 Use when you want the same tasks resumed later, by you, in the state they are in.
 
-**The claims are already the pause.** A task left `in_progress` does not appear in
-`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh ready`, so nothing will re-dispatch it. You mostly need to stop *new* work starting:
-
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh park <epic-id> --reason "paused <date>"      # the gate AND the status — a gate alone does not park an epic
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/halt.sh pause <epic-id>
 ```
 
-Leave the claims, leave the working tree, leave the branches.
+**The claims are already the pause.** A claimed task does not appear in `tk.sh ready`, so
+nothing will re-dispatch it; only *new* work needs stopping, which is `tk.sh park <epic>` —
+the gate AND the status. The call then prints `resume-point.sh` for every claimed task (the
+branch, the commit count, whether uncommitted work exists, whether a verdict was recorded —
+that is the handover) and ends with §4. Leave the claims, leave the working tree, leave the
+branches; if a partial edit does not compile, say so prominently in the report.
 
-**Then park the working tree honestly** — either commit the partial work on its worker
-branch, or leave it uncommitted in the worktree and say so in the report. Both are resume
-points; a broken tree is not. If the partial edit does not compile, note that prominently.
-
-**Say where each in-flight task's work is.** For every task that was claimed, run
-`${CLAUDE_PLUGIN_ROOT}/harness/swarm/resume-point.sh <id>` and put its line in the report: the branch, the commit count,
-whether uncommitted work exists, whether a verdict was recorded. That is the handover.
-
-**To resume:** `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh unpark <epic-id>` — the gate and the status, as one verb — then re-run `/swarm` or `/campaign`. **The
-resumed run adopts the work rather than redoing it:** `/swarm` step 5 asks `resume-point.sh`
-for every task before dispatching, merges what was already verified, verifies what was only
-committed, and re-attaches a worker (`dispatch.sh … --resume <branch>`) to a worktree holding
-uncommitted changes. A worker with the same `BEADS_ACTOR` re-claims its own task cleanly —
-`--claim` is idempotent for the existing holder.
+**To resume:** `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh unpark <epic-id>`, then re-run `/swarm` or
+`/campaign`. **The resumed run adopts the work rather than redoing it:** `wave-plan.sh` asks
+`resume-point.sh` for every task before dispatching, merges what was already verified,
+verifies what was only committed, and re-attaches a worker (`dispatch.sh … --resume
+<branch>`) to a worktree holding uncommitted changes. A worker with the same `BEADS_ACTOR`
+re-claims its own task cleanly — `--claim` is idempotent for the existing holder.
 
 ## 3. `release` — hand the tasks back to the queue
 
 Use when you want someone else, or the next run, to pick this work up fresh.
 
-**First, preserve. Then look. Then release. Then remove.** In that order, because each
-step is what makes the next one safe:
-
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/swarm/preserve-worktrees.sh                 # 1. every worktree's uncommitted diff, untracked files and unmerged
-                                                                          #    commits, as files under .harness/halted-<date>/<branch>/
-${CLAUDE_PLUGIN_ROOT}/harness/swarm/resume-point.sh <id>                  # 2. per task: REATTACH / VERIFY / MERGE / FRESH — what a resumed run would adopt
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh release <id> --force          # 3. the claim goes, the assignee is cleared, and it SAYS so
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <id> --append-notes "released <date>: work preserved at .harness/halted-<date>/<branch>; <what is done, what is not>"
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/halt.sh release [<task-id>…]                       # default: every claim
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/halt.sh release [<task-id>…] --drop-uncommitted    # after reading `assess`
 ```
 
-**The work lives in the worktrees, not the main tree.** Writers are dispatched with
-`--worker <n>`, so every edit a killed worker made is in its own worktree under
-`.claude/worktrees/`. Main-tree commands — `git restore`, `git checkout` — do nothing to it
-and were never the right advice. Step 1 writes each worktree's state to a dated folder so
-nothing is lost whatever happens next; name that path on the task.
+**First preserve. Then look. Then release. Then remove. In that order, because each step is
+what makes the next one safe** — and the order is the code:
 
-**Then decide, per task, from what `resume-point.sh` said:**
+| step | rule |
+|---|---|
+| `preserve-worktrees.sh` | every worktree's uncommitted diff, untracked files and unmerged commits, as files under `.harness/halted-<date>/<branch>/`. **A failure here stops everything** — nothing is released and nothing removed |
+| `resume-point.sh <id>` | per task: REATTACH / VERIFY / MERGE / FRESH — what a resumed run would adopt |
+| `tk.sh release <id> --force` | the claim goes, the assignee is cleared, and it says so |
+| `tk.sh update <id> --append-notes "released <date>: <state> on <branch>; work preserved at …"` | the path on the task, so nothing is lost whatever happens next |
+| `git worktree remove --force` | **only** for REATTACH, **only** under `--drop-uncommitted`, and **only** when the preserve step reported that branch — never otherwise |
+
+**The one decision is yours, per REATTACH task, from what `assess` showed:**
 
 | it said | it means | do |
 |---|---|---|
-| `VERIFY` / `MERGE` | committed work on the branch | keep the branch; the next run adopts it. Note the branch on the task |
-| `REATTACH` | uncommitted work in the worktree | worth keeping → commit it on the branch (it becomes VERIFY). Not worth keeping → **remove the worktree**: `git worktree remove --force <path>` — that is what makes the next dispatch `FRESH` instead of silently re-attaching whoever picks it up to a killed run's unverified edits |
-| `FRESH` | nothing held | nothing to do; the empty branch is the sweep's to delete |
+| `VERIFY` / `MERGE` | committed work on the branch | nothing — the branch is kept; the next run adopts it |
+| `REATTACH` | uncommitted work in the worktree | **worth keeping → the default**: the worktree stays and the next run re-attaches. **Not worth keeping → `--drop-uncommitted`**: the work is preserved to files, then the worktree removed, so the next dispatch is `FRESH` instead of silently re-attaching whoever picks it up to a killed run's unverified edits |
+| `FRESH` | nothing held | nothing; the empty branch is the sweep's to delete |
 
 A released task with a worktree still holding unexplained edits is the worst outcome: the
 next worker re-attaches to them, cannot tell whose they are, and builds on top.
 
 ## 4. Always — clear the stuck state
 
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-check
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-release --holder <name>      # ONLY if a dead worker still holds it — slot-check says stale
-git worktree prune                         # drop registrations for worktrees already deleted
-${CLAUDE_PLUGIN_ROOT}/harness/swarm/close-wave.sh --sync-only --message "chore(tracker): halt <epic> — <pause|release>" --restore-autosync
-                                           # export (the jsonl is stale while export.auto was off), commit, pull, push,
-                                           # and `autosync on` — what pre-flight disabled and nothing else restores
-```
-
-**A merge slot held by a dead worker blocks the next wave forever** — nothing times it out.
-Check it every time, and release it only after confirming the holder is genuinely gone.
-
-**`export.auto` is the one that bites silently.** `/swarm` and `/campaign` pre-flight set it
-to `false` so tasks cannot stage `issues.jsonl` into a sibling's commit. Left off,
-`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close` stops keeping the tracked jsonl fresh and your backlog quietly
-drifts from your code — which is why `--restore-autosync` is the last thing the call does.
+Both forms end with it: `tk.sh slot-check`, and `slot-release --force` **only when the holder
+is provably gone** (an alive holder is a FAIL line, never forced — stop it with `/tasks`,
+then run again; a slot held by a dead worker blocks the next wave forever, nothing times it
+out); `git worktree prune`; then the sync tail — `export` (the jsonl is stale while
+`export.auto` was off), the commit `chore(tracker): halt <epic> — <pause|release>`, pull,
+push — and **`autosync on`**. `/swarm` and `/campaign` pre-flight set `export.auto` to
+`false` so tasks cannot stage `issues.jsonl` into a sibling's commit; left off, `tk.sh close`
+stops keeping the tracked jsonl fresh and your backlog quietly drifts from your code. It is
+the last thing the call does.
 
 ## 5. Report
 

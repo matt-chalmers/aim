@@ -1030,3 +1030,28 @@ pre-flight that finishes.** No config change.
   exercises the production path.
 
 - **mechanical** — re-stamp `harness.version`, when convenient.
+
+### 0.10.23
+
+**Deterministic steps out of the prose, part 5: `/halt`.** No config change.
+
+- **What was wrong.** `/halt` was twenty to twenty-five tool calls at the orchestrator's
+  context price, run when something had already gone wrong: seven reads including a shell
+  `while` loop over the worktrees, the two-step park, a `resume-point.sh` per claim, then
+  "first preserve, then look, then release, then remove — in that order, because each step
+  is what makes the next one safe", then the slot, autosync, prune, export, commit, push.
+  The recorded incident is an operator following `tk.sh list --status in_progress`
+  literally and cleaning up four foreign tasks while leaving the two real ones claimed.
+- **`halt.sh assess | pause <epic> | release [<task>…]`.** `assess` reads and prints
+  everything a halt looks at (the claims with liveness, from `tk.sh claims` — the
+  authority) and changes nothing. `pause` keeps the claims and parks the epic. `release`
+  preserves every worktree's work to files FIRST — a failure there stops everything — then
+  per task the resume point, `tk.sh release --force`, a note naming where the work was
+  preserved and what state it was in, and the worktree removed only for REATTACH, only under
+  `--drop-uncommitted`, and only when the preserve step reported that branch. Both writes
+  end with the slot released only when its holder is provably gone (an alive holder is a
+  FAIL line, never forced), `git worktree prune`, and the shared sync tail with `autosync
+  on`. The one decision that stays with the operator — is uncommitted REATTACH work worth
+  keeping — is the flag, taken after reading `assess`.
+
+- **mechanical** — re-stamp `harness.version`, when convenient.
