@@ -47,7 +47,12 @@ normalisers, one per field, and wire them in.
 ACCEPTANCE
 - normalise_email and normalise_phone each live in their own module, with tests.
 - clean_contact uses both, and its existing test still passes.
-- No public signature changes.")
+- No public signature changes.
+
+SETTLED (so no architect need raise them): the existing test's fixture may be changed
+to already-normalised values so its copy-not-the-original assertion still holds — that
+assertion is what 'still passes' means. Non-str values pass through clean_contact
+unchanged; only str values are normalised.")
 
 A=$(tk create "Add normalise_email" --parent "$EPIC" -p 1 --description \
 "Add \`normalise_email(value: str) -> str\` in src/wavelab/email.py.

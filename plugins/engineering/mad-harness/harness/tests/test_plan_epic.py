@@ -4,6 +4,7 @@ dispatches are faked by result text; the tracker and the scripts by an injected 
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -33,6 +34,17 @@ class Runner:
             "tk.sh park": (0, "parked E-1 — gate G-1, status blocked\n", ""),
             "apply-plan.sh": (0, "applied 4 commands: 3 created, 0 already applied, 1 deps, 0 other; validate E-1: 2 waves, max parallelism 2\n", ""),
             "git rev-parse": (0, "abc1234\n", ""),
+            # What a park's sync runs (tracker_sync.sync): export → view → add → commit → pull → push → status.
+            "tk.sh backend": (0, json.dumps({"name": "mdfiles", "tracked_export": True, "owned_paths": ["docs/tasks/"], "export_path": "docs/tasks/issues.jsonl"}) + "\n", ""),
+            "tk.sh export": (0, "", ""),
+            "render-epic.sh": (0, "", ""),
+            "git add": (0, "", ""),
+            "git diff": (1, "", ""),
+            "git commit": (0, "[main 1a2b3c4] chore(tracker): park E-1\n", ""),
+            "git pull": (0, "Already up to date.\n", ""),
+            "git rev-list": (0, "0\n", ""),
+            "git push": (0, "", ""),
+            "git status": (0, "## main...origin/main\n", ""),
         }
         self.answers.update({k.replace("_", " "): v for k, v in answers.items()})
         self.calls = []
@@ -263,3 +275,34 @@ def test_adr_next_and_the_staging_writes(repo):
 def test_the_wrapper_is_executable_and_runs_the_module():
     sh = Path(mod.__file__).resolve().parent.parent / "swarm" / "plan-epic.sh"
     assert sh.exists() and os.access(sh, os.X_OK) and "python -m models.plan_epic" in sh.read_text()
+
+
+def test_a_park_commits_and_pushes_the_tracker_state_and_never_restores_autosync(repo):
+    """Measured (the first orchestrated wavelab run of 0.10.28): told only "parked — move to
+    the next epic", the orchestrator spent 16 of 26 turns reading harness source to decide
+    what to commit. The sequencer knows it parked; it syncs — and leaves autosync to
+    campaign.sh / §5, as every wave does."""
+    r = Runner()
+    d = results_for(**{"analyst-survey": SURVEY, "architect": DESIGN + "DECISION: per-user or per-IP limits?\n"})
+    text, code = seq(repo, r, d).run()
+    assert code == 4
+    keys = r.keys()
+    park = keys.index("tk.sh park")
+    tail = keys[park:]
+    for k in ("tk.sh export", "git add", "git commit", "git push"):
+        assert k in tail, f"{k} after the park"
+    assert "tk.sh autosync" not in keys
+    commit = next(c for c in r.calls if key(c) == "git commit")
+    assert "park E-1 at architect" in " ".join(commit)
+    add = next(c for c in r.calls if key(c) == "git add")
+    assert "docs/tasks/issues.jsonl" in add, "the export is what the next session reads"
+    assert "committed and pushed" in text and "campaign-signals.sh E-1 --outcome parked" in text
+
+
+def test_no_push_parks_and_commits_without_pushing(repo):
+    r = Runner()
+    d = results_for(**{"analyst-survey": SURVEY, "architect": DESIGN + "DECISION: which?\n"})
+    s = seq(repo, r, d)
+    s.push = False
+    text, code = s.run()
+    assert code == 4 and "git commit" in r.keys() and "git push" not in r.keys()

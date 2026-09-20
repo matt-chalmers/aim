@@ -129,9 +129,10 @@ def _create_decisions(text: str, epic: str, runner, cwd: str, *, prefix: str = "
 
 
 class Sequencer:
-    def __init__(self, epic: str, *, mode: str, project, runner=None, cwd: str | None = None, dispatch_fn=None, store=None):
+    def __init__(self, epic: str, *, mode: str, project, runner=None, cwd: str | None = None, dispatch_fn=None, store=None, push: bool = True):
         self.epic, self.mode, self.project = epic, mode, project
         self.runner, self.cwd, self.dispatch_fn = runner, cwd or str(REPO), dispatch_fn
+        self.push = push
         self.results: list[Result] = []
         self.state = State(epic, Path(self.cwd) / ".harness" / "run" / f"plan-epic-{epic}.json")
         self.state.data["mode"] = mode
@@ -460,7 +461,34 @@ class Sequencer:
             if self.stop:
                 break
         code = self.stop[0] if self.stop else EXIT_OK
+        if code == EXIT_PARKED:
+            self.sync_park()
         return self.report(code), code
+
+    def sync_park(self) -> None:
+        """A park leaves tracker state behind — the gate, the PARKED note, the `decision`
+        or `REQUIREMENT:` tasks it filed, the staged spec index or proposal — and the
+        next session (or the owner answering the decision) reads it from the export.
+        Committed and pushed HERE, as `halt.sh pause` does, because the sequencer knows it
+        parked. Measured (the first orchestrated wavelab run of 0.10.28): told only "4
+        parked — move to the next epic", the orchestrator spent 16 of its 26 turns reading
+        preflight.py, campaign_auto.py and tracker_sync.py to decide what to commit and
+        whether autosync would be restored. autosync is NOT restored here: `campaign.sh`
+        (auto) and §5 (interactive) own that, as for every wave."""
+        from . import tracker_sync
+
+        export, raw = tracker_sync.export_path(self.runner, self.cwd)
+        if raw.error or (raw.ran and raw.returncode != 0):
+            self.results.append(Result("tk.sh backend --json", FAIL, "cannot learn the tracked export path — the park is recorded but NOT committed:\n" + failure_detail(raw), raw))
+            return
+        extra = []
+        folder = self.folder()
+        if folder and folder.is_dir():
+            extra.append(str(folder.relative_to(self.cwd)) if folder.is_absolute() else str(folder))
+        self.results += tracker_sync.sync(
+            message=f"chore(tracker): park {self.epic} at {self.stop[1]}", epics=[self.epic], export=export, extra_paths=extra,
+            push=self.push, stop_if_upstream_moved=False, restore_autosync=False, project=self.project, runner=self.runner, cwd=self.cwd,
+        )
 
     def report(self, code: int) -> str:
         out = [f"plan-epic {self.epic} (MODE={self.mode})", render(self.results)]
@@ -474,7 +502,7 @@ class Sequencer:
             qs = self.state.data.get("plan_decisions") or [q for _, q in (self.state.data.get("decisions") or [])]
             out.append(f"\nAPPROVAL OWED — {what} is at `{art}`. Render it verbatim to the owner" + (f", surfacing these decision(s) first: {'; '.join(qs)}" if qs else "") + f". Approved → `plan-epic.sh {self.epic} --from {nxt}`. Revise → edit or re-dispatch, then `--from {stage}`. Reject → `tk.sh park {self.epic}`.")
         elif code == EXIT_PARKED:
-            out.append(f"\nPARKED at {self.stop[1]} — the epic is out of the queue; the [FAIL] line above says on what and which command un-parks it. Move to the next epic.")
+            out.append(f"\nPARKED at {self.stop[1]} — the epic is out of the queue; the [FAIL] line above says on what and which command un-parks it. The tracker export and the staging folder are committed and pushed (the sync lines above); autosync stays off for the run. Nothing else is owed here: record the outcome (`campaign-signals.sh {self.epic} --outcome parked`, or the return contract's first line in MODE=auto) and move to the next epic.")
         elif code == EXIT_NO_JUDGE:
             out.append("\nCOULD NOT JUDGE — a dispatch did not return a verdict. Nothing was approved; re-run the same stage (`--from`) once the cause is fixed.")
         else:
@@ -493,13 +521,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--from", dest="start", choices=STAGES, default="survey", help="resume at this stage (the state file carries the earlier artefacts)")
     ap.add_argument("--triage", choices=["UNPLANNED", "PARTIAL", "READY"], default=None, help="what epic-queue.sh said; READY asks the architect for a sanity-check")
     ap.add_argument("--reset", action="store_true", help="forget the state file first — plan from nothing")
+    ap.add_argument("--no-push", action="store_true", help="a park commits the tracker state but does not push it")
     args = ap.parse_args(argv)
     try:
         project = load()
     except ProjectError as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return EXIT_FAILED
-    seq = Sequencer(args.epic, mode=args.mode, project=project)
+    seq = Sequencer(args.epic, mode=args.mode, project=project, push=not args.no_push)
     if args.reset:
         seq.state.data.update({"done": [], "artefacts": {}, "audit_attempts": 0})
         seq.state.save()

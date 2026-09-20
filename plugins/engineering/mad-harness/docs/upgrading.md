@@ -1231,9 +1231,19 @@ config note: a stack may now declare `bootstrap.strategy: none`.
   (a clone of a bare remote): the default-branch detection failed under `pipefail` before
   main/master/trunk were tried, and pre-flight read it as a failed sweep. Guarded, as
   `preserve-worktrees.sh` already was; the sweep's tests had all pinned `MAIN_BRANCH`.
+- **A park commits and pushes its own state.** `plan-epic.sh` exit 4 leaves the gate, the
+  `PARKED` note, the `decision` tasks it filed and the staged spec index in the tracker
+  and the staging folder; the sequencer now syncs them (export → view → commit → push,
+  as `halt.sh pause` does) and its report says so. Measured, the second orchestrated run:
+  told only "parked — move to the next epic", the orchestrator spent 16 of its 26 turns
+  reading `preflight.py`, `campaign_auto.py` and `tracker_sync.py` to decide what to
+  commit. `--no-push` for a repository with no remote. The skill now states the rule for
+  every exit: the report line is the whole answer; harness source is never read mid-run.
 - **The measurement the series owed.** `harness/wavelab/ab.sh release` A/Bs two plugin
   commits (default: 0.10.18 against HEAD); `--orchestrated` runs one headless
-  `campaign-orchestrator` per arm and records its turns and cost per epic. Numbers below
+  `campaign-orchestrator` per arm and records its turns and cost per epic. The lab epic
+  now carries an owner's settlement of the two questions a careful architect raises
+  (the fixture, non-str values), so a run measures waves and not a park. Numbers below
   once the series has run.
 
 - **mechanical** — re-stamp `harness.version`, when convenient:

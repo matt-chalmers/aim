@@ -246,9 +246,17 @@ ${CLAUDE_PLUGIN_ROOT}/harness/swarm/plan-epic.sh <epic> --mode <interactive|auto
 ```
 
 Exit 0 planned and applied · 4 parked (the report says on what, and which command un-parks
-it — move to the next epic) · 6 an approval is owed (`MODE=interactive`; the report names the
-artefact and the `--from` that continues) · 2 could not judge (a dispatch returned no
-verdict; nothing was approved) · 1 a stage failed (`--from <stage>` re-runs it).
+it; **the tracker export and the staging folder are already committed and pushed** — record
+the outcome, §6, and move to the next epic; nothing else is owed and nothing needs reading)
+· 6 an approval is owed (`MODE=interactive`; the report names the artefact and the `--from`
+that continues) · 2 could not judge (a dispatch returned no verdict; nothing was approved) ·
+1 a stage failed (`--from <stage>` re-runs it).
+
+**Every exit leaves nothing to work out.** Measured: told only "parked — move to the next
+epic", an orchestrator spent 16 of its 26 turns reading `preflight.py`, `campaign_auto.py`
+and `tracker_sync.py` to decide what to commit and whether autosync would be restored. The
+answer is in the report line; the harness source is never yours to read mid-run — if a
+report leaves you unsure what is owed, that is a defect to file, not a question to research.
 
 **"Dispatch" here means `dispatch.sh`, never the Agent tool** — a `PreToolUse` hook refuses
 the Agent tool for any of this plugin's agents. Measured, five campaign sessions: plugin
