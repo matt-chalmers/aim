@@ -1239,6 +1239,14 @@ config note: a stack may now declare `bootstrap.strategy: none`.
   reading `preflight.py`, `campaign_auto.py` and `tracker_sync.py` to decide what to
   commit. `--no-push` for a repository with no remote. The skill now states the rule for
   every exit: the report line is the whole answer; harness source is never read mid-run.
+- **Three more from the same runs.** `ADEQUACY: **ADEQUATE**` (markdown emphasis) read
+  as no verdict and cost a survey re-dispatch — the `ADEQUACY:`, `DECISION:` and
+  `REQUIREMENT:` parsers now tolerate emphasis as `VERDICT:` already did. The architect,
+  given a planned epic, looped `for id in …; do tk.sh show; done` — a compound command,
+  denied identically on both attempts — so the sequencer now renders the epic's task view
+  and hands the architect one file. And `campaign.sh` read a session that began
+  `**stopped**` as *closed* because "Tasks closed: 0" appeared in its body; the outcome
+  is read from the first line, as the contract says.
 - **The measurement the series owed.** `harness/wavelab/ab.sh release` A/Bs two plugin
   commits (default: 0.10.18 against HEAD); `--orchestrated` runs one headless
   `campaign-orchestrator` per arm and records its turns and cost per epic. The lab epic

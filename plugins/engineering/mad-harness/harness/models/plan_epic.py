@@ -47,6 +47,7 @@ from .resolve import HARNESS, REPO
 from .steps import FAIL, INFO, OK, Raw, Result, execute, failure_detail, render, tail
 
 DISPATCH = HARNESS / "models" / "dispatch.sh"
+RENDER = HARNESS / "tracker" / "render-epic.sh"
 TK = HARNESS / "tracker" / "tk.sh"
 CHECKS = HARNESS / "checks"
 SWARM = HARNESS / "swarm"
@@ -55,9 +56,13 @@ STAGES = ("survey", "foldin", "architect", "stage", "planner", "audit", "gate", 
 EXIT_OK, EXIT_FAILED, EXIT_NO_JUDGE, EXIT_PARKED, EXIT_STOP = 0, 1, 2, 4, 6
 DISPATCH_TIMEOUT = 3600
 
-ADEQUACY = re.compile(r"^\s*ADEQUACY:\s*(?P<v>ADEQUATE|INFERABLE|ABSENT)\b", re.I | re.M)
-DECISION_LINE = re.compile(r"^\s*DECISION:\s*(?P<q>.+?)\s*$", re.M)
-REQUIREMENT_LINE = re.compile(r"^\s*REQUIREMENT:\s*(?P<q>.+?)\s*$", re.M)
+# MARKDOWN AROUND THE WORD IS NOT A DIFFERENT VERDICT. `ADEQUACY: **ADEQUATE**` cost a
+# survey re-dispatch (measured, an orchestrated wavelab run: three attempts, one of them
+# this) before the parser tolerated emphasis, as `verdict.VERDICT` already did.
+_EM = r"[*_`]*"
+ADEQUACY = re.compile(rf"^\s*{_EM}ADEQUACY{_EM}:?{_EM}\s*{_EM}(?P<v>ADEQUATE|INFERABLE|ABSENT)(?![A-Za-z])", re.I | re.M)
+DECISION_LINE = re.compile(rf"^\s*{_EM}DECISION{_EM}:{_EM}\s*(?P<q>.+?)\s*$", re.M)
+REQUIREMENT_LINE = re.compile(rf"^\s*{_EM}REQUIREMENT{_EM}:{_EM}\s*(?P<q>.+?)\s*$", re.M)
 SPEC_INDEX = re.compile(r"^\s*SPEC INDEX:\s*(?P<body>.*?)(?=^\s*[A-Z][A-Z /]+:\s|\Z)", re.M | re.S)
 OPEN_ROWS = re.compile(r"epic cannot fold in or close")
 
@@ -300,10 +305,28 @@ class Sequencer:
         self.results.append(Result("dispatch spec-editor (fold-in ①)", OK, f"full: {out}", raw))
         self.state.done("foldin", foldin=out)
 
+    def render_view(self) -> Path | None:
+        """The epic's tasks as one file, for an agent that would otherwise read them one
+        `tk.sh show` at a time. Measured (an orchestrated wavelab run): the architect looped
+        `for id in …; do tk.sh show $id; done` — a compound command, denied, identically
+        on both attempts — and the sequencer stopped with nothing designed. The view is
+        deterministic; the sequencer renders it and names the path."""
+        folder = self.folder()
+        if not folder:
+            return None
+        out = folder / "tasks.md"
+        raw = execute([str(RENDER), self.epic, "--write", str(out)], cwd=self.cwd, runner=self.runner)
+        if not raw.ran or raw.returncode != 0:
+            self.results.append(Result("render-epic.sh", INFO, "the task view could not be rendered — the architect reads the tracker itself:\n" + failure_detail(raw), raw))
+            return None
+        return out
+
     def architect(self) -> None:
         """§3b: the design (or the sanity-check), its verdict, the note, the gate."""
         triage = self.state.data.get("triage") or "UNPLANNED"
-        base = f"Epic {self.epic} — {self.title()}. The SPEC INDEX is at `{self.state.art('spec_index') or '(none staged; read the epic)'}`; the survey at `{self.state.art('survey') or '(reused)'}`. Start there; open what it points at.\n"
+        view = self.render_view() if triage != "UNPLANNED" else None
+        base = (f"Epic {self.epic} — {self.title()}. The SPEC INDEX is at `{self.state.art('spec_index') or '(none staged; read the epic)'}`; the survey at `{self.state.art('survey') or '(reused)'}`. Start there; open what it points at.\n"
+                + (f"The epic's existing tasks are rendered, in full, at `{view}` — read that file; do not fetch them one by one, and never in a shell loop (a compound command is denied).\n" if view else ""))
         if triage == "READY":
             prompt = base + ("SANITY-CHECK the existing design and tasks: 1) is the recorded or implied design still correct given everything that has landed since the tasks were written — check the feature docs and the ADRs, including ones written after these tasks; 2) has the ground moved underneath it — run `tk.sh memories` and look for a documented framework that is a veneer; 3) confirm, or flag the drift precisely. Begin your output with an `ARCHITECTURE:` block. "
                              "If you cannot proceed without inventing scope, put `ADEQUACY: ABSENT` first and stop. Put every open question on its own line as `DECISION: <question>`.\n")

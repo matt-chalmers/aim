@@ -236,3 +236,13 @@ def test_outcome_is_read_from_the_digest_and_unknown_is_stopped():
     assert mod.outcome_of("Epic E-1 · outcome: parked · 1 wave") == "parked"
     assert mod.outcome_of("Epic E-1: closed and pushed") == "closed"
     assert mod.outcome_of("") == "stopped" and mod.outcome_of("something else") == "stopped"
+
+
+def test_the_first_line_is_the_outcome_even_when_the_body_says_closed():
+    """Measured: a session that began "**stopped**" and reported "Tasks closed: 0" was
+    filed as a closed epic — the whole digest was searched, in the order parked, closed,
+    stopped — and campaign-signals recorded a stop as a catastrophically bad completion."""
+    digest = "**stopped** — `E-1` (normalise contact details).\n- Waves run: 0. Tasks closed: 0.\n- Pushed: nothing."
+    assert mod.outcome_of(digest) == "stopped"
+    assert mod.outcome_of("**parked** — the hard line fired.\n- Tasks closed: 0.") == "parked"
+    assert mod.outcome_of("closed — 3 tasks landed.\n- nothing parked") == "closed"

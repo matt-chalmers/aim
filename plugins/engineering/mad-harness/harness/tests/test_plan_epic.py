@@ -306,3 +306,39 @@ def test_no_push_parks_and_commits_without_pushing(repo):
     s.push = False
     text, code = s.run()
     assert code == 4 and "git commit" in r.keys() and "git push" not in r.keys()
+
+
+def test_the_adequacy_verdict_tolerates_markdown_emphasis_and_the_line_forms():
+    """Measured: `ADEQUACY: **ADEQUATE**` cost a survey re-dispatch. Emphasis around the
+    word, or the label, is the same verdict; a different word is still none."""
+    from models.plan_epic import ADEQUACY, DECISION_LINE, REQUIREMENT_LINE
+
+    for text in ("ADEQUACY: ADEQUATE", "ADEQUACY: **ADEQUATE**", "**ADEQUACY:** ADEQUATE", "**ADEQUACY**: `INFERABLE`", "_ADEQUACY_: _ABSENT_"):
+        m = ADEQUACY.search(text)
+        assert m, text
+    assert ADEQUACY.search("ADEQUACY: **ADEQUATE**").group("v") == "ADEQUATE"
+    assert ADEQUACY.search("ADEQUACY: PERFECT") is None
+    assert DECISION_LINE.search("**DECISION:** per-user or per-IP?").group("q") == "per-user or per-IP?"
+    assert REQUIREMENT_LINE.search("**REQUIREMENT**: what happens on retry").group("q") == "what happens on retry"
+
+
+def test_a_planned_epic_hands_the_architect_the_rendered_view_and_says_not_to_loop(repo):
+    """Measured: the architect looped `for id in …; do tk.sh show; done` — denied, both
+    attempts — and the sequencer stopped with nothing designed. The view is rendered by
+    the sequencer for PARTIAL and READY; an UNPLANNED epic has no tasks to render."""
+    r = Runner()
+    d = results_for(**{"analyst-survey": SURVEY, "architect": DESIGN})
+    s = seq(repo, r, d)
+    s.state.data["triage"] = "PARTIAL"
+    s.run()
+    rendered = [c for c in r.calls if key(c) == "render-epic.sh"]
+    assert rendered and rendered[0][1] == "E-1" and rendered[0][2] == "--write" and rendered[0][3].endswith("/tasks.md")
+    arch_prompt = next(t for a, t in d.seen if a == "architect")
+    assert "tasks.md" in arch_prompt and "never in a shell loop" in arch_prompt
+    r2 = Runner()
+    d2 = results_for(**{"analyst-survey": SURVEY, "architect": DESIGN})
+    s2 = seq(repo, r2, d2)
+    s2.state.data["triage"] = "UNPLANNED"  # the state file still says PARTIAL from the run above
+    s2.run()
+    arch_prompt2 = next(t for a, t in d2.seen if a == "architect")
+    assert "never in a shell loop" not in arch_prompt2

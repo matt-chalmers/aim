@@ -106,9 +106,17 @@ def outcome_of(digest: str) -> str:
     """`closed`, `parked` or `stopped`, from the orchestrator's return contract — the
     outcome line the loop tells it to put first. Unknown reads as `stopped`: a session
     that said nothing recognisable did not close the epic."""
-    text = (digest or "").lower()
-    for word in ("parked", "closed", "stopped"):
-        if word in text:
+    lines = [ln.strip().lower() for ln in (digest or "").splitlines() if ln.strip()]
+    # THE FIRST LINE, as the contract says. Searching the whole digest read "Tasks
+    # closed: 0" in a session that began "**stopped**" as a closed epic (measured), and
+    # campaign-signals then filed a stop as a catastrophically bad completion.
+    words = ("parked", "closed", "stopped")
+    if lines:
+        for word in words:
+            if word in lines[0]:
+                return word
+    for word in words:
+        if any(word in ln for ln in lines):
             return word
     return "stopped"
 
