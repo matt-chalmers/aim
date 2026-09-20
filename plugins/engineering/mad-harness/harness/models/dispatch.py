@@ -583,6 +583,7 @@ def _run_sdk(
         try:
             async for message in query(prompt=prompt, options=options):
                 if isinstance(message, AssistantMessage):
+                    progress["turns"] += 1
                     for block in message.content:
                         if isinstance(block, TextBlock) and block.text.strip():
                             transcript.append(block.text.strip())
@@ -632,10 +633,18 @@ def _run_sdk(
             )
         return last
 
+    # A KILLED DISPATCH STILL LEAVES A RECORD. The cost is the SDK's, in the result
+    # message that never arrives at a timeout; but the turns were counted as they
+    # streamed. Measured: an orchestrator cut off at its hour left no event at all, and
+    # the series read as if it had never run — its 87 requests had to be recovered from
+    # the transcript on disk. The exception carries what was seen; `dispatch` records it.
+    progress: dict[str, int] = {"turns": 0}
     try:
         return asyncio.run(asyncio.wait_for(_go(), timeout=timeout))
     except TimeoutError as exc:
-        raise DispatchError(f"dispatch exceeded {timeout}s") from exc
+        err = DispatchError(f"dispatch exceeded {timeout}s")
+        err.turns = progress["turns"]  # type: ignore[attr-defined]
+        raise err from exc
 
 
 def dispatch(
@@ -677,14 +686,19 @@ def dispatch(
         )
 
     started = time.monotonic()
-    payload = (runner or _run_sdk)(
-        r,
-        with_context(prompt, lane, cwd=str(cwd or REPO), task=task, agent=agent),
-        cwd=str(cwd or REPO),
-        env=build_env(r),
-        timeout=timeout,
-        task=task,
-    )
+    try:
+        payload = (runner or _run_sdk)(
+            r,
+            with_context(prompt, lane, cwd=str(cwd or REPO), task=task, agent=agent),
+            cwd=str(cwd or REPO),
+            env=build_env(r),
+            timeout=timeout,
+            task=task,
+        )
+    except DispatchError as exc:
+        if str(exc).startswith("dispatch exceeded"):
+            record_timeout(r, task, turns=getattr(exc, "turns", 0), elapsed_ms=int((time.monotonic() - started) * 1000))
+        raise
     elapsed_ms = int((time.monotonic() - started) * 1000)
 
     usage = payload.get("usage") or {}
@@ -786,6 +800,23 @@ def record(
     return tracker.telemetry().record(
         "harness.dispatch", task or outcome.resolved.agent, payload
     )
+
+
+def record_timeout(r: Resolved, task: str | None, *, turns: int, elapsed_ms: int) -> None:
+    """The event for a dispatch the timeout killed: `terminal: timeout`, the turns seen,
+    the cost unknown (None, never 0 — a zero would read as free). Swallows recording
+    failures as `record_event` does."""
+    try:
+        import tracker
+
+        payload = {
+            "task": task, "attempt": 1, "escalated_from": None, **r.redacted(),
+            "ok": False, "terminal": "timeout", "experiment": _levers.experiment(), "levers": _levers.snapshot(),
+            "cost_usd": None, "turns": turns, "duration_ms": elapsed_ms, "permission_denials": 0, "denied_tools": [],
+        }
+        tracker.telemetry().record("harness.dispatch", task or r.agent, payload)
+    except Exception as exc:  # noqa: BLE001 — telemetry never fails a dispatch
+        print(f"warning: timeout event not recorded: {exc}", file=sys.stderr)
 
 
 def build_parser():

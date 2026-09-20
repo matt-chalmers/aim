@@ -1046,3 +1046,34 @@ def test_an_orchestrators_ceiling_is_the_roles_not_its_tiers():
     v = mod.resolve("verifier")
     assert o.tier == v.tier == "strong"
     assert o.max_budget_usd == 25.0 and v.max_budget_usd == 4.0
+
+
+def test_a_dispatch_killed_at_its_timeout_still_records_an_event_with_the_turns_seen(monkeypatch, tmp_path):
+    """Measured: an orchestrator cut off at campaign.sh's hour left NO event — the
+    series read as if it had never run, and its 87 requests were recovered from the
+    transcript on disk. The cost is unknown (None, never 0) but the turns are counted."""
+    from models import dispatch as mod
+
+    recorded = []
+
+    class Tele:
+        def record(self, category, target, payload):
+            recorded.append((category, target, payload))
+
+    import tracker
+
+    monkeypatch.setattr(tracker, "telemetry", lambda: Tele())
+
+    def runner(resolved, prompt, **kw):
+        err = mod.DispatchError("dispatch exceeded 5s")
+        err.turns = 87
+        raise err
+
+    with pytest.raises(mod.DispatchError, match="exceeded"):
+        mod.dispatch("verifier", "judge", runner=runner, task="T-1", timeout=5)
+    assert len(recorded) == 1
+    category, target, payload = recorded[0]
+    assert category == "harness.dispatch" and target == "T-1"
+    assert payload["terminal"] == "timeout" and payload["ok"] is False
+    assert payload["turns"] == 87 and payload["cost_usd"] is None, "unknown is None, never a free-looking zero"
+    assert payload["agent"] == "verifier"

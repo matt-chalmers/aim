@@ -119,6 +119,9 @@ def summarise(by_arm: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, An
             "shas": sorted({r.get("_sha", "?") for r in rows}),
             "kills": sum(1 for r in rows if r.get("terminal") == "budget"),
             "not_ok": sum(1 for r in rows if not r.get("ok")),
+            # A dispatch the timeout killed has turns but no cost (None): the arm's cost
+            # is a FLOOR then, and the report says so rather than summing a zero.
+            "timeouts": sum(1 for r in rows if r.get("terminal") == "timeout"),
         }
         per_run: dict[str, float] = defaultdict(float)
         writers_per_run: dict[str, float] = defaultdict(float)
@@ -193,13 +196,14 @@ def main(argv: list[str] | None = None) -> int:
         q1, med, q3 = a["cost_per_run"]
         code = ", ".join(a["shas"]) + ("  ← MIXED CODE across runs; do not read this arm as one sample" if len(a["shas"]) > 1 else "")
         print(f"\n[{arm}]  {a['n_runs']} run(s), {a['n_dispatches']} dispatch(es), {a['kills']} budget kill(s), {a['not_ok']} not-ok, code {code}")
-        print(f"  cost / run        ${med:.2f}   (IQR ${q1:.2f}–${q3:.2f}){'   — writers AND lenses' if a.get('judged') else ''}")
+        floor = f"   — a FLOOR: {a['timeouts']} dispatch(es) killed at timeout, cost unknown" if a.get("timeouts") else ""
+        print(f"  cost / run        ${med:.2f}   (IQR ${q1:.2f}–${q3:.2f}){'   — writers AND lenses' if a.get('judged') else ''}{floor}")
         if a.get("judged") and a.get("writer_cost_per_run"):
             wq1, wmed, wq3 = a["writer_cost_per_run"]
             print(f"  writers / run     ${wmed:.2f}   (IQR ${wq1:.2f}–${wq3:.2f})")
         if a.get("orch_turns"):
             t, c, i, m = a["orch_turns"], a["orch_cost"], a["orch_input"], a["orch_minutes"]
-            print(f"  orchestrator      {t[1]:.0f} turns (IQR {t[0]:.0f}–{t[2]:.0f})   ${c[1]:.2f} (IQR ${c[0]:.2f}–${c[2]:.2f})   {i[1]:,.0f} input tok   {m[1]:.0f} min   ended: {', '.join(a['orch_terminals'])}")
+            print(f"  orchestrator      {t[1]:.0f} turns (IQR {t[0]:.0f}–{t[2]:.0f})   ${c[1]:.2f} (IQR ${c[0]:.2f}–${c[2]:.2f})   {i[1]:,.0f} input tok   {m[1]:.0f} min   ended: {', '.join(a['orch_terminals'])}" + ("   (a timeout's cost is unknown; its turns are real)" if "timeout" in a["orch_terminals"] else ""))
             k, ln = a["children_per_run"], a["lens_per_run"]
             print(f"  dispatched        {k[1]:.0f} agents / epic (IQR {k[0]:.0f}–{k[2]:.0f}), of which {ln[1]:.0f} lenses")
             for run, o in sorted((outcomes.get(arm) or {}).items()):
