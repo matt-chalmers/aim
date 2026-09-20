@@ -1212,3 +1212,29 @@ config note: a stack may now declare `bootstrap.strategy: none`.
   `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`.
 - **mechanical** — a stack whose bootstrap is a no-op declares `strategy: none`; one that
   said `symlink` to a directory that does not exist was never restoring anything.
+
+### 0.10.28
+
+**Headless campaigns could not dispatch since 0.10.21.** No config change.
+
+- **What was wrong.** The orchestrator's sandbox excludes `dispatch.sh` so a nested
+  `claude` can reach the keychain (Seatbelt cannot). That was the whole exclusion while the
+  orchestrator typed `dispatch.sh` itself; from 0.10.21 it types `lens-gate.sh`, `fanout.sh`
+  and `plan-epic.sh`, which dispatch on its behalf — inside its sandbox. Measured, on the
+  first orchestrated wavelab run of 0.10.27: the survey dispatch under `plan-epic.sh` died
+  in 73ms with "Not logged in · Please run /login" and the campaign stopped at §3a having
+  run nothing ($1.23 of orchestrator, $0 of agents). Interactive `/swarm` and `/grind`
+  were never affected — a terminal session has no sandbox around it. `resolve.py` now
+  lists every script that dispatches (`DISPATCHING_SCRIPTS`) and a test pins the list to
+  the modules that name `dispatch.sh` as an executable.
+- **`worktree-sweep.sh` exited 1 silently** in any repository without `origin/HEAD`
+  (a clone of a bare remote): the default-branch detection failed under `pipefail` before
+  main/master/trunk were tried, and pre-flight read it as a failed sweep. Guarded, as
+  `preserve-worktrees.sh` already was; the sweep's tests had all pinned `MAIN_BRANCH`.
+- **The measurement the series owed.** `harness/wavelab/ab.sh release` A/Bs two plugin
+  commits (default: 0.10.18 against HEAD); `--orchestrated` runs one headless
+  `campaign-orchestrator` per arm and records its turns and cost per epic. Numbers below
+  once the series has run.
+
+- **mechanical** — re-stamp `harness.version`, when convenient:
+  `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`.

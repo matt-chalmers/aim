@@ -753,9 +753,26 @@ ORCHESTRATOR_DOMAINS: tuple[str, ...] = ("github.com",)
 #: dispatch wrapper gives a nested worker today's topology — an unsandboxed dispatcher
 #: (which also runs the worktree init) and its own sandbox around the worker. Both
 #: spellings the loader produces, as for the grants.
-DISPATCHER_OUTSIDE: tuple[str, ...] = (
-    f"{HARNESS}/models/dispatch.sh:*",
-    f"{HARNESS.parent}//{HARNESS.name}/models/dispatch.sh:*",
+#:
+#: AND EVERY SCRIPT THAT DISPATCHES ON THE ORCHESTRATOR'S BEHALF. 0.10.21–0.10.26 gave
+#: the orchestrator `lens-gate.sh`, `fanout.sh` and `plan-epic.sh`, each of which runs
+#: `dispatch.sh` itself — from INSIDE the orchestrator's sandbox, since only the wrapper
+#: was excluded. Measured (the first orchestrated wavelab run of 0.10.27): the survey
+#: dispatch under `plan-epic.sh` died in 73ms, "Not logged in · Please run /login", and
+#: the campaign stopped at §3a having closed nothing. The exclusion is by the command the
+#: orchestrator TYPES, so each such script is listed; the test pins the list to the
+#: modules that name `dispatch.sh` as an executable.
+DISPATCHING_SCRIPTS: tuple[str, ...] = (
+    "models/dispatch.sh",
+    "swarm/lens-gate.sh",
+    "swarm/fanout.sh",   # runs a jobs file whose lines are dispatch.sh commands
+    "swarm/plan-epic.sh",
+    "swarm/campaign.sh",  # the outer loop; never typed by an orchestrator, listed for the same reason if it ever is
+)
+DISPATCHER_OUTSIDE: tuple[str, ...] = tuple(
+    spelling
+    for rel in DISPATCHING_SCRIPTS
+    for spelling in (f"{HARNESS}/{rel}:*", f"{HARNESS.parent}//{HARNESS.name}/{rel}:*")
 )
 
 

@@ -1006,6 +1006,37 @@ def test_an_orchestrator_may_push_and_reach_the_remote_and_the_stacks_index_and_
     assert "network" not in w.sandbox
 
 
+def test_every_script_that_dispatches_runs_outside_the_orchestrators_sandbox():
+    """The keychain is unreachable inside Seatbelt, so a nested `claude` cannot log in.
+    Excluding `dispatch.sh` alone was enough while the orchestrator typed it; since
+    0.10.21 it types `lens-gate.sh`, `fanout.sh` and `plan-epic.sh`, which dispatch for
+    it — and inside its sandbox. Measured: the first orchestrated wavelab run of 0.10.27
+    died at §3a, "Not logged in", $0 of agents run. Every module that names dispatch.sh as
+    an executable must have its wrapper in the exclusion, both spellings; and the
+    exclusion must reach the resolved sandbox."""
+    import re
+
+    from models import resolve as mod
+
+    listed = set(mod.DISPATCHING_SCRIPTS)
+    spawning = {"models/dispatch.sh", "swarm/fanout.sh"}  # fanout runs job lines that are dispatch.sh commands
+    for wrapper in sorted((mod.HARNESS / "swarm").glob("*.sh")):
+        m = re.search(r"python -m models\.([a-z_]+)", wrapper.read_text())
+        if not m:
+            continue
+        module = (mod.HARNESS / "models" / f"{m.group(1)}.py").read_text()
+        if re.search(r'^DISPATCH\s*=.*"dispatch\.sh"', module, re.M):
+            spawning.add(f"swarm/{wrapper.name}")
+    assert spawning <= listed, f"dispatching scripts missing from DISPATCHING_SCRIPTS: {sorted(spawning - listed)}"
+    for rel in listed:
+        assert (mod.HARNESS / rel).is_file(), f"{rel} is excluded but does not ship"
+    o = mod.resolve("campaign-orchestrator")
+    excluded = o.sandbox["excludedCommands"]
+    for rel in listed:
+        assert f"{mod.HARNESS}/{rel}:*" in excluded and f"{mod.HARNESS.parent}//{mod.HARNESS.name}/{rel}:*" in excluded
+    assert "excludedCommands" not in mod.resolve("fullstack-engineer").sandbox
+
+
 def test_an_orchestrators_ceiling_is_the_roles_not_its_tiers():
     """Measured: a headless lab epic stopped itself at $3.19 of the strong tier's $4.00
     with the epic open — the ceiling is per task and an orchestrator runs a whole epic."""
