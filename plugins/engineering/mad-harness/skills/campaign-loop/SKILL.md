@@ -249,7 +249,9 @@ Exit 0 planned and applied · 4 parked (the report says on what, and which comma
 it; **the tracker export and the staging folder are already committed and pushed** — record
 the outcome, §6, and move to the next epic; nothing else is owed and nothing needs reading)
 · 6 an approval is owed (`MODE=interactive`; the report names the artefact and the `--from`
-that continues) · 2 could not judge (a dispatch returned no verdict; nothing was approved) ·
+that continues) · 2 could not judge (a dispatch returned no verdict; nothing was approved —
+fix the cause and `--from <stage>`, or if it is not yours to fix, file it and
+`halt.sh pause <epic>`: the park and the sync as one call; never re-run a stage unchanged) ·
 1 a stage failed (`--from <stage>` re-runs it).
 
 **Every exit leaves nothing to work out.** Measured: told only "parked — move to the next

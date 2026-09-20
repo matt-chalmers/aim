@@ -335,6 +335,9 @@ def test_a_planned_epic_hands_the_architect_the_rendered_view_and_says_not_to_lo
     assert rendered and rendered[0][1] == "E-1" and rendered[0][2] == "--write" and rendered[0][3].endswith("/tasks.md")
     arch_prompt = next(t for a, t in d.seen if a == "architect")
     assert "tasks.md" in arch_prompt and "never in a shell loop" in arch_prompt
+    plan_prompt = next(t for a, t in d.seen if a == "planner")
+    assert "tasks.md" in plan_prompt and "never in a shell loop" in plan_prompt, "the planner looped the same way, three of three attempts"
+    assert "list --parent" not in plan_prompt
     r2 = Runner()
     d2 = results_for(**{"analyst-survey": SURVEY, "architect": DESIGN})
     s2 = seq(repo, r2, d2)
@@ -342,3 +345,13 @@ def test_a_planned_epic_hands_the_architect_the_rendered_view_and_says_not_to_lo
     s2.run()
     arch_prompt2 = next(t for a, t in d2.seen if a == "architect")
     assert "never in a shell loop" not in arch_prompt2
+
+
+def test_could_not_judge_names_the_one_call_that_parks_and_syncs(repo):
+    """Measured: exit 2 said only "re-run once the cause is fixed"; the orchestrator re-ran
+    the same stage three times unchanged, then parked and synced by hand in 13 turns."""
+    r = Runner()
+    d = results_for(**{"analyst-survey": SURVEY, "architect": None})
+    text, code = seq(repo, r, d).run()
+    assert code == 2
+    assert "halt.sh pause E-1" in text and "--from architect" in text and "Do not re-run the stage unchanged" in text

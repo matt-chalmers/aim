@@ -388,7 +388,12 @@ class Sequencer:
         next_adr = f"{adr_next(Path(self.cwd) / adrs):04d}" if adrs else None
         lanes = self.project.lanes() if self.project else {}
         lane_text = ", ".join(f"{k} (cap {v.get('cap', '?')})" for k, v in lanes.items()) or "(none declared)"
-        prompt = (f"PLAN epic {self.epic} — {self.title()}. Its current tasks: `{TK} --readonly list --parent {self.epic}`. The design is at `{self.state.art('staged_design') or self.state.art('design') or '(the ARCHITECTURE: note)'}`; the SPEC INDEX at `{self.state.art('spec_index') or '(none)'}`; the survey at `{self.state.art('survey') or '(reused)'}`.\n"
+        # THE CHILDREN AS ONE FILE, as for the architect: handed `list --parent`, the planner
+        # read each record with `for t in …; do tk.sh show; done` — denied, three of three
+        # attempts, a complete plan refused each time (measured, $4.13 of planner).
+        view = self.render_view()
+        tasks_line = f"Its current tasks are rendered, in full, at `{view}` — read that file; do not fetch them one by one, and never in a shell loop (a compound command is denied)." if view else f"Its current tasks: `{TK} list --parent {self.epic}`, then `{TK} show <id>` one at a time — never in a shell loop (a compound command is denied)."
+        prompt = (f"PLAN epic {self.epic} — {self.title()}. {tasks_line} The design is at `{self.state.art('staged_design') or self.state.art('design') or '(the ARCHITECTURE: note)'}`; the SPEC INDEX at `{self.state.art('spec_index') or '(none)'}`; the survey at `{self.state.art('survey') or '(reused)'}`.\n"
                   f"Lanes and caps: {lane_text}. " + (f"The next free decision-record number is {next_adr}; a task that needs one names it. " if next_adr else "") +
                   "Produce the DAG with a SURFACE: line per task, the file-contention matrix with every edge resolved, the wave plan, and the tracker commands in fenced bash blocks with `T1:` labels for apply-plan.sh. Open questions as `DECISION: <question>` lines outside the blocks.\n")
         if findings:
@@ -527,7 +532,9 @@ class Sequencer:
         elif code == EXIT_PARKED:
             out.append(f"\nPARKED at {self.stop[1]} — the epic is out of the queue; the [FAIL] line above says on what and which command un-parks it. The tracker export and the staging folder are committed and pushed (the sync lines above); autosync stays off for the run. Nothing else is owed here: record the outcome (`campaign-signals.sh {self.epic} --outcome parked`, or the return contract's first line in MODE=auto) and move to the next epic.")
         elif code == EXIT_NO_JUDGE:
-            out.append("\nCOULD NOT JUDGE — a dispatch did not return a verdict. Nothing was approved; re-run the same stage (`--from`) once the cause is fixed.")
+            # stop[1] is the failed step's NAME ("dispatch architect"); --from wants the stage.
+            stage = next((st for st in STAGES if st in self.stop[1]), self.stop[1])
+            out.append(f"\nCOULD NOT JUDGE — a dispatch did not return a verdict. Nothing was approved. If the cause is yours to fix, fix it and re-run the same stage (`plan-epic.sh {self.epic} --from {stage}`). If it is not (a harness defect, a denial you cannot grant): file it, then `halt.sh pause {self.epic}` — the park, the export, the commit and the push as one call — and move to the next epic. Do not re-run the stage unchanged; a deterministic failure repeats.")
         else:
             out.append(f"\nSTOPPED at {self.stop[1]} — resolve the [FAIL] line and re-run `plan-epic.sh {self.epic} --from {self.stop[1]}`.")
         return "\n".join(out)

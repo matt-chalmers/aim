@@ -1247,6 +1247,12 @@ config note: a stack may now declare `bootstrap.strategy: none`.
   and hands the architect one file. And `campaign.sh` read a session that began
   `**stopped**` as *closed* because "Tasks closed: 0" appeared in its body; the outcome
   is read from the first line, as the contract says.
+- **And two from the run after that.** The planner looped the same way as the architect
+  (three of three attempts, $4.13 of planner for plans the sequencer rightly refused) — it
+  gets the rendered view too. And exit 2 ("could not judge") said only "re-run once the
+  cause is fixed": the orchestrator re-ran the stage three times unchanged, then parked
+  and synced by hand in 13 turns. The report now names the choice — fix and `--from`, or
+  file it and `halt.sh pause <epic>` as one call — and says a deterministic failure repeats.
 - **The measurement the series owed.** `harness/wavelab/ab.sh release` A/Bs two plugin
   commits (default: 0.10.18 against HEAD); `--orchestrated` runs one headless
   `campaign-orchestrator` per arm and records its turns and cost per epic. The lab epic
