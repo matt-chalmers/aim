@@ -167,7 +167,12 @@ else:
     text = text.rstrip("\n") + f"\n\nharness:\n  version: {ver}\n"
 open(path, "w").write(text)
 PY
-      git -C "$LAB_REPO" -c user.email=wavelab@example.com -c user.name=wavelab commit -q -am "wavelab: stamp harness.version $ARM_VERSION; the owner's settlement on the epic" && git -C "$LAB_REPO" push -q
+      # An explicit export: the backend's auto-export after the note is not synchronous, and
+      # a commit that raced it left issues.jsonl modified — which pre-flight refuses (measured).
+      ( cd "$LAB_REPO" && "$FHARNESS/tracker/tk.sh" export >/dev/null 2>&1 || true )
+      git -C "$LAB_REPO" add -A
+      git -C "$LAB_REPO" -c user.email=wavelab@example.com -c user.name=wavelab commit -q -m "wavelab: stamp harness.version $ARM_VERSION; the owner's settlement on the epic" && git -C "$LAB_REPO" push -q
+      [ -z "$(git -C "$LAB_REPO" status --porcelain)" ] || { echo "!! lab repo dirty after the seed commit:"; git -C "$LAB_REPO" status --porcelain; exit 4; }
       echo "-- orchestrated: campaign.sh --epic $EPIC from $FHARNESS"
       ( cd "$LAB_REPO" && env "${ENVS[@]}" "$FHARNESS/swarm/campaign.sh" --epic "$EPIC" --max-epics 1 ) || true
       # WHAT THE EPIC CAME TO, from the tracker — the orchestrator judged as it went, so
