@@ -9,7 +9,7 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/harness/*), Bash(git:*), Agent, Task, 
 **You are the most expensive caller in the system.** Measured: an orchestrator's context averaged ~210k tokens in its campaign, ~380k over its session; each tool call re-reads it, three to six times a worker's price. Four rules:
 
 1. **Never load reference material into yourself.** A built-in agent (`Agent(subagent_type="general-purpose")`) loads it and answers; its whole return lands in your context, so ask for a few lines or a path. Measured: one reference skill loaded here cost $11.21 over 64 turns; ~$2 in a subagent.
-2. **One call where five would do.** `preflight.sh`, `apply-plan.sh`, `close-epic.sh` are whole sequences; `scan.sh`, `peek.sh`, `run.sh` batch reads and runs; ask `tk.sh` once, `--json`.
+2. **One call where five would do.** Every `swarm/*.sh` is a whole sequence (preflight, apply-plan, close-wave, close-epic); `scan.sh`, `peek.sh`, `run.sh` batch; `tk.sh` once, `--json`.
 3. **Artefacts by path.** `dispatch.sh … --digest`, `tk.sh note --file`: a plugin agent's result goes from its file to what consumes it, never through you.
 4. **An hour idle, and the next request re-writes your whole context at the write rate.** Measured: four gaps re-wrote 3.5M tokens of one session, more than its campaign cost. Back at a large session, weigh its context against that, or start fresh.
 
@@ -55,7 +55,7 @@ Repeat until **Stop conditions** (§8) are met:
 7. **Update all affected documentation** (§7).
 8. **Verify** — independent three-lens agent review (§9). This gate is mandatory before closing.
 9. **Commit** the task as one clean commit (§10).
-10. **Close, sync and push** (§10): `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close <id> --reason "…"`, `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh export`, commit that, then `git pull --rebase --autostash` and `git push`. Record durable insights with `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh remember "<insight>"`.
+10. **Close, sync and push** (§10): one call, `${CLAUDE_PLUGIN_ROOT}/harness/swarm/close-wave.sh <id>="<reason>" --message "chore(tasks): close <id>" --restore-autosync`. Record durable insights with `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh remember "<insight>"`.
 11. Go to step 1.
 
 Do the work **one task at a time, start to finish.** Do not batch multiple tasks into one commit or defer testing/docs "until later" — later never comes, and that is exactly the failure this command exists to prevent.
@@ -146,8 +146,9 @@ Stop the loop and write a final summary when any of these is true:
 - A change would require a product/spec/design decision you cannot make (mark the task blocked with the open question first).
 
 Before you stop for **any** reason — including being interrupted — make sure nothing is left
-unpushed: commit or park whatever is in the tree, `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh export`, and
-push. An interrupted run must not strand work locally.
+unpushed: commit or park whatever is in the tree, then
+`${CLAUDE_PLUGIN_ROOT}/harness/swarm/close-wave.sh --sync-only --message "chore(tasks): sync" --restore-autosync`
+(export, commit, pull, push). An interrupted run must not strand work locally.
 
 Final summary must include: tasks completed (with ids), tasks filed (with ids and why), tasks blocked (with the decision owed), confirmation that the tree is pushed (`git status -sb`), and the current state of the tree from a fresh `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh ready`.
 
@@ -223,34 +224,25 @@ After the verification gate passes:
 - Stage only the files belonging to this task and commit them as a **single, focused commit.**
 - Commit message: a concise imperative subject that references the task id, e.g. `feat: add rate limiting to login endpoint (bd-a1b2)`, with a body summarizing what changed and how it was verified.
 - Do not bundle multiple tasks into one commit. Keep the history one-task-per-commit so it's trivially reviewable. Do not open PRs — push straight to the branch.
-- **Then close the task, sync tasks state, and push.** In this order, every time:
+- **Then close the task, sync tasks state, and push — one call:**
 
   ```bash
-  ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close <id> --reason "<what changed, how verified>"
-  ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh export        # REQUIRED — see below
-  # If this task belongs to an epic with a staging folder, refresh its view. /grind closes
-  # one task at a time, so without this the folder's view rots task by task — and /grind is
-  # the serial DEFAULT, the mode most likely to run with no campaign around it.
-  ${CLAUDE_PLUGIN_ROOT}/harness/tracker/render-epic.sh <its epic> --write <paths.proposed>/<epic>-<slug>/tasks.md
-  git add <the tracked export>
-  git commit -m "chore(tasks): close <id>"
-  git pull --rebase --autostash    # --autostash: on beads, config.yaml is unstaged after `autosync off`, and a plain rebase refuses to start over it
-  git push
-  git status -sb                           # must show up to date with origin
+  ${CLAUDE_PLUGIN_ROOT}/harness/swarm/close-wave.sh <id>="<what changed, how verified>" --message "chore(tasks): close <id>" --restore-autosync
   ```
 
-  **`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh export` is load-bearing, not optional.** After a close, the tracked export is
-  stale — it still shows the record `in_progress`, and `git status` can look clean because
-  the on-disk file matches HEAD, so you publish a backlog that disagrees with the code.
-  Verify with `git show HEAD:<the tracked export>` before pushing.
+  It closes the task, runs `tk.sh export` (**load-bearing**: after a close the tracked export
+  still shows the record `in_progress`, and `git status` can look clean because the on-disk
+  file matches HEAD — skip it and you publish a backlog that disagrees with the code),
+  regenerates the epic's view if the task belongs to one with a staging folder (`/grind`
+  closes one task at a time, so without this the folder's view rots task by task),
+  commits the export and the view, `git pull --rebase --autostash`, pushes, and confirms
+  `git status -sb` is up to date. Ten calls at your context's price were one, and the order
+  can no longer be got wrong; `/swarm` step 9 has the per-step table.
 
-  (`export` always writes. `bd export` without `-o` streamed to stdout and wrote nothing,
-  which is how a stale backlog used to ship silently; the shim removed that trap rather
-  than documenting it.)
-
-  If the rebase pulls in someone else's commits, **re-run the test suite before pushing.**
-  If the push fails, resolve and retry until it succeeds — work is not done until it is
-  pushed.
+  **If the rebase pulled in someone else's commits, the call STOPS before the push** and
+  lists what remains: re-run the test suite on the rebased tree, then
+  `close-wave.sh --sync-only --message "chore(tasks): sync" --restore-autosync`. If the push
+  fails, resolve and re-run the same — work is not done until it is pushed.
 - Run the test suite once more if the commit touched anything since verification.
 
 ---

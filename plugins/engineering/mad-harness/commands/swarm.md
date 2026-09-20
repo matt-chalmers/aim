@@ -9,7 +9,7 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/harness/*), Task, Bash(git:*), Bash(ma
 **You are the most expensive caller in the system.** Measured: an orchestrator's context averaged ~210k tokens in its campaign, ~380k over its session; each tool call re-reads it, three to six times a worker's price. Four rules:
 
 1. **Never load reference material into yourself.** A built-in agent (`Agent(subagent_type="general-purpose")`) loads it and answers; its whole return lands in your context, so ask for a few lines or a path. Measured: one reference skill loaded here cost $11.21 over 64 turns; ~$2 in a subagent.
-2. **One call where five would do.** `preflight.sh`, `apply-plan.sh`, `close-epic.sh` are whole sequences; `scan.sh`, `peek.sh`, `run.sh` batch reads and runs; ask `tk.sh` once, `--json`.
+2. **One call where five would do.** Every `swarm/*.sh` is a whole sequence (preflight, apply-plan, close-wave, close-epic); `scan.sh`, `peek.sh`, `run.sh` batch; `tk.sh` once, `--json`.
 3. **Artefacts by path.** `dispatch.sh … --digest`, `tk.sh note --file`: a plugin agent's result goes from its file to what consumes it, never through you.
 4. **An hour idle, and the next request re-writes your whole context at the write rate.** Measured: four gaps re-wrote 3.5M tokens of one session, more than its campaign cost. Back at a large session, weigh its context against that, or start fresh.
 
@@ -48,67 +48,35 @@ decorrelated.
 ## 1. Pre-flight
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/swarm/preflight.sh    # ONE call: clean tree, config current (exit 3 = the plugin moved on since
-                                                    # this config was reviewed: stop, run /harness-setup), merge slot free,
-                                                    # autosync off (step 9 restores it; /halt if the run dies first), declared
-                                                    # ports unbound, disk headroom. It was six calls at your context's price.
-git worktree list && git worktree prune   # worktrees stranded by a previous killed run
-${CLAUDE_PLUGIN_ROOT}/harness/swarm/worktree-sweep.sh                # then the real sweep — see below, prune alone is a no-op
-${CLAUDE_PLUGIN_ROOT}/harness/checks/check-stack-commands.sh --repair   # do the declared commands still work?
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh memories                     # scan the field-guide index for this wave's subject matter
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/preflight.sh          # ONE call — eleven steps, in the loop's order; exit 0 ready, 3 config upgrade, 1 otherwise
+${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh memories      # the field-guide index for this wave's subject matter — content, not a gate
 ```
 
-**`git worktree prune` does not do this job.** It only forgets worktrees whose *directory is
-already gone*, so it is a no-op against the ones that actually accumulate — one per dispatched
-task, for the whole run. A campaign reached **35** before this was noticed.
+| `preflight.sh` step | what it is | on failure |
+|---|---|---|
+| `git status --porcelain` | the tree is clean — another session mid-edit here loses work | stop |
+| `check-project-config.sh --strict` | the config was reviewed against this plugin (exit 3 = it was not: run `/harness-setup`) | stop, both modes |
+| `tk.sh slot-check` | the merge slot is free, or its holder is provably gone | stop |
+| `tk.sh autosync off` | **the one tracker write** — the backend must not stage its export into a worker's commit | skipped after any failure above |
+| `check-ports.sh`, `df -h .` | declared ports unbound; disk headroom (advisory) | on the line |
+| `git worktree prune`, `worktree-sweep.sh`, `--apply` | forget worktrees whose directory is gone; **the real sweep**, classify-don't-delete — merged and clean worktrees reclaimed, uncommitted work never touched; then a second pass over the refs | **IN FLIGHT > 0 stops the run**: committed work for an open task that no worktree holds. Adopt each ref (`resume-point.sh <id>`: merge it, or dispatch the task *from* it) before that task is dispatched again |
+| `check-stack-commands.sh --repair` | do the declared commands still work; a broken one is repaired from the repo | a repair **changed `harness.yaml`** — commit it with the wave |
+| `check-record-size.sh` | records approaching the ~64KB ceiling past which `tk.sh note` hard-fails (advisory) | on the line |
 
-Run **`${CLAUDE_PLUGIN_ROOT}/harness/swarm/worktree-sweep.sh`** (dry run) and then `--apply`. It classifies rather than
-deletes, on one rule: **the branch ref is the authority, not the worktree.** A committed
-worktree is redundant with its ref — `git archive <branch>` reproduces it exactly — so the
-directory can go. Uncommitted work is not redundant, and is never touched:
-
-| class | action |
-|---|---|
-| branch merged into `main` | remove worktree **and** delete the branch (`-d`, which refuses if it is not really merged) |
-| committed, branch unmerged | remove worktree, **keep the branch ref** — it holds the work |
-| uncommitted work, **including untracked files** | **report only, never remove**, whatever flag you pass |
-| detached HEAD | **report only** — no ref holds those commits, so removing them loses them |
-| touched in the last 30 min | **skipped** — an agent may still be working in it |
-
-**And then a second pass over the refs**, because the table above manufactures orphans: "remove
-the worktree, keep the ref" moves a branch outside the only enumeration a directory-driven sweep
-has, and every later sweep reports clean while the ref holds real work. A pre-flight once found
-70 such refs, 56 unmerged, for tasks that were then re-dispatched from scratch. Every worker
-branch (`harness-w*`, and Claude Code's `worktree-agent-*`) with no worktree is classified by
-the task ids in its commits and the tracker's word on them:
-
-| orphaned ref | action |
-|---|---|
-| merged into `main` | branch deleted under `--apply` |
-| **IN FLIGHT** — a task in its log is still open | **kept, reported loudly.** This is committed work nobody holds. Adopt it — merge it, or dispatch the task *from this branch* — before dispatching that task again |
-| STALE — every task in its log is closed | kept; deleted only under `--apply --prune-orphans` |
-| UNKNOWN — no task id in its log, or no tracker | kept; read the log |
-
-**An IN FLIGHT count above zero at pre-flight is a finding, not noise.** It means a previous run
-halted between a worker's commit and the orchestrator's merge. Resolve it before §1.
-
-**Two incidents on 2026-08-27 are why it is shaped this way, and both are worth knowing:**
-
-- A worktree for a task under remediation held a **staged revert** — 7 insertions, 261
-  deletions, removing five tests *by name* — while `git log` on the branch still showed the
-  good commit. Committing from that directory would have silently undone the work.
-  **Merge from the branch ref, never from a worktree you did not just create.**
-- The same sweep found one worktree holding the **only** copy of an uncommitted change. A
-  blind `git worktree remove --force` loop would have destroyed it.
-
+It was six calls at your context's price, then four more the loop ran after them; the
+sweep's IN FLIGHT count was read from its text and the `--apply` skipped whenever the dry
+run "looked fine" (a campaign reached **35** stranded worktrees, and a pre-flight once found
+**70** orphaned refs, 56 unmerged, for tasks then re-dispatched from scratch). The
+classification tables, the 2026-08-27 incidents that shaped them — a worktree holding a
+**staged revert** of its own fix, another holding the **only** copy of an uncommitted change
+— and why `git worktree prune` alone is a no-op live in one place:
+`worktree-sweep.sh`'s own header. **Merge from the branch ref, never from a
+worktree you did not just create.**
 
 **Do not run `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh prime` here or give it to a worker.** Its session-close protocol says
 `[ ] 4. git push … Work is not done until pushed`, and a worker must never push — it commits
 inside the merge slot and you own integration. `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh memories` is the index;
 `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh recall <key>` pulls a body.
-
-Report what is listening. If another session is mid-edit in this checkout, say so and
-stop — a swarm on a dirty tree loses work.
 
 ## 2. Compute the wave
 
@@ -579,29 +547,27 @@ number belongs in the wave report where it is visible — not discovered a year 
 ## 9. Tasks sync and push — once per wave, never per worker
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close <id> --reason "<what shipped, how verified>"   # one per closed task
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh export
-# The epic's readable view, if this wave belongs to one. GENERATED — never hand-edited.
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/render-epic.sh <epic> --write <paths.proposed>/<epic>-<slug>/tasks.md
-git add <the tracked export>  && git commit -m "chore(tracker): close <ids>"
-git status --porcelain <the tracked export>   # must be clean once committed
-git pull --rebase --autostash    # --autostash: on beads, config.yaml is unstaged after `autosync off`, and a plain rebase refuses to start over it
-git push
-git status -sb                                   # must show up to date with origin
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh autosync on                   # restore what pre-flight disabled
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/close-wave.sh <id>="<what shipped, how verified>" <id>="…" --restore-autosync
 ```
 
-`export` ALWAYS writes, which is a change: `bd export` without `-o` streamed to stdout and
-wrote nothing, so the tracked file silently kept showing a closed record as `in_progress`, and
-`git status` can look clean because the on-disk file matches HEAD. Skip it and you publish a
-backlog that disagrees with the code. `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close <id> "msg"` is wrong; it needs `--reason`.
+| step | what it does |
+|---|---|
+| `tk.sh close <id> --reason …` | one per task, **ascending by id**; a failure stops here with the rest listed by hand |
+| `tk.sh export` | **always writes** — `bd export` without `-o` streamed to stdout and wrote nothing, and the tracked file kept showing a closed record as `in_progress` while `git status` looked clean |
+| `render-epic.sh <epic> --write …/tasks.md` | the epic's readable view, for every epic the closed tasks belong to; `--check` first, so a hand-edited view is said on the line before it is regenerated |
+| `git add -- <the tracked export> <views>` · `git commit` | the export the backend declared, nothing wider (`.beads/` also holds the `config.yaml` that `autosync off` rewrote) |
+| `git pull --rebase --autostash` | `--autostash`, because that `config.yaml` is unstaged on every beads run and a plain rebase refuses to start over it. **If the rebase pulled in someone else's commits the sequence STOPS before the push** — re-run step 8's gate on the rebased tree, then `git push` |
+| `git push` · `git status -sb` | the push is the wave's terminal action; `ahead`/`behind` afterwards is a failure |
+| `tk.sh autosync on` | **only with `--restore-autosync`** — a standalone `/swarm` is the whole run and restores what its pre-flight disabled. Inside `/campaign` §4 the flag is omitted: re-enabling it mid-campaign would have the backend staging its export into the next wave's worker commits, and §5 restores it |
+
+Ten calls at your context's price were one, and the order can no longer be got wrong.
+`--no-push` stops after the commit; `--check` verifies every id is open and writes nothing;
+`--sync-only` is the export-commit-push tail with no closes.
 
 **The push is the wave's terminal action**, matching `/grind`, which pushes per task. A wave
 is a complete, gated unit of work — it has passed every applicable lens, a whole-repo wave
-gate and the wave-stage code review — so
-leaving it local strands it for no benefit. **If the rebase pulls in someone else's commits,
-re-run the wave gate before pushing.** If the push fails, resolve and retry until it
-succeeds.
+gate and the wave-stage code review — so leaving it local strands it for no benefit. If the
+push fails, resolve and re-run `close-wave.sh --sync-only --restore-autosync`.
 
 ## 10. Report, then offer the next wave
 

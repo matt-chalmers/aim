@@ -81,23 +81,16 @@ batch primitives were written for agents at a sixth of your cost.
 ```bash
 # NOT ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh prime — the SessionStart hook already ran it; a second call just duplicates
 # tens of thousands of characters in your context for nothing.
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh memories                               # the field-guide index
-${CLAUDE_PLUGIN_ROOT}/harness/swarm/preflight.sh    # ONE call: clean tree, config current (exit 3 = upgrade needed), merge
-                                                    # slot free, autosync off (§5 restores it; /halt if the run dies),
-                                                    # declared ports unbound, disk headroom. It was six calls.
-git worktree list && git worktree prune   # worktrees stranded by a previous killed run
-${CLAUDE_PLUGIN_ROOT}/harness/swarm/worktree-sweep.sh                # then the real sweep — see below, prune alone is a no-op
-git log --oneline -200 | grep -ciE '^[0-9a-f]+ (fix|revert)'   # escape-rate baseline
-
-# Tasks approaching the ~64KB record ceiling, past which `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh note` HARD-FAILS with no warning.
-# A 38-character append fails exactly as a 3KB one does, and it fails CLOSED.
-${CLAUDE_PLUGIN_ROOT}/harness/checks/check-record-size.sh          # NOT an inline loop — see below
-
-# Do each stack's declared commands still work? A wrong test command fails LOUDLY but
-# LATE — once per worker per wave — and a worker that gives up returns BLOCKED, which
-# escalates to a costlier tier that cannot fix a config error. ~3s here instead.
-${CLAUDE_PLUGIN_ROOT}/harness/checks/check-stack-commands.sh --repair
+${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh memories        # the field-guide index — content, not a gate
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/preflight.sh            # ONE call, eleven steps; exit 0 ready, 3 config upgrade, 1 otherwise
 ```
+
+`preflight.sh` is `/swarm` step 1's table: clean tree, reviewed config, free merge slot,
+**`autosync off`** (§5 restores it; `/halt` if the run dies first), ports, disk — then
+`git worktree prune`, the **worktree sweep** (dry run as a gate, then `--apply`),
+`check-stack-commands.sh --repair`, and the record-size check. It was six calls at your
+context's price and then four more the loop ran after them, the sweep's IN FLIGHT count
+read from its text and judged by hand.
 
 **Exit 3 from the config check is a stop, in both modes.** It means `claude plugin update`
 has run since `harness.yaml` was last reviewed — the config is stamped with an older
@@ -106,67 +99,30 @@ downstream is trustworthy on an unreviewed config, and there is no safe default 
 it behind. Say so and stop; the owner runs `/harness-setup`, which applies the upgrade
 notes and re-stamps. A campaign resumed after that starts here again.
 
+**IN FLIGHT > 0 is a stop.** A previous run halted between a worker's commit and the
+orchestrator's merge, and the sweep found the ref: committed work for an open task that
+no worktree holds. Re-dispatching that task starts it from scratch beside the branch that
+already holds it (one task grew five). Adopt each ref the line names — `resume-point.sh
+<id>`: merge it, or dispatch the task *from* it — before §1. The sweep's classification
+tables, and the two 2026-08-27 incidents that shaped them (a worktree holding a **staged
+revert** of its own fix; another holding the **only** copy of an uncommitted change), live
+in `worktree-sweep.sh`'s own header. **Merge from the branch ref, never from a
+worktree you did not just create.**
+
 **`--repair` is not a gate.** When a declared command has rotted, the check derives a
 replacement from what the repository already declares — a CI step, a package script, a
 build target — proves it by running it, and records it in `harness.yaml`. It stops the run only
 when **no** working command can be found, because halting a campaign over a renamed script
-costs more than it saves. A repair is a real config change: it appears in your next `git
-diff` stamped `auto-repaired`, and it is worth reading before you commit it.
+costs more than it saves. A repair is a real config change: the pre-flight line says
+**harness.yaml CHANGED**, and it is worth reading before you commit it with the wave. It
+writes `commands` and nothing else. `security`, `signals`, `testing.coverage` and the lane
+caps are yours — a mechanism able to edit those is one a worker could use to switch off
+the lens about to judge it.
 
-It writes `commands` and nothing else. `security`, `signals`, `testing.coverage` and the
-lane caps are yours — a mechanism able to edit those is one a worker could use to switch
-off the lens about to judge it.
-
-**Use the script, not a hand-rolled loop.** This step used to be an inline `for` over
-`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh --readonly show` for every open task. It does not work: at ~200 open tasks it **times out
-before finishing**, so the check silently does not happen and you proceed believing it passed.
-`${CLAUDE_PLUGIN_ROOT}/harness/checks/check-record-size.sh` answers the same question in seconds and prints the headroom left
-on each task it flags. The script was always there — it was just referenced 800 lines below the
-step that needed it.
-
-**`git worktree prune` does not do this job.** It only forgets worktrees whose *directory is
-already gone*, so it is a no-op against the ones that actually accumulate — one per dispatched
-task, for the whole run. A campaign reached **35** before this was noticed.
-
-Run **`${CLAUDE_PLUGIN_ROOT}/harness/swarm/worktree-sweep.sh`** (dry run) and then `--apply`. It classifies rather than
-deletes, on one rule: **the branch ref is the authority, not the worktree.** A committed
-worktree is redundant with its ref — `git archive <branch>` reproduces it exactly — so the
-directory can go. Uncommitted work is not redundant, and is never touched:
-
-| class | action |
-|---|---|
-| branch merged into `main` | remove worktree **and** delete the branch (`-d`, which refuses if it is not really merged) |
-| committed, branch unmerged | remove worktree, **keep the branch ref** — it holds the work |
-| uncommitted work, **including untracked files** | **report only, never remove**, whatever flag you pass |
-| detached HEAD | **report only** — no ref holds those commits, so removing them loses them |
-| touched in the last 30 min | **skipped** — an agent may still be working in it |
-
-**And then a second pass over the refs**, because the table above manufactures orphans: "remove
-the worktree, keep the ref" moves a branch outside the only enumeration a directory-driven sweep
-has, and every later sweep reports clean while the ref holds real work. A pre-flight once found
-70 such refs, 56 unmerged, for tasks that were then re-dispatched from scratch. Every worker
-branch (`harness-w*`, and Claude Code's `worktree-agent-*`) with no worktree is classified by
-the task ids in its commits and the tracker's word on them:
-
-| orphaned ref | action |
-|---|---|
-| merged into `main` | branch deleted under `--apply` |
-| **IN FLIGHT** — a task in its log is still open | **kept, reported loudly.** This is committed work nobody holds. Adopt it — merge it, or dispatch the task *from this branch* — before dispatching that task again |
-| STALE — every task in its log is closed | kept; deleted only under `--apply --prune-orphans` |
-| UNKNOWN — no task id in its log, or no tracker | kept; read the log |
-
-**An IN FLIGHT count above zero at pre-flight is a finding, not noise.** It means a previous run
-halted between a worker's commit and the orchestrator's merge. Resolve it before §1.
-
-**Two incidents on 2026-08-27 are why it is shaped this way, and both are worth knowing:**
-
-- A worktree for a task under remediation held a **staged revert** — 7 insertions, 261
-  deletions, removing five tests *by name* — while `git log` on the branch still showed the
-  good commit. Committing from that directory would have silently undone the work.
-  **Merge from the branch ref, never from a worktree you did not just create.**
-- The same sweep found one worktree holding the **only** copy of an uncommitted change. A
-  blind `git worktree remove --force` loop would have destroyed it.
-
+**The record-size line is the ceiling warning.** Past ~64KB `tk.sh note` HARD-FAILS with no
+warning — a 38-character append fails exactly as a 3KB one does, and it fails CLOSED. The
+check answers in seconds; the inline `for` over `show` it replaced timed out at ~200 tasks
+and silently did not happen.
 
 **`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh prime` is for you only. Never pass it to a worker** — its session-close protocol says
 `git push`, and every worker's contract forbids pushing. Workers get `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh memories` instead.
@@ -878,22 +834,24 @@ Repeat, up to **`MAX_WAVES = 6`** per epic:
      If the wave is an unmodified subset of the DAG already approved at §3c, state it and
      dispatch — re-confirming a no-op trains the owner to approve without reading.
    - `MODE=auto` skips it — the plan was already approved at 3c.
-3. **Regenerate the epic's view** beside the export sync — one command, and the staging
-   folder then shows the wave's outcome to anyone who opens it:
+3. **Close the wave's tasks and sync — one call, WITHOUT `--restore-autosync`:**
 
    ```bash
-   ${CLAUDE_PLUGIN_ROOT}/harness/tracker/render-epic.sh <epic> --write <paths.proposed>/<epic>-<slug>/tasks.md
-   ${CLAUDE_PLUGIN_ROOT}/harness/tracker/render-epic.sh <epic> --check --write <paths.proposed>/<epic>-<slug>/tasks.md
+   ${CLAUDE_PLUGIN_ROOT}/harness/swarm/close-wave.sh <id>="<what shipped, how verified>" <id>="…"     # no --restore-autosync inside a campaign
    ```
 
-   **The `--check` is not ceremony.** "Generated, so do not edit it" is only a claim until
-   something enforces it, and a view somebody hand-edited is exactly the second source of
-   truth this file is otherwise careful to avoid. It fails both ways: on an edit, and when
-   a wave landed and nobody regenerated.
+   That is `/swarm` step 9 — the closes, `export`, the epic's view regenerated (its
+   `--check` runs first, so a view somebody hand-edited is said on the line before it is
+   overwritten: "generated, so do not edit it" is only a claim until something enforces
+   it), the commit, `pull --rebase --autostash`, the push, `git status -sb` up to date.
+   **`--restore-autosync` is omitted here and passed by a standalone `/swarm`**: this run
+   owns the tracker until §5, and re-enabling the backend's own export between waves would
+   have it staging `issues.jsonl` into the next wave's worker commits — the thing §0
+   turned it off to prevent. If the rebase pulled in another actor's commits the call
+   stops before the push; re-run the wave gate on the rebased tree, then
+   `close-wave.sh --sync-only`.
 
-4. **Confirm the wave pushed.** `/swarm` step 9 is tasks-sync-and-push, so the push is
-   already the wave's terminal action — do not duplicate it here. Just verify
-   `git status -sb` shows up to date with origin before starting the next wave. An
+4. **The push is the wave's terminal action** and the call above confirmed it; an
    unattended run must never strand work locally.
 
    **Then reclaim the wave's worktrees:** `${CLAUDE_PLUGIN_ROOT}/harness/swarm/worktree-sweep.sh --apply`. It skips any
@@ -962,66 +920,42 @@ Repeat, up to **`MAX_WAVES = 6`** per epic:
 
 ## 5. Epic close-out
 
-Before closing an epic, confirm — do not assume:
+Two things are yours before the call, because they are judgement:
 
-- **Every child is closed**, or gated with a reason.
-- **Tests**: the wave gate was green on the final wave, and `verifier-tests` passed every
-  task. A task that closed without adversarial tests is a defect, not a completion.
-- **Docs**: `verifier-spec` passed every task, which is what enforces that the
-  feature doc, decision records and corpus index kept up. If the epic changed a contract and no doc
-  changed, say why explicitly.
-- **Fold-in ② — the design.** Apply the staged `design.md` and route it by content:
-  a non-obvious choice becomes a **decision record**; a mechanism others will reuse edits the owning
-  **architecture doc**; a changed contract edits the owning **feature doc**. Then delete the file.
-  A **resolved** draft is `git mv`d into `paths.adrs` with `Status: Accepted` and `## Decision`
-  filled in — it *moves* rather than merging, because a decision record is a standalone
-  append-only file while a proposal is an edit into shared prose. An **unresolved** draft
-  means its `DECISION:` task is still open: gate the epic on it rather than closing over it.
-- **Regenerate the view one last time, BEFORE retiring the folder.** The last wave's
-  copy is stale the moment anything closed after it, and this is the version that gets
-  archived — the one a reader finds a year later:
+- **Tests and docs, confirmed — not assumed.** The wave gate was green on the final wave;
+  `verifier-tests` and `verifier-spec` passed every task, which is what enforces that the
+  tests are adversarial and that the feature doc, decision records and corpus index kept
+  up. If the epic changed a contract and no doc changed, say why explicitly.
+- **Fold-in ② — the design.** Dispatch `spec-editor` to apply the staged `design.md` and
+  route it by content: a non-obvious choice becomes a **decision record**; a mechanism
+  others will reuse edits the owning **architecture doc**; a changed contract edits the
+  owning **feature doc**. Then the file is deleted. A **resolved** draft is `git mv`d into
+  `paths.adrs` with `Status: Accepted` and `## Decision` filled in — it *moves* rather than
+  merging, because a decision record is a standalone append-only file while a proposal is an
+  edit into shared prose. An **unresolved** draft means its `DECISION:` task is still open:
+  `park` the epic on it rather than closing over it.
 
-  ```bash
-  ${CLAUDE_PLUGIN_ROOT}/harness/tracker/render-epic.sh <epic> --write <paths.proposed>/<epic>-<slug>/tasks.md
-  ```
+**Then one call closes it:**
 
-- **Fold-in ② retires the epic's whole staging folder** — `proposal.md` and
-  `decisions.md` included. This is the single retirement point for everything the epic
-  staged; nothing is removed earlier. Where the project declares `paths.archive`, run
-  `${CLAUDE_PLUGIN_ROOT}/harness/checks/archive-epic.sh <epic>`: the folder MOVES there, dated and
-  stamped `status: archived`, rather than being deleted. Otherwise it is deleted, as
-  before.
-- **No task is blocked in prose only.** `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-blocking-prose.sh` finds tasks whose own
-  text says they are gated while `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh ready` still offers them. Three landed in one session
-  in one session, each stating its blocker plainly in a note and each dispatchable
-  anyway — a worker would have picked one up and hit the exact unanswerable question the note
-  warned about. Blocking via a **gate** is honoured by `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh ready` and is not a defect; the script
-  only reports what is dispatchable right now despite its own text.
-- **The decision register is clean.** `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-decision-register.sh <epic-id>` passes, and
-  its Open table is empty. An epic does not close over an unresolved decision it raised.
-- **The staging folder is empty for this epic — AND, where an archive is declared, the
-  archive entry exists.** Listing the staging folder must return nothing before the close.
-  A staged file that survives its own epic is a second source of truth: the failure that
-  has produced dozens of orphan changelog files and stale plan documents.
+```bash
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/close-epic.sh <epic> --check                                   # every gate, nothing written
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/close-epic.sh <epic> --reason "<what shipped, how verified>"   # gates → render → archive → gates → close → sync
+```
 
-  **Emptiness alone is not evidence of fold-in.** An epic that deleted its folder without
-  folding anything in passes that check too, because the folder is gone in both cases. With
-  `paths.archive` declared, `ls <archive>/*-<epic>-*` must return the retired folder, so
-  "folded in" and "silently discarded" stop being indistinguishable. Nothing to fold in
-  is a fine answer; a missing archive entry after a fold-in is not.
-- **Then one call closes it:**
+| step | what it is | on failure |
+|---|---|---|
+| `tk.sh list --parent <epic>` | **every child is closed or gated** — an epic does not close over a child `ready` would still offer under it | stop; the live children are named |
+| fold-in ② done | no `design.md` survives in the staging folder — archiving a folder that still holds it is "silently discarded" with a stamp on it | stop |
+| `render-epic.sh <epic> --write …/tasks.md` | **the view one last time, BEFORE retiring the folder** — the last wave's copy is stale the moment anything closed after it, and this is the version a reader finds a year later | stop |
+| `archive-epic.sh <epic>` | **the single retirement point for everything the epic staged** — `proposal.md` and `decisions.md` included, MOVED to `paths.archive` dated and stamped `status: archived`. With no archive declared, deletion is the retirement and the next gate asks for it | stop |
+| `check-blocking-prose.sh --strict` | **no task is blocked in prose only** — three landed in one session, each stating its blocker plainly in a note and each dispatchable anyway | stop, nothing written |
+| `check-decision-register.sh <epic>` | the register is consistent **and its Open table is empty** — an epic does not close over an unresolved decision it raised | stop, nothing written |
+| staging folder retired | absent or empty — **and, where an archive is declared, the archive entry exists.** Emptiness alone is not evidence of fold-in: a folder deleted without folding anything in is just as empty, so with an archive declared and no entry, git is asked whether anything was ever staged | stop, nothing written |
+| `tk.sh close` · `tk.sh export` · commit · `pull --rebase --autostash` · push · `autosync on` · `lease release` | the close, then the shared sync tail (`/swarm` step 9's table). The archived folder — its `git mv` and the stamps — commits **with** the export, so the tree is clean after; `autosync on` restores what §0 disabled and nothing else does; the epic's lease is released if this machine held one | stop at the failing step; the rest listed by hand |
 
-  ```bash
-  ${CLAUDE_PLUGIN_ROOT}/harness/swarm/close-epic.sh <epic> --check                                   # the three checks above, nothing written
-  ${CLAUDE_PLUGIN_ROOT}/harness/swarm/close-epic.sh <epic> --reason "<what shipped, how verified>"   # checks → close → export → commit → push → autosync on
-  ```
-
-  It runs the blocking-prose check, the decision register and the staging/archive check,
-  and if any fails it writes nothing and says which. Then `tk.sh close --reason`, `export`,
-  the tracker commit, `pull --rebase` + `push`, and `autosync on` — restoring what §0
-  disabled, which nothing else does. Eight calls at your context's price were one; and the
-  order can no longer be got wrong. `--no-push` stops after the commit if the push is not
-  yours to make.
+Twelve calls at your context's price, in an order the loop's text had you remember, are
+one; and the order can no longer be got wrong. `--no-push` stops after the commit if the
+push is not yours to make.
 
 ## 6. Report, then next epic
 

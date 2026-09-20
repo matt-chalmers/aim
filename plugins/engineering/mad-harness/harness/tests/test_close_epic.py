@@ -1,5 +1,6 @@
-"""The epic close-out as one call: three gates, then five writes, nothing written until
-every gate has passed.
+"""The epic close-out as one call: the children and fold-in gates, the render-then-archive
+pre-writes, three more gates, then the close and the shared sync tail — nothing written
+until every gate before it has passed.
 
 Measured: §5 was eight tool calls per epic against an orchestrator context averaging
 ~380k tokens. The tests drive the sequence with an injected runner and a tmp_path
@@ -48,7 +49,13 @@ class Runner:
             "git commit": (0, "[main 1a2b3c4] chore(tracker): close E-1\n 1 file changed, 3 insertions(+)\n", ""),
             "git pull": (0, "Already up to date.\n", ""),
             "git push": (0, "", "To github.com:o/r.git\n   abc..def  main -> main\n"),
+            "git rev-parse": (1, "", ""),  # no upstream tracked — nothing to count
+            "git status": (0, "## main...origin/main\n", ""),
             "tk.sh autosync": (0, "", ""),
+            "tk.sh list": (0, "[]", ""),  # no children
+            "tk.sh lease": (0, "", ""),
+            "render-epic.sh": (0, "", ""),
+            "archive-epic.sh": (0, ".spec-archive/2026-09-19-E-1-widgets\nArchived, stamped and dated.\n", ""),
         }
         self.answers.update({k.replace("_", " "): v for k, v in answers.items()})
         self.calls: list[list[str]] = []
@@ -70,7 +77,7 @@ class Runner:
         return [k for k in self.keys() if k in WRITES]
 
 
-WRITES = {"tk.sh close", "tk.sh export", "git add", "git commit", "git pull", "git push", "tk.sh autosync"}
+WRITES = {"tk.sh close", "tk.sh export", "git add", "git commit", "git pull", "git push", "tk.sh autosync", "render-epic.sh", "archive-epic.sh", "tk.sh lease"}
 
 
 @pytest.fixture
@@ -126,15 +133,21 @@ def test_the_gates_run_first_and_a_failing_check_writes_nothing(repo):
     assert code == 1
     assert "GATE FAILED — nothing written" in text and "E-1.3  says it is gated" in text
     assert r.wrote() == [], f"a failing gate wrote: {r.wrote()}"
-    assert r.calls[0][-1] == "--strict", "advisory mode exits 0 over the very finding §5 forbids"
+    prose = r.calls[r.keys().index("check-blocking-prose.sh")]
+    assert prose[-1] == "--strict", "advisory mode exits 0 over the very finding §5 forbids"
 
 
 def test_every_gate_runs_even_after_the_first_fails_so_the_report_is_whole(repo):
-    stage(repo, "design.md")
+    """(a)-(c) all run even when (a) fails — the report is the reason to ask. Without an
+    archive the staged proposal cannot be retired for the caller, so (c) fails too."""
+    (repo / "harness.yaml").write_text(
+        "name: T\nslug: t\nareas: [{path: src, label: code}]\nbeads: {prefix: E}\npaths: {docs: docs, proposed: docs/proposed}\n"
+    )
+    stage(repo, "proposal.md")
     r = Runner(**{"check-blocking-prose.sh": (1, "1 blocking claim(s)…\n", "")})
     text, _ = go(repo, r)
     assert "check-decision-register.sh" in r.keys()
-    assert sum(ln.startswith("[FAIL]") for ln in text.splitlines()) == 2 and "design.md" in text
+    assert sum(ln.startswith("[FAIL]") for ln in text.splitlines()) == 2 and "proposal.md" in text
 
 
 def test_an_open_decision_fails_the_gate_even_though_the_register_check_exits_zero(repo):
@@ -183,12 +196,16 @@ def test_a_register_the_epic_predates_passes_with_its_warning_on_the_line(repo):
 
 def test_a_surviving_staged_file_fails_the_gate_and_is_named(repo):
     """A staged file that survives its epic is a second source of truth — the failure
-    that produced dozens of orphan changelog files."""
+    that produced dozens of orphan changelog files. With NO archive declared the folder
+    cannot be archived for the caller, so the gate names the files and asks."""
+    (repo / "harness.yaml").write_text(
+        "name: T\nslug: t\nareas: [{path: src, label: code}]\nbeads: {prefix: E}\npaths: {docs: docs, proposed: docs/proposed}\n"
+    )
     stage(repo, "proposal.md", "tasks.md")
     r = Runner()
     text, code = go(repo, r)
     assert code == 1 and "2 staged file(s) survive" in text
-    assert "docs/proposed/E-1-widgets/proposal.md" in text and "archive-epic.sh E-1" in text
+    assert "docs/proposed/E-1-widgets/proposal.md" in text
     assert r.wrote() == []
 
 
@@ -197,7 +214,8 @@ def test_an_empty_staging_folder_is_retired_but_still_needs_its_archive_entry(re
     r = Runner(**{"git log": (0, "abc1234\n", "")})
     text, code = go(repo, r, check=True)
     assert code == 1 and "no .spec-archive/*-E-1-* exists" in text and "abc1234" in text
-    assert r.wrote() == []
+    assert r.wrote() == [], "--check never renders or archives"
+    assert "would archive docs/proposed/E-1-widgets (0 file(s))" in text
 
 
 def test_with_an_archive_declared_emptiness_alone_is_not_evidence_of_fold_in(repo):
@@ -231,7 +249,7 @@ def test_without_an_archive_an_absent_or_empty_folder_passes(repo):
     assert code == 0 and "deletion is the retirement" in text
     stage(repo)
     text, code = go(repo, Runner(), check=True)
-    assert code == 0 and "is empty" in text
+    assert code == 0 and "is empty" in text and "nothing to render or archive" in text
 
 
 def test_no_staging_root_declared_is_a_failed_gate_not_a_clean_one(repo):
@@ -240,6 +258,92 @@ def test_no_staging_root_declared_is_a_failed_gate_not_a_clean_one(repo):
     (repo / "harness.yaml").write_text("name: T\nslug: t\nareas: []\n")
     text, code = go(repo, Runner(), check=True)
     assert code == 1 and "declares no paths.proposed" in text
+
+
+# --- the pre-gates: children, fold-in ②, render then archive ---------------------------
+
+
+def test_an_open_ungated_child_fails_before_anything_renders_or_archives(repo):
+    """An epic does not close over a child `ready` would still offer under it."""
+    stage(repo, "proposal.md")
+    children = json.dumps([
+        {"id": "E-1.1", "status": "closed", "title": "done"},
+        {"id": "E-1.2", "status": "blocked", "title": "gated on a decision"},
+        {"id": "E-1.3", "status": "open", "title": "nobody picked this up"},
+    ])
+    r = Runner(**{"tk.sh list": (0, children, "")})
+    text, code = go(repo, r)
+    assert code == 1 and "1 child(ren) neither closed nor gated" in text and "E-1.3" in text
+    assert "E-1.1" not in text.split("neither closed")[1].split("\n[")[0], "closed children are not named"
+    assert r.wrote() == [] and "check-blocking-prose.sh" not in r.keys(), "(0) stops the sequence before render, archive and (a)"
+    assert r.calls[0][1:] == ["list", "--parent", "E-1", "--json"]
+
+
+def test_a_surviving_design_md_fails_the_fold_in_gate(repo):
+    """Fold-in ② routes the design and deletes the file. Archiving a folder that still
+    holds it is 'silently discarded' with a stamp on it."""
+    stage(repo, "proposal.md", "design.md")
+    r = Runner()
+    text, code = go(repo, r)
+    assert code == 1 and "design.md survives" in text and "spec-editor" in text
+    assert "archive-epic.sh" not in r.keys() and "render-epic.sh" not in r.keys()
+    assert r.wrote() == []
+
+
+def test_render_then_archive_precede_the_staging_gate_and_the_archive_commits_with_the_close(repo):
+    """The archived copy is the one with the final view in it, and the `git mv` (plus the
+    stamps archive_epic writes after it) lands in the close commit, not left dirty."""
+    stage(repo, "proposal.md", "decisions.md")
+
+    def archive_for_real(argv, **kw):
+        # The fake archive moves the folder as the real one would, so gate (c) sees it retired.
+        src = repo / "docs" / "proposed" / "E-1-widgets"
+        dest = repo / ".spec-archive" / "2026-09-19-E-1-widgets"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        src.rename(dest)
+        return subprocess.CompletedProcess(argv, 0, ".spec-archive/2026-09-19-E-1-widgets\n", "")
+
+    r = Runner()
+    r.answers["archive-epic.sh"] = (0, ".spec-archive/2026-09-19-E-1-widgets\n", "")
+    real_call = r.__call__
+
+    def call(argv, **kw):
+        if key(argv) == "archive-epic.sh":
+            r.calls.append(list(argv))
+            return archive_for_real(argv, **kw)
+        return real_call(argv, **kw)
+
+    r.__call__ = call  # noqa: instance override for this test
+    text, code = mod.run("E-1", "shipped", project(repo), runner=call, cwd=str(repo))
+    assert code == 0 and "CLOSED E-1" in text
+    keys = r.keys()
+    assert keys.index("render-epic.sh") < keys.index("archive-epic.sh") < keys.index("check-blocking-prose.sh")
+    render_call = r.calls[keys.index("render-epic.sh")]
+    assert render_call[1:] == ["E-1", "--write", "docs/proposed/E-1-widgets/tasks.md"]
+    add_call = r.calls[keys.index("git add")]
+    assert add_call == ["git", "add", "--", ".beads/issues.jsonl", ".spec-archive/2026-09-19-E-1-widgets"], "the archive commits with the export"
+    assert "archived at .spec-archive/2026-09-19-E-1-widgets" in text
+
+
+def test_check_mode_reports_would_render_and_would_archive_and_writes_nothing(repo):
+    stage(repo, "proposal.md")
+    r = Runner()
+    text, code = go(repo, r, check=True)
+    assert "would write docs/proposed/E-1-widgets/tasks.md (--check)" in text
+    assert "would archive docs/proposed/E-1-widgets (1 file(s)) (--check)" in text
+    assert r.wrote() == [] and "render-epic.sh" not in r.keys() and "archive-epic.sh" not in r.keys()
+    # …and with the archive not yet made, gate (c) says so: --check cannot pass a close
+    # whose folder is still staged, and says which step would retire it.
+    assert code == 1 and "staged file(s) survive" in text
+
+
+def test_the_lease_is_released_after_the_push_and_never_fails_the_close(repo):
+    archive(repo)
+    r = Runner(**{"tk.sh lease": (1, "", "fatal: unable to access remote\n")})
+    text, code = go(repo, r)
+    assert code == 0 and "CLOSED E-1" in text
+    assert "not released" in text and "expires on its TTL" in text
+    assert r.calls[r.keys().index("tk.sh lease")][1:] == ["lease", "release", "E-1"]
 
 
 # --- --check -------------------------------------------------------------------------
@@ -262,9 +366,10 @@ def test_a_clean_gate_runs_every_write_in_order_and_commits_the_declared_export(
     text, code = go(repo, r, reason='shipped; "L1-L3" green')
     assert code == 0 and "CLOSED E-1" in text
     assert r.keys() == [
-        "check-blocking-prose.sh", "check-decision-register.sh",
+        "tk.sh list", "check-blocking-prose.sh", "check-decision-register.sh",
         "tk.sh backend", "tk.sh close", "tk.sh export",
-        "git add", "git diff", "git commit", "git pull", "git push", "tk.sh autosync",
+        "git add", "git diff", "git commit", "git rev-parse", "git pull", "git push", "git status", "tk.sh autosync",
+        "tk.sh lease",
     ]
     calls = dict(zip(r.keys(), r.calls))
     assert calls["tk.sh close"][1:] == ["close", "E-1", "--reason", 'shipped; "L1-L3" green']
@@ -313,6 +418,7 @@ def test_no_push_stops_after_the_commit_and_still_restores_autosync(repo):
     assert code == 0
     assert "git pull" not in r.keys() and "git push" not in r.keys()
     assert r.keys()[-3:] == ["git diff", "git commit", "tk.sh autosync"]
+    assert "tk.sh lease" not in r.keys(), "the lease lives on the remote; --no-push touches no remote"
     assert "push by hand" in text
 
 
@@ -334,7 +440,7 @@ def test_a_failed_close_reports_everything_after_it_including_the_reason(repo):
     text, code = go(repo, r, reason="what shipped")
     assert code == 1 and "STOPPED at `tk.sh close" in text and "no such task" in text
     tail = text.split("Remaining, by hand")[1]
-    assert 'close E-1 --reason "what shipped"' in tail and "git add .beads/issues.jsonl" in tail
+    assert 'close E-1 --reason "what shipped"' in tail and "git add -- .beads/issues.jsonl" in tail
     assert "git pull --rebase --autostash" in tail and "git push" in tail and "autosync on" in tail
     assert "tk.sh export" not in r.keys()
 

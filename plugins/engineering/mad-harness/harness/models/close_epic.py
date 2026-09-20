@@ -28,6 +28,17 @@ record `export.auto: false` and dirty the tree again when step (h) restores it.
 `git pull --rebase --autostash`, not `--rebase` alone: the same `config.yaml` is an
 unstaged change at this point in every beads-backed run, and a plain rebase refuses to
 start over it. Autostash carries it across and puts it back; nothing uncommitted is lost.
+
+0.10.20: THE STEPS BEFORE THE ONE CALL JOIN IT. §5's text still had four lines the
+orchestrator ran by hand before `close-epic.sh` — "every child is closed or gated",
+"regenerate the view one last time BEFORE retiring the folder", `archive-epic.sh`, and
+"fold in ② first" — and the order among them was the orchestrator's to remember. They are
+gates (0) and (0b) and pre-writes (0c) and (0d) here, run only when (0) and (0b) passed,
+so the archived folder is the one with the final view in it. The archive's `git mv` and
+its frontmatter stamps are then committed WITH the export — before this, the stamps were
+edits `archive_epic` made after the `git mv`, unstaged, and every close left them dirty.
+The write tail (e)-(h) is now `tracker_sync.sync`, which `/swarm`, `/grind` and `/halt`
+share instead of each carrying its own prose copy.
 """
 
 from __future__ import annotations
@@ -35,12 +46,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from . import tracker_sync
 from .project import Project, ProjectError, load
 from .resolve import HARNESS, REPO
 from .steps import (
     FAIL,
+    INFO,
     OK,
-    REMOTE_TIMEOUT,
+    SKIP,
     Raw,
     Result,
     execute,
@@ -51,6 +64,7 @@ from .steps import (
 
 CHECKS = HARNESS / "checks"
 TK = HARNESS / "tracker" / "tk.sh"
+RENDER = HARNESS / "tracker" / "render-epic.sh"
 #: How many surviving staged files the gate names before summarising.
 LEFTOVERS_SHOWN = 8
 
@@ -60,6 +74,83 @@ def _ok_detail(raw: Raw) -> str:
 
 
 # --- the gates ---------------------------------------------------------------------
+
+
+def _children(epic: str, runner, cwd: str) -> Result:
+    """(0) Every child is closed, or blocked (gated). An epic does not close over a
+    child somebody could still pick up: `ready` would offer it under a closed parent."""
+    name = f"tk.sh list --parent {epic}"
+    raw = execute([str(TK), "list", "--parent", epic, "--json"], cwd=cwd, runner=runner)
+    if not raw.ran or raw.returncode != 0:
+        return Result(name, FAIL, failure_detail(raw), raw)
+    try:
+        rows = json.loads(raw.stdout.strip() or "[]")
+    except ValueError:
+        return Result(name, FAIL, f"list answered but not in JSON:\n{tail(raw.stdout)}", raw)
+    live = [r for r in rows if isinstance(r, dict) and r.get("status") not in ("closed", "blocked")]
+    if live:
+        shown = "\n".join(f"  {r.get('id')}  {r.get('status')}  {r.get('title', '')}"[:160] for r in live[:LEFTOVERS_SHOWN])
+        more = f"\n  … {len(live) - LEFTOVERS_SHOWN} more" if len(live) > LEFTOVERS_SHOWN else ""
+        return Result(name, FAIL, f"{len(live)} child(ren) neither closed nor gated — close them, or gate them with a reason:\n{shown}{more}", raw)
+    return Result(name, OK, f"{len(rows)} child(ren), every one closed or gated", raw)
+
+
+def _folded_in(epic: str, project: Project, cwd: str) -> Result:
+    """(0b) Fold-in ② has happened: no `design.md` survives in the staging folder. The
+    design is routed by content — decision record, architecture doc, feature doc — by a
+    `spec-editor` dispatch, and the file deleted; archiving a folder that still holds
+    it is "silently discarded" with a stamp on it."""
+    from tracker.staging import known_prefix, staged_folder
+
+    name = "fold-in ② done"
+    proposed = (project.paths or {}).get("proposed")
+    if not proposed:
+        return Result(name, FAIL, "harness.yaml declares no paths.proposed — cannot locate staged files")
+    folder, _ = staged_folder(epic, Path(cwd) / proposed, known_prefix())
+    if folder is not None and (folder / "design.md").is_file():
+        return Result(
+            name, FAIL,
+            f"{(folder / 'design.md').relative_to(cwd)} survives — route it (decision record / architecture doc / "
+            f"feature doc) via spec-editor and delete it, then run again",
+        )
+    return Result(name, OK, "no design.md in the staging folder" if folder is not None else "no staging folder")
+
+
+def _render_then_archive(epic: str, project: Project, runner, cwd: str, *, check: bool) -> tuple[list[Result], list[str]]:
+    """(0c) render the view one last time, then (0d) archive the folder — in that order,
+    so the archived copy is the one with the final view in it. Only when a staging
+    folder exists AND an archive is declared: with no archive, deletion is the
+    retirement and gate (c) asks for it. Returns the results and the paths to commit."""
+    from tracker.staging import known_prefix, staged_folder
+
+    out: list[Result] = []
+    proposed = (project.paths or {}).get("proposed")
+    try:
+        archive = project.archive_dir()
+    except ProjectError as exc:
+        return [Result("archive-epic.sh", FAIL, str(exc))], []
+    folder, _ = staged_folder(epic, Path(cwd) / proposed, known_prefix()) if proposed else (None, [])
+    if folder is None or not archive:
+        why = "no staging folder" if folder is None else "no paths.archive declared — deletion is the retirement"
+        return [Result("render-epic.sh / archive-epic.sh", OK, f"{why}; nothing to render or archive")], []
+    view = (folder / "tasks.md").relative_to(cwd)
+    if check:
+        n = sum(1 for p in folder.rglob("*") if p.is_file())
+        return [
+            Result(f"render-epic.sh {epic}", SKIP, f"would write {view} (--check)"),
+            Result(f"archive-epic.sh {epic}", SKIP, f"would archive {folder.relative_to(cwd)} ({n} file(s)) (--check)"),
+        ], []
+    raw = execute([str(RENDER), epic, "--write", str(view)], cwd=cwd, runner=runner)
+    if not raw.ran or raw.returncode != 0:
+        return [Result(f"render-epic.sh {epic}", FAIL, failure_detail(raw), raw)], []
+    out.append(Result(f"render-epic.sh {epic}", OK, str(view), raw))
+    raw = execute([str(CHECKS / "archive-epic.sh"), epic], cwd=cwd, runner=runner)
+    if not raw.ran or raw.returncode != 0:
+        out.append(Result(f"archive-epic.sh {epic}", FAIL, failure_detail(raw), raw))
+        return out, []
+    dest = (raw.stdout.strip().splitlines() or [""])[0].strip()
+    out.append(Result(f"archive-epic.sh {epic}", OK, f"archived at {dest}" if dest else _ok_detail(raw), raw))
+    return out, [dest] if dest else []
 
 
 def _blocking_prose(runner, cwd: str) -> Result:
@@ -167,33 +258,18 @@ def gate(epic: str, project: Project, *, runner=None, cwd: str | None = None) ->
 # --- the writes --------------------------------------------------------------------
 
 
-def by_hand(epic: str, reason: str, export_path: str | None, push: bool) -> list[tuple[str, str]]:
+def by_hand(epic: str, reason: str, export_path: str | None, push: bool, extra: list[str] = ()) -> list[tuple[str, str]]:
     """(step, command) for every write, as the orchestrator would type it. The report's
     "remaining" list is a suffix of this."""
     quoted = reason.replace('"', '\\"')
-    steps = [
-        ("close", f'{TK} close {epic} --reason "{quoted}"'),
-        ("export", f"{TK} export"),
-        ("commit", f'git add {export_path} && git commit -m "chore(tracker): close {epic}"' if export_path else "(no tracked export — nothing to commit)"),
-    ]
-    if push:
-        steps += [("pull", "git pull --rebase --autostash"), ("push", "git push")]
-    steps.append(("autosync", f"{TK} autosync on"))
-    return steps
+    return [("close", f'{TK} close {epic} --reason "{quoted}"')] + tracker_sync.by_hand(
+        f"chore(tracker): close {epic}", export_path, [], list(extra), push, True
+    )
 
 
-def export_path(runner, cwd: str) -> tuple[str | None, Raw]:
-    """What the backend declares as its tracked artefact. None is an answer: the backend
-    keeps no tracked export, and the commit step says so rather than adding nothing."""
-    raw = execute([str(TK), "backend", "--json"], cwd=cwd, runner=runner)
-    if not raw.ran or raw.returncode != 0:
-        return None, raw
-    try:
-        caps = json.loads(raw.stdout.strip().splitlines()[-1])
-    except (ValueError, IndexError):
-        return None, Raw(None, raw.stdout, raw.stderr, error=f"backend --json did not answer in JSON:\n{tail(raw.stdout)}")
-    path = caps.get("export_path")
-    return (str(path) if path else None), raw
+#: Re-exported: the tests and the docs name it here, and the backend question is asked
+#: BEFORE `tk.sh close` so a backend that cannot answer stops the close before it starts.
+export_path = tracker_sync.export_path
 
 
 def close(
@@ -201,75 +277,47 @@ def close(
     reason: str,
     *,
     push: bool = True,
+    extra_paths: list[str] = (),
     runner=None,
     cwd: str | None = None,
 ) -> list[Result]:
-    """(d)-(h), stopping at the first failure. The failing result carries what remains."""
+    """(d) close, then the sync tail (e)-(h), stopping at the first failure. The failing
+    result carries what remains. `extra_paths` — the archived folder — commits with the
+    export, so the archive's `git mv` and its stamps land in the same commit."""
     at = cwd or str(REPO)
     results: list[Result] = []
 
     path, raw = export_path(runner, at)
     if raw.error or (raw.ran and raw.returncode != 0):
-        plan = by_hand(epic, reason, "<the tracked export>", push)
+        plan = by_hand(epic, reason, "<the tracked export>", push, list(extra_paths))
         results.append(Result("tk.sh backend --json", FAIL, "cannot learn the tracked export path:\n" + failure_detail(raw), raw, remaining=[c for _, c in plan]))
-        return results
-    plan = by_hand(epic, reason, path, push)
-    names = [s for s, _ in plan]
-
-    def fail(step: str, name: str, detail: str, raw: Raw | None = None) -> list[Result]:
-        results.append(Result(name, FAIL, detail, raw, remaining=[c for s, c in plan if names.index(s) >= names.index(step)]))
         return results
 
     # (d)
     name = f"tk.sh close {epic} --reason …"
     raw = execute([str(TK), "close", epic, "--reason", reason], cwd=at, runner=runner)
     if not raw.ran or raw.returncode != 0:
-        return fail("close", name, failure_detail(raw), raw)
+        plan = by_hand(epic, reason, path, push, list(extra_paths))
+        results.append(Result(name, FAIL, failure_detail(raw), raw, remaining=[c for _, c in plan]))
+        return results
     results.append(Result(name, OK, "closed", raw))
 
-    # (e)
-    raw = execute([str(TK), "export"], cwd=at, runner=runner)
-    if not raw.ran or raw.returncode != 0:
-        return fail("export", "tk.sh export", failure_detail(raw), raw)
-    results.append(Result("tk.sh export", OK, "tracked export regenerated", raw))
+    # (e)-(h) — the shared tail. An epic's commit is the tracker export alone, so an
+    # upstream that moved under the rebase changes nothing about it: no stop.
+    results += tracker_sync.sync(
+        message=f"chore(tracker): close {epic}", epics=[], export=path, extra_paths=list(extra_paths),
+        push=push, stop_if_upstream_moved=False, restore_autosync=True, runner=runner, cwd=at,
+    )
+    if any(r.status == FAIL for r in results):
+        return results
 
-    # (f)
-    if path is None:
-        results.append(Result("git commit", OK, "the backend declares no tracked export — nothing to commit"))
-    else:
-        name = f"git add {path} && git commit"
-        raw = execute(["git", "add", "--", path], cwd=at, runner=runner)
-        if not raw.ran or raw.returncode != 0:
-            return fail("commit", name, failure_detail(raw), raw)
-        staged = execute(["git", "diff", "--cached", "--quiet"], cwd=at, runner=runner)
-        if not staged.ran or staged.returncode not in (0, 1):
-            return fail("commit", name, failure_detail(staged), staged)
-        if staged.returncode == 0:
-            results.append(Result(name, OK, "nothing staged — the export already matched HEAD; no commit made", raw))
-        else:
-            raw = execute(["git", "commit", "-m", f"chore(tracker): close {epic}"], cwd=at, runner=runner)
-            if not raw.ran or raw.returncode != 0:
-                return fail("commit", name, failure_detail(raw), raw)
-            results.append(Result(name, OK, f"chore(tracker): close {epic} — {_ok_detail(raw)}", raw))
-
-    # (g)
+    # The epic lease, if this machine holds one. Idempotent on the remote — releasing a
+    # lease nobody holds is success — and never a reason to call the close failed: a
+    # lease that outlives its epic expires on its TTL.
     if push:
-        raw = execute(["git", "pull", "--rebase", "--autostash"], cwd=at, timeout=REMOTE_TIMEOUT, runner=runner)
-        if not raw.ran or raw.returncode != 0:
-            return fail("pull", "git pull --rebase --autostash", failure_detail(raw), raw)
-        results.append(Result("git pull --rebase --autostash", OK, _ok_detail(raw), raw))
-        raw = execute(["git", "push"], cwd=at, timeout=REMOTE_TIMEOUT, runner=runner)
-        if not raw.ran or raw.returncode != 0:
-            return fail("push", "git push", failure_detail(raw), raw)
-        results.append(Result("git push", OK, _ok_detail(raw), raw))
-    else:
-        results.append(Result("git pull / git push", OK, "skipped (--no-push) — push by hand: git pull --rebase --autostash && git push"))
-
-    # (h)
-    raw = execute([str(TK), "autosync", "on"], cwd=at, runner=runner)
-    if not raw.ran or raw.returncode != 0:
-        return fail("autosync", "tk.sh autosync on", failure_detail(raw), raw)
-    results.append(Result("tk.sh autosync on", OK, "restored — what §0 disabled", raw))
+        raw = execute([str(TK), "lease", "release", epic], cwd=at, runner=runner)
+        ok = raw.ran and raw.returncode == 0
+        results.append(Result(f"tk.sh lease release {epic}", INFO, "released" if ok else f"not released — {failure_detail(raw)} (it expires on its TTL)", raw))
     return results
 
 
@@ -280,7 +328,10 @@ def report(epic: str, gates: list[Result], writes: list[Result] | None, check: b
     """The whole report and the exit status, from the two phases' results."""
     out = [f"close-epic {epic} — gates", render(gates)]
     if any(r.status == FAIL for r in gates):
-        out.append("\nGATE FAILED — nothing written. Resolve the [FAIL] line(s) above and run again.")
+        if any(r.status == OK and r.name.startswith("archive-epic.sh") for r in gates):
+            out.append("\nGATE FAILED after the folder was archived — the archive is staged and uncommitted; resolve the [FAIL] line(s) and run again, which commits it with the close.")
+        else:
+            out.append("\nGATE FAILED — nothing written. Resolve the [FAIL] line(s) above and run again.")
         return "\n".join(out), 1
     if check:
         out.append("\nGATES PASSED — nothing written (--check). Drop --check to close.")
@@ -302,9 +353,10 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="close-epic.sh",
         description=(
-            "campaign-loop §5 in one call: gate (no prose-only blocks, register clean and "
+            "campaign-loop §5 in one call: gate (every child closed or gated, fold-in ② done), "
+            "render the view and archive the folder, gate (no prose-only blocks, register clean and "
             "nothing open, staging folder retired), then close, export, commit, pull, push, "
-            "autosync on. A failed gate writes nothing."
+            "autosync on, lease release. A failed gate writes nothing."
         ),
     )
     ap.add_argument("epic", help="the epic to close, either id form")
@@ -336,12 +388,26 @@ def run(
     runner=None,
     cwd: str | None = None,
 ) -> tuple[str, int]:
-    """The whole command: gates, then — only when every gate passed and this is not
-    `--check` — the writes. Returns the report and the exit status."""
-    gates = gate(epic, project, runner=runner, cwd=cwd)
+    """The whole command: (0) children, (0b) fold-in ②, then — only when both passed —
+    (0c) render and (0d) archive, then gates (a)-(c), then — only when every gate passed
+    and this is not `--check` — the writes. Returns the report and the exit status.
+
+    (0c)/(0d) are writes that must PRECEDE gate (c): the staging gate asks for a retired
+    folder, and the archived folder should hold the final view. So they run between two
+    gate phases, on the strength of (0) and (0b) alone, and what they staged commits
+    with the close. A failure in them stops before (a)."""
+    at = cwd or str(REPO)
+    pre = [_children(epic, runner, at), _folded_in(epic, project, at)]
+    extra: list[str] = []
+    if not any(r.status == FAIL for r in pre):
+        staged, extra = _render_then_archive(epic, project, runner, at, check=check)
+        pre += staged
+    if any(r.status == FAIL for r in pre):
+        return report(epic, pre, None, check)
+    gates = pre + gate(epic, project, runner=runner, cwd=cwd)
     if check or any(r.status == FAIL for r in gates):
         return report(epic, gates, None, check)
-    writes = close(epic, reason, push=push, runner=runner, cwd=cwd)
+    writes = close(epic, reason, push=push, extra_paths=extra, runner=runner, cwd=cwd)
     return report(epic, gates, writes, False)
 
 

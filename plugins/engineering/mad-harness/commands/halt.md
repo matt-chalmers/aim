@@ -9,7 +9,7 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/harness/*), Bash(git:*), Read, Glob, G
 **You are the most expensive caller in the system.** Measured: an orchestrator's context averaged ~210k tokens in its campaign, ~380k over its session; each tool call re-reads it, three to six times a worker's price. Four rules:
 
 1. **Never load reference material into yourself.** A built-in agent (`Agent(subagent_type="general-purpose")`) loads it and answers; its whole return lands in your context, so ask for a few lines or a path. Measured: one reference skill loaded here cost $11.21 over 64 turns; ~$2 in a subagent.
-2. **One call where five would do.** `preflight.sh`, `apply-plan.sh`, `close-epic.sh` are whole sequences; `scan.sh`, `peek.sh`, `run.sh` batch reads and runs; ask `tk.sh` once, `--json`.
+2. **One call where five would do.** Every `swarm/*.sh` is a whole sequence (preflight, apply-plan, close-wave, close-epic); `scan.sh`, `peek.sh`, `run.sh` batch; `tk.sh` once, `--json`.
 3. **Artefacts by path.** `dispatch.sh … --digest`, `tk.sh note --file`: a plugin agent's result goes from its file to what consumes it, never through you.
 4. **An hour idle, and the next request re-writes your whole context at the write rate.** Measured: four gaps re-wrote 3.5M tokens of one session, more than its campaign cost. Back at a large session, weigh its context against that, or start fresh.
 
@@ -128,21 +128,20 @@ next worker re-attaches to them, cannot tell whose they are, and builds on top.
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-check
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-release --holder <name>      # ONLY if a dead worker still holds it
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh autosync on             # pre-flight disabled this and never restores it
+${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh slot-release --holder <name>      # ONLY if a dead worker still holds it — slot-check says stale
 git worktree prune                         # drop registrations for worktrees already deleted
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh export           # the jsonl is stale while export.auto was off
-git add <the tracked export> && git commit -m "chore(tracker): halt <epic> — <pause|release>"
-git push
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/close-wave.sh --sync-only --message "chore(tracker): halt <epic> — <pause|release>" --restore-autosync
+                                           # export (the jsonl is stale while export.auto was off), commit, pull, push,
+                                           # and `autosync on` — what pre-flight disabled and nothing else restores
 ```
 
 **A merge slot held by a dead worker blocks the next wave forever** — nothing times it out.
 Check it every time, and release it only after confirming the holder is genuinely gone.
 
 **`export.auto` is the one that bites silently.** `/swarm` and `/campaign` pre-flight set it
-to `false` so tasks cannot stage `issues.jsonl` into a sibling's commit, and no code path turns
-it back on. Left off, `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close` stops keeping the tracked jsonl fresh and your backlog
-quietly drifts from your code.
+to `false` so tasks cannot stage `issues.jsonl` into a sibling's commit. Left off,
+`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh close` stops keeping the tracked jsonl fresh and your backlog quietly
+drifts from your code — which is why `--restore-autosync` is the last thing the call does.
 
 ## 5. Report
 

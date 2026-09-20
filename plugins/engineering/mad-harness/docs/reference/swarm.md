@@ -21,18 +21,20 @@ blocks what — the detail that decides whether a wave lands or stalls.
 Each condition fails the wave rather than degrading it.
 
 ```bash
-harness/swarm/preflight.sh                   # ONE call: clean tree, config current (exit 3 = the plugin moved on
-                                             #   since harness.yaml was reviewed — run /harness-setup), merge slot
-                                             #   free, autosync off, declared ports unbound, disk headroom
-git worktree list && git worktree prune      # forgets worktrees whose directory is gone
-harness/swarm/worktree-sweep.sh              # the real sweep — prune alone is a no-op
-harness/checks/check-stack-commands.sh --repair
-tk.sh memories                               # field-guide index for this wave's subject
+harness/swarm/preflight.sh                   # ONE call, eleven steps: clean tree, config current (exit 3 = the
+                                             #   plugin moved on since harness.yaml was reviewed — run
+                                             #   /harness-setup), merge slot free, autosync off, ports, disk,
+                                             #   worktree prune, the sweep (IN FLIGHT refs stop the run), its
+                                             #   --apply, stack-command repair, record sizes
+tk.sh memories                               # field-guide index for this wave's subject — content, not a gate
 ```
 
-The six checks in `preflight.sh` were six calls, each re-reading the orchestrator's whole
-context — see [cost](../concepts/cost.md). `autosync off` is its only write, and it is
-skipped when a gate before it failed, so a failed pre-flight leaves the tracker untouched.
+The first six were six calls, each re-reading the orchestrator's whole context — see
+[cost](../concepts/cost.md) — and then four more the loop ran after them. Every write
+(`autosync off`, `prune`, the sweep's `--apply`, the repair) is skipped when a gate before
+it failed, so a failed pre-flight leaves the tracker, the worktrees and the config as it
+found them. The sweep's in-flight count is a gate: committed work for an open task that no
+worktree holds is adopted before that task is dispatched again, or the run does not start.
 
 `git worktree prune` only forgets worktrees whose **directory is already gone**, so it does
 nothing about the ones that actually accumulate — one per dispatched worker. The sweep is
@@ -140,17 +142,22 @@ or L4 instead.
 ## 9. Sync and push
 
 ```bash
-tk.sh close <id> --reason "<what shipped, how verified>"   # one per closed task
-tk.sh export                                               # the tracked artefact
-git add <tracked export> && git commit -m "chore(tracker): close <ids>"
-git pull --rebase && git push
-tk.sh autosync on                                          # restore what pre-flight disabled
+harness/swarm/close-wave.sh <id>="<what shipped, how verified>" <id>="…" --restore-autosync
 ```
+
+One call: each close, ascending by id; `tk.sh export`; the epic view regenerated for every
+epic the tasks belong to; `git add` of the export and the views; the commit;
+`git pull --rebase --autostash`; the push; `git status -sb` up to date; and — only with
+`--restore-autosync`, which a standalone `/swarm` passes and a wave inside `/campaign` does
+not — `tk.sh autosync on`. If the rebase pulled in another actor's commits it stops before
+the push and lists what remains, so the wave gate is re-run on the rebased tree first.
 
 Once per wave, never per worker. Eight workers exporting produces eight conflicting
 versions of one file. When the wave closes an **epic**, `close-epic.sh <epic> --reason …`
-is the same sequence with the epic's gates in front of it — nothing is written if the
-blocking-prose, decision-register or staging check fails.
+is the same tail with the epic's gates — children, fold-in, blocking prose, the decision
+register, the retired staging folder — and the render-then-archive in front of it; nothing
+is written if a gate fails. `/grind` closes one task at a time with the same call and
+`--message "chore(tasks): close <id>"`.
 
 ## 10. Report
 

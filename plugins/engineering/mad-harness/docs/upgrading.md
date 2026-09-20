@@ -918,3 +918,39 @@ drift an audit found.** No config change.
   `harness/`, one cluster at a time, each measured.
 
 - **mechanical** — re-stamp `harness.version`, when convenient.
+
+### 0.10.20
+
+**Deterministic steps out of the prose, part 2: one sync tail, `close-wave.sh`, and the
+pre-flight that finishes.** No config change.
+
+- **What was wrong.** `/swarm` step 9, `/grind` §10 and `/halt` §4 each spelled out the same
+  ten shell lines for the orchestrator to run one per tool call — close, export, render the
+  view, add, commit, pull, push, status, autosync — with the same "in this order, every
+  time" warnings, because each was a place a line could be skipped; the recorded incidents
+  (a backlog published with a closed record still `in_progress`; `export.auto` left off for
+  a session) are those skips. `close_epic.py` (e)-(h) was a fourth copy, in code. It is now
+  `models/tracker_sync.py`, and `close-wave.sh` (the wave / the task / a halt's tail) and
+  `close-epic.sh` both call it. `close-wave.sh` also settles a contradiction the two
+  documents had carried for months: `/swarm` restored `export.auto` every wave, the loop
+  said only §5 does — both right for their caller. `--restore-autosync` is passed by a
+  run that is the whole run and omitted by a wave inside a campaign. And a rebase that
+  pulls in another actor's commits now **stops before the push** with the rest listed by
+  hand, so the wave gate is re-run on the rebased tree first — the rule the prose stated
+  and nothing enforced.
+- **`close-epic.sh` starts earlier.** §5's text still had four lines before the one call
+  — every child closed or gated, render the view one last time BEFORE retiring, archive
+  the folder, fold-in ② first — with the order the orchestrator's to remember. They are
+  the first gates and pre-writes of the call now; the archived folder's `git mv` and stamps
+  commit **with** the export (before, the stamps `archive_epic` wrote after the `mv` were
+  left dirty by every close); the epic's lease is released after the push.
+- **`preflight.sh` finishes the job.** `/swarm` step 1 and campaign-loop §0 still ran
+  `git worktree prune`, the sweep, `--apply` and `check-stack-commands.sh --repair` as four
+  calls after it, the sweep's IN FLIGHT count read from its text. They are steps now: the
+  sweep is a gate — IN FLIGHT > 0 stops the run until each ref is adopted, and a sweep
+  output without its summary block is "nothing measured", never zero — and a repair that
+  changed `harness.yaml` says so on its line.
+- **The orchestrator card's rule 2** names the category ("every `swarm/*.sh` is a whole
+  sequence") rather than a list that cannot grow inside the card's 1,200-char budget.
+
+- **mechanical** — re-stamp `harness.version`, when convenient.
