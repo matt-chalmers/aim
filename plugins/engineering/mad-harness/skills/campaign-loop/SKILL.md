@@ -239,492 +239,58 @@ epic before §5.
 
 ---
 
-## 3. Design and plan — THE EPIC YOU ARE CURRENTLY ON
-
-**"Dispatch" in this section means `dispatch.sh`, never the Agent tool** — for the survey,
-the architect, the planner, the audit and the spec-editor exactly as for a wave's writers:
+## 3. Design and plan — THE EPIC YOU ARE CURRENTLY ON — one call
 
 ```bash
-# prompt to a file, then a BACKGROUND Bash call, then read the DIGEST it prints
-${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh analyst-survey --prompt-file <path> --task <epic> --digest
-${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh architect      --prompt-file <path> --task <epic> --digest
-${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh planner        --prompt-file <path> --task <epic> --digest
-${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh analyst        --prompt-file <path> --task <epic> --digest
-${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh spec-editor    --prompt-file <path> --task <epic> --digest
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/plan-epic.sh <epic> --mode <interactive|auto> --triage <UNPLANNED|PARTIAL|READY>
 ```
 
-**`--digest` is how an artefact stays out of your context.** Every dispatch writes the
-agent's whole result to a file under `.harness/run/out/` and, with `--digest`, prints only
-its first lines and the path. The verdict line every agent puts first is what you read; the
-body goes where it is consumed — the design to the epic note by path (§3b), the plan to
-`apply-plan.sh` (§3e), the audit's findings to the planner's next prompt by path (§3d).
-Measured: the four largest things injected into one campaign orchestrator's context were
-subagent results of 45k, 43k, 36k and 23k characters, each paid on every later turn.
+Exit 0 planned and applied · 4 parked (the report says on what, and which command un-parks
+it — move to the next epic) · 6 an approval is owed (`MODE=interactive`; the report names the
+artefact and the `--from` that continues) · 2 could not judge (a dispatch returned no
+verdict; nothing was approved) · 1 a stage failed (`--from <stage>` re-runs it).
 
-Measured, five campaign sessions: plugin agents spawned through the Agent tool read 67.2M
-prompt tokens; through the dispatcher, 6.9M. Eighteen of ~22 architect, planner and
-analyst runs took the Agent-tool path — with no `--max-budget-usd` ceiling, no tier, no
-sandbox, no cost record, and none of the measured levers. This section said "dispatch"
-without saying how, and that is how it drifted. A `PreToolUse` hook now refuses the Agent
-tool for any of this plugin's agents and prints the form above, so the rule holds
-without you remembering it. Read-only agents need no `--worker`; they run in the primary
-checkout and write nothing.
+**"Dispatch" here means `dispatch.sh`, never the Agent tool** — a `PreToolUse` hook refuses
+the Agent tool for any of this plugin's agents. Measured, five campaign sessions: plugin
+agents spawned through the Agent tool read 67.2M prompt tokens; through the dispatcher,
+6.9M. The sequencer dispatches every one of the five below through the boundary, each
+**fresh** — never resumed: resuming a lens rebuilt its whole prior conversation at the
+cache-write rate ($1.95 for two round-trips against $0.16).
 
-### 3a. Adequacy — is this epic specified well enough to design against? (analyst-survey)
+| stage | what the sequencer does | the judgement, and whose |
+|---|---|---|
+| **3a survey** | `spec-index-status.sh` → **REUSE** (nothing the index cites has moved: no survey, the verdict is the epic's `ADEQUACY:` note) · **DELTA** (a survey told which cited paths moved, to verify and extend, then `--stamp`: a DELTA that does not move its baseline re-fires forever) · **REBUILD** (a full survey, ~120k tokens). The survey's `ADEQUACY:` verdict is noted on the epic and its SPEC INDEX staged as `spec-index.md` with `generated_sha` and `cites` in frontmatter — pointers only, never spec prose | `analyst-survey`'s: ADEQUATE / INFERABLE / ABSENT. **Not the architect's** — an architect deciding "do I have enough to design?" and then designing is self-certification, and a design built on invented scope is what `MODE=auto` then auto-accepts and every worker follows |
+| **the ABSENT path** | never a blank ABSENT straight to `/requirements`: `spec-editor` drafts the proposal from the corpus (every criterion cited; an uncited one goes under `## Open questions`), `analyst` audits the draft (it did not write it). ADEQUATE → `CORPUS-DERIVED — no owner input` on the epic and on to fold-in ①; otherwise a `REQUIREMENT:` task, `park`, and `/requirements` starts from *"here are the four we derived, confirm them; these two we cannot answer"* rather than zero | `spec-editor` assembles, never invents; `analyst` judges the draft |
+| **fold-in ①** | `check-decision-register.sh` — any row in the Open table parks the epic (an epic does not design over a decision it raised); then `spec-editor` applies the staged `proposal.md` to the corpus: acceptance criteria into the owning feature doc as unchecked criteria, verbatim; INFERABLE inferences recorded as unchecked criteria there too, not only in a note that vanishes at close. No proposal staged → nothing to fold in, said | `spec-editor`'s placement; the register's verdict is code |
+| **3b architect** | UNPLANNED / PARTIAL → **design**; READY → **sanity-check** (is the recorded design still correct given everything that has landed; has the ground moved — `tk.sh memories` for a documented framework that is a veneer; confirm or flag the drift precisely). Its output is attached to the epic **by file**, never retyped. `ADEQUACY: ABSENT` first in its output is a dispute: a `REQUIREMENT:` task and a park, in both modes — auto-accept covers **design**, never **invented scope**. Every `DECISION:` line becomes a `decision` task | `architect`'s design; the gate below |
+| **stage** | `design.md` under `<paths.proposed>/<epic>-<slug>/` (the folder `close-epic.sh` later retires — the point-in-time design folds in at §5, routed by content, then is deleted) plus a draft decision record per `DECISION:`, numberless until the owner decides; `ARCHITECTURE:` pointer on the epic. Recording it only in the note was the failure this replaces: the note disappears when the epic closes | — |
+| **the design gate** | `MODE=auto`: accept, note `AUTO-ACCEPTED`, and **park on any open decision** — the hard line. `MODE=interactive`: **exit 6** — see §3g | **yours**, in interactive |
+| **3c planner** | a fresh dispatch with the design, the SPEC INDEX, the lanes and caps, and **the next decision-record number** (`tk.sh adr-next`, allocated once here — never by a worker; two streams picking independently have collided). It produces the DAG with a `SURFACE:` line per task, the file-contention matrix, the wave plan, and `T1:`-labelled `tk.sh` blocks for `apply-plan.sh` | `planner`'s |
+| **3d audit** | `analyst` in AUDIT mode on the plan — the task set, its criteria, its `SURFACE:` lines. **Every plan; no route skips it, in both modes**: self-approving a plan is exactly when an independent read is worth most, and it is the planner's output workers build from (`verifier` later checks the criteria on a task). PASS → `AUDIT: PASS` noted. FAIL → **a fresh planner dispatch carrying the findings' path**, re-audited. **A second FAIL** → a `REQUIREMENT:` task and a park: a plan that cannot be made dispatchable in two passes is an absent specification wearing a DAG, and the findings are the agenda for `/requirements` | `analyst`'s. Its governor: a gap **written down** — an open question, a decision task, a stated deferral — is a PASS; the same gap **silent** is a FAIL |
+| **the DAG gate** | `MODE=auto`: approve, note `AUTO-ACCEPTED`, and **park on a `DECISION:` line or an unresolved contention edge** — auto-approve covers a plan, never a fork. `MODE=interactive`: **exit 6** — the DAG, the matrix and the revision plan rendered verbatim, `decision` tasks surfaced first, deletions called out | **yours**, in interactive |
+| **3e/3f apply** | `apply-plan.sh … --render` — the whole plan validated then written, labels resolved, `tk.sh validate` and the view at the end. **Its parallelism number ignores file contention** — that is precisely how an epic reads as 11-wide when its file graph supports about two | — |
 
-**Before the architect runs at all.** Dispatch **`analyst-survey`** on the epic. That is a separate agent from `analyst`, pinned at `effort: high` rather than `xhigh`, because the survey is a breadth-first corpus sweep and the audit at §3d is the sharper task.
-
-**Why this and not the architect's own judgement.** The architect would otherwise decide *"do I
-have enough to design?"* and then design — self-certification, the thing this pipeline refuses
-everywhere else. And the cost of getting it wrong is asymmetric: an architect that wrongly
-believes an epic is specified produces a design built on **invented scope**, which `MODE=auto`
-then auto-accepts, and which every worker follows for the rest of the epic. Catching that after
-the design is wasted design; catching it after the plan is wasted planning.
-
-The analyst returns the adequacy verdict **and** everything that already constrains the answer —
-the adjacent feature docs, the binding decision records, the settled owner decisions (including
-closed ones), what the information architecture and NFRs fix, and what exists in code.
-
-| Verdict | Action |
-|---|---|
-| `ADEQUATE` | proceed to 3b |
-| `INFERABLE` | proceed, and **record every inference as an unchecked acceptance criterion** in the owning feature doc at fold-in ① below (not only in the epic's `ARCHITECTURE:` note, which disappears when the epic closes). An inference the owner never sees is an invention with better manners; one that vanishes at epic close is an invention with an alibi. |
-| `ABSENT` | **do not run the architect.** Draft first, then re-judge — see *The ABSENT path* below. Only a draft that still fails the audit reaches the owner. |
-
-**This is not overhead.** Hand the SURVEY output to **both** the architect and the planner. It
-is the corpus sweep they would each otherwise do — separately, partially, and under context
-pressure — so the dispatch mostly pays for itself in work they no longer repeat, and the two
-of them start from the same set of facts rather than two different partial ones.
-
-#### The ABSENT path — draft from the corpus before spending the owner
-
-**Never send a blank `ABSENT` straight to `/requirements`.** That contradicts the survey's own
-reason for existing: *no question is asked whose answer the repo already holds*. The verdict is
-returned **per epic**, but the answers are **per criterion** — where the corpus supports four
-criteria and not two, sending it onward asks the owner about all six.
-
-1. **Dispatch `spec-editor` to draft the epic's proposal** under `paths.proposed` from the
-   SURVEY's findings, `status: draft`. **Every drafted criterion carries the doc and the quoted
-   opening words it derives from.** A criterion that cannot be cited **may not be written** — it
-   goes under `## Open questions` instead. This is assembly from what the owner already approved,
-   never invention, and it is why the drafter is `spec-editor` (forbidden to invent scope or
-   improve requirements) rather than an analyst.
-2. **Dispatch `analyst` in AUDIT mode on the draft.** It did not write it, so this is not
-   self-certification.
-3. **`ADEQUATE`** → proceed to fold-in ①. Record `CORPUS-DERIVED — no owner input` on the epic,
-   so a spec assembled without a human saying anything is **visible** rather than silently
-   indistinguishable from one the owner dictated.
-   **Otherwise** → file the `REQUIREMENT:` task, `park` the epic, and send it to
-   `/requirements` — **with the partial draft**, so the conversation starts at *"here are the four
-   we derived, confirm them; these two we cannot answer"* rather than at zero.
-
-> **The risk this buys, and the guard on it.** A pre-filled draft anchors the owner into
-> reviewing rather than stating, and the point of `/requirements` is their actual intent. The
-> citation rule is the whole defence: the owner is reading back what the corpus already says,
-> attributable clause by clause. An uncited criterion in a draft is a defect, not a shortcut.
-
-#### Fold-in ① — apply the epic's proposal to the corpus, before the architect runs
-
-On `ADEQUATE` or `INFERABLE`, the epic's staged proposal is applied to the corpus **now**,
-before `architect` is dispatched. See the `spec-lifecycle` skill.
-
-**Dispatch `spec-editor`**, not the analyst. Hand it the proposal and the SURVEY's SPEC INDEX —
-that index already names every doc that governs this epic, which is exactly the edit list. It
-writes the proposal's acceptance criteria into the owning feature doc as
-**unchecked** criteria, plus any `## Behaviour` / `## Data` / `## API` prose they require, and
-then marks the proposal **`folded in`** with the date.
-
-**It is not deleted here.** After fold-in the feature doc shows the merged end-state and nothing
-else states this epic's **delta** — and "unchecked criteria" is not a proxy for it, because a doc
-can carry unchecked criteria an earlier epic left behind. The architect at §3b and the planner at
-§3c both run *after* this point and both need to know what *this* epic changes. The whole folder
-is deleted at §5.
-
-**Why not the analyst.** Both analysts grant `tools: Read, Grep, Glob, Bash` — no `Edit`, no
-`Write` — and their mirrored guardrail is enforced by `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-analyst-mirror.sh`. The
-structural reason is the smaller one. The real reason is that the analyst's value is judging a
-spec **it did not write**: let it apply the proposal and at §3d it audits a plan built on a
-corpus it authored. That is the self-certification this stage exists to refuse.
-
-**No proposal file** — say so and proceed. Do not synthesise one.
-
-Most open epics have none, and for the majority that is **correct rather than degraded**. They
-are gap epics — *"the decision record for X is entirely unimplemented"*, *"the documented
-background jobs mostly do not exist"* — and their requirements already live in the corpus. That
-is what makes them gap epics. One measured corpus found roughly three quarters of feature docs
-describing built code, the rest partial or unbuilt. There is nothing to fold in because it is
-already in.
-
-Such an epic still gets a folder — the spec index lands there at §3a and the design at §3b. Only
-`proposal.md` is absent, and it appears **lazily**, the moment `analyst-survey` returns `ABSENT`:
-that path already files a `REQUIREMENT:` task, parks the epic, and routes to `/requirements`,
-which writes the proposal. No bulk backfill is needed or wanted.
-
-**But the decision gate does not run without a register**, and in one measured backlog all but
-one open epic had none.
-`${CLAUDE_PLUGIN_ROOT}/harness/checks/check-decision-register.sh <epic-id>` now says so out loud rather than exiting silently
-— silence there reads as *checked and clean* when it means *never checked*. When it reports no
-register, **check by hand**: `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh list --type=decision --status=open`, and park the epic on any
-open decision that binds it. An open decision blocks whether or not anyone recorded the
-association; the register only makes it mechanical.
-
-**The decision register gates fold-in.** Run `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-decision-register.sh <epic-id>`.
-It fails when a row disagrees with the tracker, when a settled row records no resolution, when a draft
-ADR has no row, or when a row cites a file that does not exist. **Any row still in the register's Open table parks the epic** — that
-is what an unresolved decision means, and folding in over one writes a criterion the owner
-never settled. Its **Settled** table is free context for the architect: a spec written against
-a settled answer costs nothing, one written against its opposite is rework.
-
-**Contention across staged proposals.** The SURVEY reports any other open staged proposal
-whose frontmatter `lands_in` overlaps this epic's. `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-decision-register.sh` reports
-it in the same run that verifies the register — it reads YAML, so a doc path mentioned in prose
-no longer false-positives, and a proposal already marked `status: folded-in` is skipped because
-it is applied, not pending. Treat a real clash exactly like two accepted ADRs disagreeing:
-surface it, name which one lands first, and gate rather than folding both in and discovering the
-contradiction in the corpus. It is cheap because proposals are short-lived — fold-in at epic **start** means few
-coexist, and a long queue of open proposals is itself the signal that specification is running
-too far ahead of the build.
-
-**Why at the start and not at the end.** Fold-in at epic close means the spec is written by
-whoever just built the thing, and it faithfully documents the shortcut. Folding in first keeps
-the spec an *independent target* the architect, planner and verifiers can be judged against —
-and bounds how far the corpus can lead the code to one epic rather than a roadmap.
-
-**Judge the text, never the child count.** Plan completeness and specification adequacy are
-orthogonal: an `UNPLANNED` epic can be richly specified and plannable today, and a `READY` one
-can be underspecified and will surface as lens FAILs three rounds deep. This run's ~36%
-first-pass rate came from a `READY` epic.
-
-**Record the verdict AND the spec index before proceeding.** The verdict's absence is what a
-later run reads as "nobody checked"; the index is the map every downstream agent needs and
-would otherwise re-derive:
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <epic> --append-notes "ADEQUACY: ADEQUATE|INFERABLE|ABSENT <date> — <inferences, or 'clean'>
-
-SPEC INDEX (regenerated each run — a cache, never a source):
-  SPEC:      <the owning feature doc> — sections that govern: <named>
-  DECISIONS: <record id> §N (<what it binds>) · ...
-  DECISIONS: D-x (<verbatim one-line answer>) · ...
-  PRODUCT:   <IA / NFR constraints that are fixed>
-  CODE:      <what exists, by symbol>"
-```
-
-**Index the specs — never harvest them.** Record *pointers*, not content.
-
-Copying spec prose into the epic manufactures this repo's most expensive defect class: **two
-accepted documents disagreeing.** The feature folder under `paths.features` owns the schema,
-endpoints, screens and acceptance criteria; a harvested copy becomes a competing source of
-truth that drifts the moment either side is edited, and drifts *silently* — stale prose reads
-fine and is wrong. A stale **pointer**, by contrast, is a grep away: if the index says
-a decision record and section, and that section no longer exists, anyone can see it.
-
-It is also the practical choice. Feature docs run to hundreds of lines, and a task's record has
-a **~64KB ceiling** past which `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh note` hard-fails — one task hit it after ten rounds of lens
-reports. Harvesting would reach that
-wall on epics that have not started.
-
-**Regenerate the index on CHANGE, not on schedule.** "Regenerated each run" is the rule for
-*staleness*, not a licence to rebuild an index nothing has invalidated. A survey costs ~120k
-tokens and forty-odd tool calls, almost all of it corpus exploration.
-
-Before dispatching `analyst-survey`, check whether the epic already carries an
-`ADEQUACY:` note with a SPEC INDEX:
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh show <epic> | grep -A25 'ADEQUACY:'
-git log --oneline --since=<index date> -- <the docs and code paths the index names>
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh list --parent <epic> --json    # have children been added, closed or re-scoped?
-```
-
-**Run `${CLAUDE_PLUGIN_ROOT}/harness/checks/spec-index-status.sh <epic-id>` — it answers this table.** The index records the
-SHA it was generated against and every doc it cites, so "has anything it cites moved?" is a diff,
-not a judgement. It prints `REUSE`, `DELTA` with the changed paths, or `REBUILD` — and either id
-form, bare or prefixed, is accepted. A `REBUILD` that says *no staging folder* and names the
-patterns it tried is a lookup miss, not a verdict: check the folder name before surveying.
-
-| Finding | Action |
-|---|---|
-| No index, or the epic's children have changed | **Full SURVEY.** |
-| Index exists and nothing it cites has moved | **Reuse it.** Say so in the report, with the index's date and what you checked. Do not re-dispatch. |
-| Index exists but some cited docs have moved | **Dispatch a DELTA survey** — hand the analyst the existing index and the list of changed paths, and ask it to verify and extend rather than rebuild. This is the common case and it is a fraction of the cost. |
-
-**A DELTA closes its own loop, or it re-fires forever.** The survey verifies the changed docs
-and writes its findings to the epic; nothing about that moves the index's `generated_sha`, so
-the next run diffs against the same old baseline, finds the same paths moved, and dispatches
-the same survey — an epic that DELTAs once pays a survey every run. When the DELTA survey has
-landed, **you** move the baseline (the analyst will not infer it, and an interrupted survey
-must not stamp what it did not check):
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/checks/spec-index-status.sh <epic-id> --stamp [--cite <path>]...   # baseline → HEAD, today; cites extended
-```
-
-**The adequacy VERDICT still has to be current** — if the epic's children changed, the verdict
-is stale even when the corpus has not, because adequacy is judged against what is being built.
-
-**Effort IS tiered between the two, and the split is deliberate.** `analyst-survey` runs on
-the `worker` tier (`effort: high`); `analyst` (AUDIT, §3d) stays on `strong` (`xhigh`) because
-it has caught a false premise in every plan it has read. The tier is one value per agent
-file (`model_tier:`), resolved by the dispatcher against `tiers.yaml`, so two files are the
-only way to tier them.
-
-**The cost of that split is drift**, and it is contained rather than hoped away. The two files
-share a 42-line block of *guardrails* — "you never write requirements, and you never enhance
-them" — which must be present unconditionally, so it is duplicated rather than factored into a
-skill an agent might fail to load. Both copies are wrapped in `MIRRORED BLOCK` markers and
-`${CLAUDE_PLUGIN_ROOT}/harness/checks/check-analyst-mirror.sh` fails loudly if they diverge, and fails again if the two
-efforts are ever set equal (which would make the split pointless) or if the AUDIT is ever
-lowered off `xhigh`. **Run it after touching either agent file.**
-
-**Where it lives.** Under `paths.proposed`, from that directory's spec-index template, with
-`generated_sha` and `cites` in frontmatter — that
-is what makes the reuse decision mechanical. Persist a pointer on the epic, not the map itself.
-
-**The index is a regenerated cache, not a maintained artefact.** The analyst rebuilds it every
-run, so staleness self-heals and nobody owes it upkeep. That is what makes it safe to keep
-close to the work — and it is why it must never be the thing anyone *reads the requirement
-from*. It tells you where to look; the doc tells you what is true.
-
-### 3b. Architect
-
-**UNPLANNED / PARTIAL — design.** Dispatch `architect` if any architecture-gate test trips:
-a new or changed data model or migration; a new rule in a core domain engine; a new adapter
-behind an existing extension point; a new boundary between bounded contexts or a new shared
-service; a new API resource or a changed response shape; or more than ~5 tasks expected. Otherwise state which test failed and
-skip to 3c.
-
-**READY — sanity-check.** Dispatch `architect` with the epic, its existing tasks, and any
-`ARCHITECTURE:` note, and ask it to answer three questions:
-
-1. **Is the recorded or implied design still correct** given everything that has landed since
-   the tasks were written? Check the feature docs and the ADRs — including ones written after
-   these tasks.
-2. **Has the ground moved underneath it?** The class to look for: a recorded memory finding
-   that some documented framework is *a veneer whose protocol methods are called nowhere* — an
-   epic planned against the documented contract would be planned against something that does
-   not exist. Run `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh memories` and check for exactly this drift.
-3. **Confirm, or flag the drift precisely.** A sanity-check that returns "looks fine" without
-   naming what it checked is not a sanity-check.
-
-Record the outcome either way — a confirmation is worth as much as a correction to the next
-run:
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <epic> --append-notes-file <the architect's --digest output file>
-# or, for a sanity check with nothing to attach:
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <epic> --append-notes "ARCHITECTURE: SANITY-CHECKED <date>: <what was checked, confirmed or corrected>"
-```
-
-**By file, never by retyping it.** The architect's output already begins with its
-`ARCHITECTURE:` block; attaching the file costs you nothing, where reading it in and
-emitting it again as a note paid for the design twice at your context size. Use
-`--append-notes` / `--append-notes-file`, **never `--design`** — that field is write-only
-and invisible to `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh show`.
-
-**Before the design, take the architect's SPECIFICATION-ADEQUACY VERDICT** — `ADEQUATE`,
-`INFERABLE` or `ABSENT`. It comes first in its output and it changes what you do next:
-
-| Verdict | Action |
-|---|---|
-| `ADEQUATE` | proceed to the design gate as normal |
-| `INFERABLE` | proceed, and **record every inference it listed** in the `ARCHITECTURE:` note. An inference the owner never sees is an invention with better manners. |
-| `ABSENT` | **park the epic. Do not design, do not plan, do not dispatch.** |
-
-**`ABSENT` is a parking condition in both modes, and in `auto` it is the sharper rule:**
-auto-accept covers **design**, never **invented scope**. An epic with no children and no
-acceptance criteria will otherwise be designed by an auto-accepted architect, and
-`/campaign-auto` is explicit that the architecture you accept is what every worker follows for
-the rest of the epic — so an absent specification silently becomes an invented one, with no
-signal to the owner that scope was invented rather than specified.
-
-The architect files a **requirement record** (`REQUIREMENT:` prefixed, type `decision`, so it
-inherits this section's gate machinery). You park exactly as for a decision:
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh park <epic-id> --reason "REQUIREMENT owed: <one line>"
-```
-
-**Un-parking a requirement gap is `/requirements`**, not `/decision`. A decision is one
-question with options; a requirement gap is a conversation that ends in a feature doc. Say so
-in the report — the owner should know which command to reach for, and `/decision` on a
-requirement record will produce a fork where none exists.
+**Why the audit is here and not at 3b.** The architect's adequacy verdict is a *self*
+assessment. The costly shape is a `READY` epic whose tasks *exist* and dispatch clean, and
+whose thinness only surfaces as lens FAILs three rounds deep — exactly what happened at
+~36% first-pass: eleven children, all dispatchable, none saying which ADR or owner decision
+its surface touched. This moves that discovery to before dispatch, where it costs one
+question instead of three remediation rounds.
 
 **A requirement gap is not a decision, and the report must not blur them.** A decision is a
-fork the owner picks between; a requirement gap is an absence the owner must fill. Count and
-list them **separately** in the final report — "3 epics gated on decisions, 2 on missing
-requirements" tells the owner two different things about their backlog, and the second is the
-one that predicts the next run's first-pass rate.
-
-**Why this is worth a gate.** In one campaign the first-pass lens PASS rate ran at ~36%, under
-the floor at which this document says *the tasks are underspecified — fix the planner,
-never the worker*. Every failure was a real defect and most traced to something the task never
-said. Underspecification surfaced as lens FAILs three rounds deep. This moves that discovery to
-before dispatch, where it costs one question instead of three remediation rounds.
-
-**Gate — `MODE=interactive`:** follow **§3g Approval precedence** — render it verbatim and
-`AskUserQuestion` (accept / revise / reject) **only when the whole queue is dry**; otherwise
-queue it and move on.
-**Gate — `MODE=auto`:** accept, record `AUTO-ACCEPTED`, flag it in the epic report. Any open
-question from the architect is a `decision` task and parks the epic.
-
-#### Stage the design — the proposed directory, not the corpus, not only a task note
-
-Write the accepted design to **`<paths.proposed>/<epic-id>-<slug>/design.md`** from that
-directory's design template, and open a **draft decision record** alongside it for each
-`decision` task the architect raised.
-
-It does not go into the corpus yet. A point-in-time design is not a description of the system,
-and it cannot fold in at §3a because it did not exist then. It folds in at **§5, fold-in ②**,
-routed by content — the *why* to a decision record, the *mechanism* to an architecture doc, a
-changed contract to the owning feature doc — and is then deleted.
-
-**Recording it only in the epic's `ARCHITECTURE:` note is the failure this replaces.** That note
-disappears when the epic closes, taking the reasoning every later reader needs with it. A
-separate "plans" directory fails the same way: such files drift into carrying an *"where this
-disagrees with as-shipped, as-shipped wins"* disclaimer and stop being reachable from the
-corpus index. Keep the `ARCHITECTURE:` note as the tracker's pointer; the file carries the
-content.
+fork the owner picks between (`/decision`); a requirement gap is an absence the owner must
+fill (`/requirements`). Count and list them **separately** — "3 epics gated on decisions, 2
+on missing requirements" tells the owner two different things about their backlog, and the
+second is the one that predicts the next run's first-pass rate.
 
 **Nothing may cite a draft decision record as settled** — not the planner, not a worker, not
-another record.
-It has no number until the owner decides.
+another record. It has no number until the owner decides.
 
-### 3c. Planner
-
-Dispatch `planner` with the epic, its **current** tasks, the `ARCHITECTURE:` note, the lane
-vocabulary and caps, and the instruction to produce a **file-contention matrix** and a
-**decision-contention pass**.
-
-**UNPLANNED / PARTIAL** — produce the DAG, or complete it.
-
-**READY — produce a REVISION PLAN.** The planner audits the existing tasks against the
-standards they were never checked against, and **may add, delete or modify tasks as needed to
-make the plan well constructed.** Audit each task for:
-
-- **Slicing** — one task = one commit = one reviewable change = **one acceptance criterion a
-  verifier can check without reading the plan.** Needs two commits? Split it. Two tasks that
-  are really one change? Merge them — tasks sometimes say so in their own text.
-- **Acceptance criteria** — present, concrete, and **locatable in a diff**. "Works correctly"
-  is not a criterion; `verifier` FAILs anything it cannot point at a file and line for.
-- **File contention** across the ready set, including the **megafile width-1 rule** — any file
-  past `signals.megafile_lines` may be touched by at most one task per wave.
-- **Decision contention** — no two tasks able to answer the same open question differently.
-- **Lane labels** — correct and present, or the task is unroutable.
-- **Dependency edges** — the data layer before the UI that consumes it; any API-shape change
-  followed by a client-type regeneration task.
-- **Staleness** — tasks superseded by work that has since landed, or written against a design
-  the architect just corrected.
-
-Output a **revision plan**: for each task, one of `keep` / `merge into <id>` / `split into N`
-/ `re-scope` / `re-label` / `add-dep <id>` / `supersede` / `delete`, **each with its reason**.
-Say `keep` explicitly for tasks that pass — a revision plan that only lists changes hides how
-much was reviewed.
-
-**Rules on destructive edits** (the planner proposes; `apply-plan.sh` executes — see 3e):
-
-- **Never touch a task that is `in_progress` or `closed`.** Someone may be working it right
-  now. Re-scoping around it is fine; editing it is not.
-- **Prefer `supersede` over `delete`** where there is history worth keeping — a task other
-  work references, or one carrying analysis in its notes. Use `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh supersede <old> --with <new>` (it closes the old one with a reference to the replacement).
-- **`delete` is for tasks that are simply wrong or obsolete** with nothing worth preserving.
-- **Re-point dependencies before removing anything**, or you strand its dependents.
-- **Never delete an epic.**
-
-### 3d. Audit the plan before you approve it (analyst) — this epic, both modes
-
-**Every plan goes through this audit. There is no route that skips it**, exactly as §3 admits
-no route around design. **You may not approve a plan you have no audit verdict for** — the
-verdict is a precondition of the gate below, not a step alongside it.
-
-**Dispatch `analyst` in AUDIT mode on the planner's output** — the task set, its acceptance
-criteria and its `SURFACE:` lines — **before** the gate below. Read-only, no execution, so it
-sits in the cap-8 lens class and costs one dispatch per epic.
-
-**Why here and not at 3b.** The architect's specification-adequacy verdict is a *self*
-assessment: it judges whether it has enough to design, then designs. Nothing checks that
-judgement — the same self-certification this pipeline refuses everywhere else. And it is the
-planner's output, not the architect's design, that workers actually build from: **the
-acceptance criteria on a task are what `verifier` later checks against.** Audit the artefact
-that ships.
-
-**This is the expensive case, not the obvious one.** An `UNPLANNED` epic at least announces
-that it needs design. The costly shape is a `READY` epic whose tasks *exist* and dispatch
-clean, and whose thinness only surfaces as lens FAILs three rounds deep. That is exactly what
-happened at ~36% first-pass: eleven children, all dispatchable, none saying which ADR or owner
-decision its surface touched.
-
-The analyst judges each task against the same standard it applies to a spec — criteria
-locatable in a diff, behavioural rather than implementational, failure and empty and permission
-states present, every actor named, no ambiguous quantifier, terms against the glossary, no
-contradiction with an accepted decision record, the invariant surface stated, the scope
-boundary written.
-
-**Route the verdict:**
-
-| Outcome | Action |
-|---|---|
-| PASS | proceed to the gate below |
-| FAIL, first time | **dispatch `planner` afresh with the audit's output file path in its prompt** and re-audit. This is a revision, not a re-plan — but it is a NEW dispatch, never a resumed one: measured, resuming a lens rebuilt its whole prior conversation at the cache-write rate ($1.95 for two round-trips against $0.16), because a resumed prompt does not match the cached prefix. A fresh planner pays one clean prefix and reads the findings from the file. |
-| FAIL, second time | **the epic is underspecified at the epic level.** File a `REQUIREMENT:` task and `park` the epic. |
-
-**That second failure is the loop closing.** A plan that cannot be made dispatchable in two
-passes is not a planning problem — it is an absent specification wearing a DAG. It goes to
-`/requirements` with the owner, which is the only thing that can actually fix it, and the
-analyst's findings are the agenda for that conversation.
-
-**The governor is the analyst's own, and it matters here.** A plan with gaps **written down**
-— as `## Open questions`, as a `decision` task, as a stated deferral on the task — is a PASS.
-A plan with the same gaps **silent** is a FAIL, because silence is what gets built over. Do not
-let this become a completeness ritual that blocks every real plan.
-
-**`MODE=auto` does not skip it.** Self-approving a plan is exactly when an independent read of
-its quality is worth most — the whole risk that mode carries is that the architecture and the
-DAG you accept are what every worker then follows.
-
-**Gate — `MODE=interactive`:** same precedence (§3g) — queue it unless the whole queue is dry.
-When you do ask, render the DAG, the contention matrix and the revision plan **verbatim**,
-together with 3a's design in the *same* question, surfacing `decision` tasks first and calling
-out deletions explicitly.
-**Gate — `MODE=auto`:** approve and apply, unless the plan leaves an unresolved contention
-edge or surfaces a `decision` task — either parks the epic.
-
-**Record the verdict on the epic before you apply anything** — it is a required field, and its
-absence is what a later run reads as "this plan was never audited":
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <epic> --append-notes "AUDIT: PASS|FAIL <date> — <findings, or 'clean'>"
-```
-
-### 3e. Apply the plan — one call
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/swarm/apply-plan.sh <the planner's --digest output file> --epic <epic> --dry-run   # the preview
-${CLAUDE_PLUGIN_ROOT}/harness/swarm/apply-plan.sh <the planner's --digest output file> --epic <epic> \
-    --render <paths.proposed>/<epic>-<slug>/tasks.md                                                   # the apply
-```
-
-The planner's command block carries labels (`T1: … create …`, `dep T2 T1`); the script
-validates the whole plan first — an unknown label, a `--graph`, a positional `close` — and
-writes nothing if any line is wrong, then runs the lines in order, resolves every label to
-the id the tracker returned, echoes each, and records the map under `.harness/run/` so a
-rerun after a failure skips what already exists. It ends with `validate` and the render
-(3f), so one call replaces the ten to thirty you made before, each at your context's price.
-Never `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create --graph`: `--dry-run` is silently ignored on that path, so a
-malformed plan writes real tasks with no preview — the script refuses it.
-
-**Decision-record numbers are allocated BEFORE the planner runs, not while applying** — one
-`ls <paths.adrs>` gives the next free number; put it in the planner's prompt so its plan
-carries it. Never leave a worker to pick one; two streams picking independently have already
-collided that way.
-
-### 3f. Validate — done by the apply
-
-`apply-plan.sh` runs `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh validate <epic>` and, with `--render`, regenerates the
-epic's readable view (`tasks.md` in the staging folder — GENERATED, regenerate it, never edit
-it). Read its last lines: no cycles or orphans, the waves and max parallelism — **and restate
-that the number ignores file contention.** That is precisely how an epic reads as 11-wide
-when its file graph supports about two.
+**The index is a regenerated cache, not a maintained artefact.** Copying spec prose into the
+epic or the index manufactures this repo's most expensive defect class — two accepted
+documents disagreeing, silently. A stale *pointer* is a grep away. The task record also has
+a ~64KB ceiling past which `tk.sh note` hard-fails; harvesting would reach it on epics that
+have not started.
 
 ## 3g. Approval precedence — never block while work remains
 
@@ -743,23 +309,17 @@ time it fires the time is spent. The only fix is to **not ask while anything is 
 early suspends the orchestrator while other epics still have ready tasks — the same stall,
 just later in the run.
 
-**Queue an approval like this.** The architect and planner still run; only the *asking* moves:
+**`plan-epic.sh` exits 6 at each approval and holds its place in its state file** — the design
+at the design gate, the DAG at the DAG gate — so the *asking* moves without anything being
+lost: render the artefact it names, ask when step 3 is reached, and continue with the
+`--from` it printed. **Nothing is applied and nothing is built from an unapproved plan.** When
+you do ask, the owner sees every pending design and DAG together, which reviews better than
+the same content as eight interruptions. With a healthy queue — several open epics and a lane
+with tasks ready — **step 3 should rarely be reached.**
 
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <epic> --append-notes "ARCHITECTURE (AWAITING APPROVAL): <design>"
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <epic> --append-notes "PLAN (AWAITING APPROVAL): <DAG + contention matrix + revision plan>"
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh label add <epic> awaiting-approval
-```
-
-**Nothing is applied and nothing is built from an unapproved plan** — no `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create`, no
-`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh delete`, no dispatch. When you do ask at step 3, the owner sees every pending design and
-DAG together, which reviews better than the same content as eight interruptions.
-
-With a healthy queue — several open epics and a lane with tasks ready — **step 3 should rarely
-be reached.**
-
-`MODE=auto` never enters this precedence — it self-approves at 3b/3c. Its parking conditions
-remain the `decision`-task hard line and the circuit breakers.
+`MODE=auto` never enters this precedence — it self-approves at both gates. Its parking
+conditions remain the `decision`-task hard line, an ABSENT specification, and the circuit
+breakers.
 
 ## 4. Wave loop — until this epic has no ready children
 

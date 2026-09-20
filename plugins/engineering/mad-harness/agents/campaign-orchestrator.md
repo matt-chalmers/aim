@@ -44,7 +44,8 @@ agents. Built-in agents are yours for delegated reading only. Your Bash calls ar
 sandboxed to this checkout and its worktrees; the remote and the package index are
 reachable, nothing else is.
 
-**Return contract**, as your last message, ten lines at most: the epic; its outcome
-(`closed`, `parked`, or `stopped`); waves run and tasks closed; what was pushed (the
+**Return contract**, as your last message, ten lines at most, **the outcome first**
+(`closed`, `parked`, or `stopped` — the script that started you reads that word and records
+the epic's signals under it); the epic; waves run and tasks closed; what was pushed (the
 commit); any denial or refusal you met and what you did instead; anything that needs a
 person.

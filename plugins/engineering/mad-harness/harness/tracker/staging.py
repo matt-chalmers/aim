@@ -15,6 +15,8 @@ and names what it tried.
 
 from __future__ import annotations
 
+import datetime as _dt
+import re as _re
 from pathlib import Path
 
 from .port import TaskStore
@@ -80,3 +82,122 @@ def resolve_epic(store: TaskStore, epic: str) -> str | None:
     suffix = f"-{epic}"
     candidates = [t.id for t in store.list(type="epic") if t.id.endswith(suffix)]
     return candidates[0] if len(candidates) == 1 else None
+
+
+# --- the writes: what §3 stages, and the next decision-record number ----------------
+#
+# Until 0.10.26 every one of these was the orchestrator's by hand: compute the folder name
+# (and get it wrong in the direction `close_epic._staging` later refuses), copy the
+# template, paste the agent's result, allocate an ADR number with `ls` + max + 1 (a
+# recorded collision: "two streams picking independently"). The reads above resolved the
+# folder; nothing wrote into it.
+
+ADR_NAME = _re.compile(r"^(?P<n>\d{4})-")
+
+
+def slug_for(title: str, limit: int = 40) -> str:
+    """`Add rate limiting to login` → `add-rate-limiting-to-login`."""
+    s = _re.sub(r"[^a-z0-9]+", "-", (title or "").lower()).strip("-")
+    return s[:limit].rstrip("-") or "epic"
+
+
+def bare_id(epic: str, prefix: str | None = None) -> str:
+    """The folder-naming form: the id without its prefix, which is how folders are named."""
+    prefix = prefix if prefix is not None else known_prefix()
+    if prefix and epic.startswith(prefix + "-"):
+        return epic[len(prefix) + 1:]
+    return epic
+
+
+def ensure_folder(epic: str, proposed: Path, title: str = "", prefix: str | None = None) -> Path:
+    """The epic's staging folder, found or created as `<bare-id>-<slug>`."""
+    folder, _ = staged_folder(epic, proposed, prefix)
+    if folder is not None:
+        return folder
+    folder = proposed / f"{bare_id(epic, prefix)}-{slug_for(title)}"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def template(proposed: Path, kind: str) -> str | None:
+    """`<proposed>/_template-<kind>.md`, or None — a missing template is said by the caller,
+    never silently replaced with an invented shape."""
+    p = proposed / f"_template-{kind}.md"
+    return p.read_text() if p.is_file() else None
+
+
+def _head_sha(cwd: Path) -> str:
+    import subprocess
+
+    proc = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(cwd), capture_output=True, text=True)
+    return proc.stdout.strip() if proc.returncode == 0 else "0000000"
+
+
+def stage_spec_index(folder: Path, epic: str, *, verdict: str, body: str, cites: list[str], cwd: Path, title: str = "") -> Path:
+    """`spec-index.md` with the frontmatter `spec-index-status.sh` reads — `generated_sha`
+    (the diff baseline), `generated_at`, `verdict`, `cites` — and the survey's SPEC INDEX
+    as the body. Pointers only: the caller hands over the survey's index section, never
+    spec prose."""
+    lines = ["---", f"epic: {epic}", f"generated_at: {_dt.date.today().isoformat()}", f"generated_sha: {_head_sha(cwd)}", f"verdict: {verdict}", "cites:"]
+    lines += [f"  - {c}" for c in cites] if cites else ["  []"]
+    lines += ["---", "", f"# Spec index — {epic} {title}".rstrip(), "",
+              "> **A regenerated cache, not a source.** `analyst-survey` rebuilt it; it tells you where",
+              "> to look, the doc tells you what is true. Never read a requirement from this file.",
+              "", body.strip(), ""]
+    path = folder / "spec-index.md"
+    path.write_text("\n".join(lines))
+    return path
+
+
+def cites_in(text: str, cwd: Path) -> list[str]:
+    """Every project-relative path the text names that exists — the survey's `cites`."""
+    seen: list[str] = []
+    for m in _re.finditer(r"(?<![\w./-])((?:[\w.-]+/)+[\w.-]+\.(?:md|py|ts|tsx|js|yaml|yml|json))(?![\w/])", text or ""):
+        p = m.group(1).strip("`'\",.;:()")
+        if p not in seen and (cwd / p).is_file():
+            seen.append(p)
+    return seen
+
+
+def stage_design(folder: Path, epic: str, text: str, *, title: str = "", proposed: Path | None = None) -> Path:
+    """`design.md` — the architect's output, under the template's header when the output
+    does not already carry a `# Design` title. Status `draft`; fold-in ② at §5 routes it."""
+    path = folder / "design.md"
+    body = text.strip()
+    if not body.lstrip().startswith("# Design"):
+        head = [f"# Design: {title or epic}", "", f"> **Epic**: {epic} — {title}".rstrip(" —"), "> **Status**: draft",
+                "> **Folds in at epic close** — the *why* to a decision record, the *mechanism* to an architecture doc,",
+                "> any contract change to the owning feature doc. Then this file is **deleted**.", ""]
+        body = "\n".join(head) + "\n" + body
+    path.write_text(body + "\n")
+    return path
+
+
+def draft_adr(folder: Path, epic: str, question: str, task_id: str, *, proposed: Path | None = None) -> Path:
+    """A draft decision record beside the design, one per `decision` task the architect
+    raised. No number until the owner decides; nothing may cite it as settled."""
+    n = 1 + len(list(folder.glob("adr-draft-*.md")))
+    path = folder / f"adr-draft-{n}-{slug_for(question, 30)}.md"
+    tmpl = template(proposed, "adr-draft") if proposed else None
+    if tmpl:
+        body = tmpl.replace("{the decision, as a question or a statement}", question)
+        body = _re.sub(r"\{[^}]*xxxx\}", epic, body, count=1)
+        body = body.replace("{TipDonkey-xxxx} — the `DECISION:` bead this resolves", f"{task_id} — the `DECISION:` task this resolves")
+    else:
+        body = "\n".join([f"# ADR-XXXX: {question}", "", "**Status**: Proposed — awaiting owner decision", f"**Epic**: {epic}", f"**Task**: {task_id}", "",
+                          "> **Draft** — staged; not an ADR yet, and nothing may cite it as settled.", "", "## Context", "", "## Options considered", "", "## Decision", "", "(open)", ""])
+    path.write_text(body if body.endswith("\n") else body + "\n")
+    return path
+
+
+def adr_next(adrs: Path) -> int:
+    """The next free decision-record number: max of `NNNN-*.md` in `paths.adrs`, plus one.
+    Allocated ONCE, by the sequencer, before the planner runs — never by a worker, and
+    never by two streams independently (the recorded collision)."""
+    n = 0
+    if adrs.is_dir():
+        for p in adrs.glob("*.md"):
+            m = ADR_NAME.match(p.name)
+            if m:
+                n = max(n, int(m.group("n")))
+    return n + 1

@@ -278,6 +278,8 @@ def build_parser() -> argparse.ArgumentParser:
     # outstanding owner decision that unblocks the most work"; its text had the orchestrator
     # compute that from up to fifty `show` + `ready --parent` calls, and in practice it
     # sampled three. The DAG is in graph.py; this walks it once.
+    add("adr-next", help="the next free decision-record number in paths.adrs — allocated here, once, never by a worker")
+
     p = add("decisions", help="open decisions, ranked by the work each unblocks (--rank) — transitive dependents, epics parked on it")
     p.add_argument("--rank", action="store_true", help="most-unblocking first (the default order is the tracker's)")
     p.add_argument("--limit", type=int, default=None)
@@ -612,6 +614,18 @@ def main(argv: list[str] | None = None) -> int:
                 _rows(store.gate_list(), getattr(args, 'json', False))
             else:
                 store.gate_resolve(args.target)
+        elif v == "adr-next":
+            from models.project import ProjectError, load
+            from models.resolve import REPO
+            from tracker.staging import adr_next
+
+            try:
+                adrs = (load().paths or {}).get("adrs")
+            except ProjectError as exc:
+                raise TrackerError(str(exc)) from exc
+            if not adrs:
+                raise TrackerError("harness.yaml declares no paths.adrs — nowhere to number a decision record")
+            print(f"{adr_next(REPO / adrs):04d}")
         elif v == "decisions":
             from tracker.graph import rank_decisions
 

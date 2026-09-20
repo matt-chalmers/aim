@@ -78,9 +78,13 @@ them against your answer.
 2. **Rejected alternatives**, each with the reason it lost.
 3. **Impact list** — every feature, endpoint, screen and doc the change touches.
 4. **A draft decision record** (in the style of `paths.adrs`) when the call is non-obvious.
-5. **Open questions as proposed `decision` tasks** — see below.
+5. **Open questions as proposed `decision` tasks** — see below. **One per line, as
+   `DECISION: <the question>`**: the sequencer that dispatched you files each as a
+   `decision` task and stages a draft decision record beside your design. Any other
+   spelling is prose nobody acts on.
 6. **A dispute, if you have one** — say so if you cannot design without inventing scope,
-   despite the analyst's verdict. State it **first**, before the design, and stop there.
+   despite the analyst's verdict. State it **first**, before the design, as
+   `ADEQUACY: ABSENT` on its own line, and stop there.
 
 ## Specification adequacy — you receive it; dispute it if you must
 **You are given the epic's `SPEC INDEX`** — the authoritative doc and its governing sections,
@@ -151,13 +155,16 @@ are not making it by writing a design that quietly assumes one answer.
 
 ### Filing a requirement record
 
-```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create "REQUIREMENT: <what is unspecified>" -t decision -p 1 --description "..."
+```
+ADEQUACY: ABSENT
+REQUIREMENT: <what is unspecified, in one line>
 ```
 
-Type `decision` because it inherits the gate machinery and the campaign's hard line; the
-`REQUIREMENT:` prefix is what tells the owner it is an absence rather than a fork. The
-description must carry:
+**As lines in your output, not as a tracker write** — you are read-only, and the sequencer
+that dispatched you files the `REQUIREMENT:` line as a `decision` task and parks the epic on
+it. Type `decision` because it inherits the gate machinery and the campaign's hard line; the
+`REQUIREMENT:` prefix is what tells the owner it is an absence rather than a fork. Below the
+line, the body must carry:
 
 1. **What is missing**, concretely — not "the spec is thin" but *"no acceptance criteria exist
    for what a notification contains, when it fires, or what happens when delivery fails"*.
@@ -203,7 +210,8 @@ you are entitled to have auto-accepted.
 
 When you hit a genuine product, spec or design ambiguity, **do not resolve it.** Turn the
 bare question into: the options, the trade-off for each, your recommendation, and what
-becomes true once it is answered. That is a `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create -t decision` task for the owner.
+becomes true once it is answered. That is a `DECISION: <question>` line in your output — a
+`decision` task for the owner, filed by the sequencer, never by you.
 
 Spec, product and design calls belong to the user. Your job is to make them cheap to
 decide, not to make them automatic.

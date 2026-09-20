@@ -1121,3 +1121,38 @@ heartbeats.** No config change.
   `ready --parent` calls to compute by hand, and in practice three were sampled.
 
 - **mechanical** — re-stamp `harness.version`, when convenient.
+
+### 0.10.26
+
+**Deterministic steps out of the prose, part 8: the §3 sequencer.** No config change.
+
+- **What was wrong.** campaign-loop §3 — survey, fold-in ①, architect, planner, audit,
+  apply — was 500 lines and twenty to thirty tool calls per epic at the orchestrator's
+  context price, every hop the same: write a prompt naming the previous artefact's path,
+  dispatch, read a verdict line, branch. Two copies of the ADEQUATE/INFERABLE/ABSENT table
+  had drifted; the audit-retry counter lived in the orchestrator's head; the `ADEQUACY:`
+  and `AUDIT:` notes signal ①d exists to count were the lines most often skipped; the
+  DELTA survey's `--stamp` was a separate step, so a DELTA re-fired forever; the design was
+  staged by hand into a folder the close-out gate later refused; the ADR number was
+  `ls` + max + 1 (a recorded collision); and `/plan-swarm` still applied plans one line at
+  a time with `apply-plan.sh` a year old. The judgement is entirely inside the five agents.
+- **`plan-epic.sh`** runs the sequence with a state file (`.harness/run/plan-epic-<epic>.json`)
+  that makes `--from <stage>` a resume. `MODE=interactive` exits 6 at the design gate and
+  the DAG gate with the artefact's path and the `--from` that continues; `MODE=auto`
+  self-approves and parks on the two things auto-accept never covers — an ABSENT
+  specification and an open `decision`. A dispatch that hung, was denied, or returned no
+  verdict is "could not judge" and approves nothing. Every dispatch is fresh; a planner
+  revision carries the audit's findings by path. The survey's SPEC INDEX is staged as
+  `spec-index.md` with `generated_sha`/`cites` frontmatter (what makes REUSE/DELTA
+  mechanical); a DELTA stamps its baseline; the design is staged with a draft decision
+  record per `DECISION:` line; `tk.sh adr-next` allocates the number once.
+- **Agent contracts, made machine-readable.** The architect and planner put each open
+  question on its own `DECISION: <question>` line and a missing requirement as
+  `REQUIREMENT: <what>` with `ADEQUACY: ABSENT` first — the sequencer files them. The
+  architect's "filing a requirement record" section used to show it running `tk.sh create`,
+  a read-only agent writing the tracker; it emits the line now.
+- **`stage-design.sh`** for `/design`; `/plan-swarm` applies with `apply-plan.sh`;
+  `campaign.sh`'s per-epic prompt names the sequencer and reads the outcome from the
+  return contract's first line. The skill went from 1,148 lines to 615.
+
+- **mechanical** — re-stamp `harness.version`, when convenient.

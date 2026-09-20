@@ -61,13 +61,23 @@ can ask the question later.
 
 ## 5. Create the tasks — from the main thread, not the planner
 
-Run the `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create` / `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh dep` lines one at a time, echoing each new id.
+```bash
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/apply-plan.sh <the planner's --out result file> --epic <id> --dry-run     # the preview
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/apply-plan.sh <the planner's --out result file> --epic <id> --render <paths.proposed>/<id>-<slug>/tasks.md
+```
 
-**Decision-record numbers are allocated here, by the main thread, at creation time** — list
-the decisions directory (`harness.yaml` → `paths.adrs`), take the next number, and write it
-into the task description. **Never leave a worker to pick one.** Two streams picking
-independently has collided in practice, costing a renumber and stale references across code,
-docs, tasks and memories.
+One call: the whole plan validated first — an unknown label, a `--graph`, a positional
+`close` — and nothing written if any line is wrong; then every `T1:`-labelled line run in
+order with labels resolved to the ids the tracker returned, the map kept under
+`.harness/run/` so a rerun after a failure skips what exists; `validate` and the view at the
+end. This section used to say "run the lines one at a time, echoing each new id" — ten to
+thirty calls at your context's price, and the partial-application state the script exists
+to prevent.
+
+**Decision-record numbers are allocated BEFORE the planner runs** — `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh adr-next`
+gives the next free number; put it in the planner's prompt so its plan carries it. **Never
+leave a worker to pick one.** Two streams picking independently has collided in practice,
+costing a renumber and stale references across code, docs, tasks and memories.
 
 Never use `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create --graph`: `--dry-run` is silently ignored on that path, so a
 malformed plan writes real tasks with no preview.

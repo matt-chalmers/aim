@@ -78,7 +78,9 @@ def prompt_for(epic: dict[str, Any]) -> str:
         f"Run the campaign loop, MODE=auto, for epic `{epic['id']}` — {epic.get('title', '')} — and no other.\n"
         f"§0 pre-flight, §1 (the queue) and §2 (triage) have been done by the script that started you, and\n"
         f"the epic's lease is held for you.{triage}\n"
-        f"Do §3 through §6 for this epic only, then stop with the return contract. If the epic parks, say so and stop.\n"
+        f"Do §3 through §6 for this epic only — §3 is one call, `plan-epic.sh {epic['id']} --mode auto"
+        + (f" --triage {epic['triage']}" if epic.get("triage") else "") + "` — then stop with the return contract,\n"
+        "its first line the outcome: closed, parked or stopped. If the epic parks, say so and stop.\n"
     )
 
 

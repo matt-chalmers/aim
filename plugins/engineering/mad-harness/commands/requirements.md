@@ -290,9 +290,9 @@ are not.
    architecture docs, decision records, and the corpus-index rows fold-in will need. Fold-in
    should be mechanical; a doc nobody named is a doc nobody edits, and a feature absent from the
    index is invisible to every future agent.
-3. **A decision the owner settled here is a decision record now** — in `paths.adrs`, at the
-   next free number. Never let a worker pick the number; two streams picking independently have
-   collided before. A decision left **open** is a `decision` task plus a **draft record** under
+3. **A decision the owner settled here is a decision record now** — in `paths.adrs`, at
+   `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh adr-next` (the next free number, computed once). Never let a
+   worker pick the number; two streams picking independently have collided before. A decision left **open** is a `decision` task plus a **draft record** under
    `paths.proposed`; nothing may cite that as settled, and the proposal is not `ready to fold
    in` while any remain.
 4. **Record the answers verbatim on the task**, in the owner's exact words:

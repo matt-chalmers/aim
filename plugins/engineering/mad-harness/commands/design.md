@@ -52,22 +52,26 @@ Never accept a design on the user's behalf, and never answer a `decision` yourse
 
 ## 4. Record it where a worker can actually see it
 
-Workers inherit no conversation history, so a design that lives only here evaporates.
-On acceptance, write it to **`<paths.proposed>/<epic-id>-<slug>/design.md`** from that directory's design template, and record a pointer on the task from the main thread:
+Workers inherit no conversation history, so a design that lives only here evaporates. On
+acceptance, one call:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh update <id> --append-notes "ARCHITECTURE: design staged at <paths.proposed>/<epic-id>-<slug>/design.md — <one-line approach>"
+${CLAUDE_PLUGIN_ROOT}/harness/swarm/stage-design.sh <id> <the architect's --out result file>
 ```
 
-Use `--append-notes`. **Do not use `--design`** — that field is write-only, absent from
-both `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh show` and `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh show --json`, and set on almost no tasks in practice. `notes` round-trips.
+It writes **`<paths.proposed>/<epic-id>-<slug>/design.md`** (the folder found or created by
+the rule `close-epic.sh` later retires it by — computing that name by hand was how an epic
+reached §5 with a folder the gate could not find), files a `decision` task for every
+`DECISION:` line the architect wrote and stages a draft decision record beside the design
+for each, and records the pointer on the task with `--append-notes`. **Do not use
+`--design`** — that field is write-only, absent from `tk.sh show`, and set on almost no
+tasks in practice; `notes` round-trips.
 
 **The note is the pointer; the file carries the content.** A design recorded only as a task
 note disappears when the epic closes, taking the reasoning every later reader needs with it.
 The file folds in at **fold-in ②** — `campaign-loop` §5 — routed by content (a non-obvious
 choice to an ADR, a reusable mechanism to an architecture doc, a changed contract to the
-feature doc) and is deleted then. The proposed directory must be empty for the epic before it
-closes. See the `spec-lifecycle` skill.
+feature doc) and is deleted then. See the `spec-lifecycle` skill.
 
 Every decision this design raises — settled or not — gets a row in the epic's
 `<paths.proposed>/<epic-id>-<slug>/decisions.md`, from that directory's decisions template.
@@ -76,12 +80,9 @@ Every decision this design raises — settled or not — gets a row in the epic'
 this epic existed where they bind it: that is exactly the context the next reader cannot
 reconstruct, and `analyst-survey` treats a closed decision as settled, not irrelevant.
 
-If it surfaced a decision the owner has not settled, open a **draft decision record** at
-`<paths.proposed>/<epic-id>-<slug>/adr-<slug>.md` from that directory's draft template, paired
-with the `decision` task. **Nothing may cite a draft as settled** — it has no number until the
-owner decides, and on resolution it is `git mv`d into `paths.adrs`.
-If it surfaced a decision the user did not settle, file `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh create -t decision` and make
-the dependent work depend on it.
+**Nothing may cite a draft decision record as settled** — it has no number until the owner
+decides, and on resolution it is `git mv`d into `paths.adrs` at `tk.sh adr-next`. Make the
+dependent work depend on the `decision` task.
 
 ## 5. Hand off
 

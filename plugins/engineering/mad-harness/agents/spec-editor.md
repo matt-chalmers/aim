@@ -111,8 +111,8 @@ already says where each part lands. Route by content, then delete the file:
 | a mechanism others will reuse | the owning `<paths.architecture>/<doc>.md` |
 | a changed contract | the owning feature doc |
 
-A **resolved** draft decision record is `git mv`d into `paths.adrs` as `NNNN-<slug>.md` — next free number
-(list `paths.adrs` and take the next; never guess — two streams have collided that way) — with
+A **resolved** draft decision record is `git mv`d into `paths.adrs` as `NNNN-<slug>.md` — the number
+from `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh adr-next`; never guess, two streams picking independently have collided — with
 `**Status**: Accepted` and `## Decision` filled in from the owner's settlement. It *moves* rather
 than merging, because an decision record is a standalone append-only file while a proposal is an edit into
 shared prose.

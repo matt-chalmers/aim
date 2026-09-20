@@ -220,8 +220,9 @@ exists for.
    ${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh dep T2 T1
    ```
 
-5. Open questions as proposed `decision` tasks — as TEXT, outside the command blocks. A decision is
-   not a task's blocker but the epic's: the main thread files it and parks the epic on it
+5. Open questions as proposed `decision` tasks — as TEXT, outside the command blocks, **one
+   per line as `DECISION: <the question>`**. A decision is not a task's blocker but the
+   epic's: the sequencer files each line as a `decision` task and parks the epic on it
    (`tk.sh park <epic>`, the loop's hard line), and a `dep` from a task onto a decision
    reads as an orphan to `validate`, because a decision is never one of the epic's children.
 
