@@ -1275,12 +1275,42 @@ config note: a stack may now declare `bootstrap.strategy: none`.
   design and spec index were committed on a park but not on success: it syncs on both.
   Eighteen turns parked by hand — four attempts at `tk.sh release`, the sync, the sweep, a
   run log, a commit, a push — where `halt.sh pause` is one call; the hard line now names it.
-- **The measurement the series owed.** `harness/wavelab/ab.sh release` A/Bs two plugin
-  commits (default: 0.10.18 against HEAD); `--orchestrated` runs one headless
-  `campaign-orchestrator` per arm and records its turns and cost per epic. The lab epic
-  now carries an owner's settlement of the two questions a careful architect raises
-  (the fixture, non-str values), so a run measures waves and not a park. Numbers below
-  once the series has run.
+- **Two more from the run that produced the numbers.** `merge-wave.sh` refused every
+  wave's merge on the tree pre-flight's own `autosync off` dirties (`.beads/config.yaml`)
+  — the orchestrator committed the flag one run and set skip-worktree the next; paths the
+  tracker owns are now named as residue and ignored, and anything else still refuses. And
+  `campaign.sh` filed a session it had refused one `Read` as `stopped` although its first
+  line said `**parked**` and the epic was parked: the outcome is the first line, whatever
+  the exit code; `stopped` is a session that left none.
+- **The measurement the series owed** — `harness/wavelab/ab.sh release --orchestrated`,
+  the same seeded epic (3 tasks, 2 waves, an owner's settlement noted on it), one headless
+  `campaign-orchestrator` per arm, one run each, one hour each. **n = 1 in a system with a
+  measured 30× variance on identical tasks: the direction is a finding, the size is not.**
+
+  | | 0.10.18 (`e2fa8d5d`) | this release (`d198885`) |
+  |---|---|---|
+  | orchestrator requests · tool calls | 87 · 166 (killed at the hour, mid-wave) | 86 · 85 (finished, 54 min) |
+  | orchestrator cache-read tokens | 10.07M | 6.95M (**−31%**) |
+  | orchestrator cost | ≈ $7.9 (from its transcript, same rates) | $5.40 (**−32%**) |
+  | agents | $12.86 / 19 dispatches | $14.87 / 17 dispatches |
+  | writers per run | $1.59 | $1.08 (−32%; the dispatcher-assembled prompt) |
+  | lenses | 4 of 13 ended `ok:false` (denied) and their verdicts were accepted | 8 of 8 first-pass PASS, none void |
+  | landed | 2 closed (both resting on a void L2), a 3rd in its 2nd round | 1 closed, 1 verified and merged, held by a permission record |
+  | epic total | ≥ $20.8 (a floor) | $20.27 |
+
+  What the orchestrator's hour was spent on is the finding the totals hide: ~90 by-hand
+  mechanics before (21 `dispatch.sh`, 22 prompt files, 13 notes, 4 briefs, the merge,
+  the slot, the claims, the lease, the checks) became 24 script calls after; the after
+  arm spent the difference reading artefacts and, until the last two commits above,
+  polling, `--help` and by-hand parking. The old orchestrator batched several tool calls
+  per request, so requests fell far less than calls. The epic's total cost did not move
+  — the lenses now run to completion (L2 spot-re-runs mutants instead of being voided)
+  and cost what they cost — while what it bought did: no close rests on a verdict a
+  denied lens wrote. Fifteen defects were found by the rig before the two comparable
+  runs existed, all in the headless path nothing but a live orchestrator exercises;
+  each is above with its test. What is still owed: runs, not one — `--runs 3` on both
+  arms, and the same on a TipDonkey epic where the orchestrator's context is 3–4× the
+  lab's and each request costs accordingly.
 
 - **mechanical** — re-stamp `harness.version`, when convenient:
   `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`.

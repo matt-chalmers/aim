@@ -216,6 +216,28 @@ def test_a_lease_that_cannot_be_taken_skips_the_epic_without_a_dispatch(capsys):
     assert "lease for E-1 not acquired" in capsys.readouterr().out
 
 
+def test_a_not_ok_dispatch_that_states_its_outcome_is_filed_by_that_outcome():
+    """Measured: an orchestrator refused one Read was not-ok (exit 1), and the epic it had
+    PARKED — gate written, status blocked, pushed — was recorded as `stopped`."""
+    def script(name, argv):
+        if name == "tk.sh" and argv[1] == "lease":
+            return 0, "ok", ""
+        if name == "dispatch.sh":
+            return 1, "**parked** — E-1 on decision D-1; gate G-1.\n- Waves run: 2. Tasks closed: 1.\n", ""
+        raise AssertionError(name)
+
+    r = mod.run_epic({"id": "E-1", "title": ""}, runner=_runner(script))
+    assert r["exit"] == 1 and r["outcome"] == "parked"
+    def silent(name, argv):
+        if name == "tk.sh" and argv[1] == "lease":
+            return 0, "ok", ""
+        if name == "dispatch.sh":
+            return 2, "", "FAIL: dispatch exceeded 3600s"
+        raise AssertionError(name)
+
+    assert mod.run_epic({"id": "E-1", "title": ""}, runner=_runner(silent))["outcome"] == "stopped"
+
+
 def test_the_lease_is_released_in_a_finally_even_when_the_dispatch_raises():
     seen = []
 

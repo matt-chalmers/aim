@@ -74,6 +74,24 @@ def sort_key(branch: str) -> tuple:
     return tuple((int(x) if x.isdigit() else x) for x in re.split(r"(\d+)", t))
 
 
+def _tracker_owned(runner, cwd: str) -> tuple[str, ...]:
+    """The backend's owned paths (`tk.sh backend --json`), or none when it cannot say."""
+    raw = execute([str(TK), "backend", "--json"], cwd=cwd, runner=runner)
+    if not raw.ran or raw.returncode != 0:
+        return ()
+    try:
+        doc = json.loads(raw.stdout)
+    except (ValueError, TypeError):
+        return ()
+    return tuple(str(p) for p in (doc.get("owned_paths") or []))
+
+
+def _under(path: str, prefixes: tuple[str, ...]) -> bool:
+    if " -> " in path:
+        path = path.split(" -> ", 1)[1]
+    return any(path.startswith(pfx) for pfx in prefixes)
+
+
 def preconditions(branches: list[str], runner, cwd: str) -> tuple[list[Result], str | None]:
     """Every branch is a ref; the tree is clean. Refused BEFORE the slot is taken."""
     out: list[Result] = []
@@ -84,11 +102,21 @@ def preconditions(branches: list[str], runner, cwd: str) -> tuple[list[Result], 
         else:
             out.append(Result(f"ref {b}", OK, raw.stdout.strip()[:12]))
     raw = execute(["git", "status", "--porcelain"], cwd=cwd, runner=runner)
-    dirty = [ln for ln in (raw.stdout if raw.ran else "").splitlines() if ln.strip()]
+    lines = [ln for ln in (raw.stdout if raw.ran else "").splitlines() if ln.strip()]
+    # THE TRACKER'S OWN RESIDUE IS NOT SOMEONE'S WORK. This check exists so a merge never
+    # lands on a session's uncommitted edits; but pre-flight's `autosync off` rewrites the
+    # backend's config (`.beads/config.yaml`, under its owned paths) for the whole run, and
+    # `close-wave.sh` deliberately never commits it — so every wave's merge was refused and
+    # the orchestrator either committed the flag (recording `export.auto: false`, the state
+    # the restore then fights) or set skip-worktree by hand (measured, both). Paths the
+    # tracker owns are named, not counted.
+    owned = _tracker_owned(runner, cwd)
+    dirty = [ln for ln in lines if not _under(ln[3:], owned)]
+    residue = [ln for ln in lines if _under(ln[3:], owned)]
     if not raw.ran or raw.returncode != 0 or dirty:
         out.append(Result("git status --porcelain", FAIL, f"{len(dirty)} path(s) dirty — a merge onto a dirty tree loses work:\n" + "\n".join(dirty[:8]) if dirty else failure_detail(raw)))
     else:
-        out.append(Result("git status --porcelain", OK, "clean"))
+        out.append(Result("git status --porcelain", OK, "clean" + (f" (tracker residue ignored: {', '.join(ln[3:] for ln in residue)})" if residue else "")))
     head = execute(["git", "rev-parse", "HEAD"], cwd=cwd, runner=runner)
     base = head.stdout.strip() if head.ran and head.returncode == 0 else None
     return out, base

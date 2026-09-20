@@ -26,6 +26,7 @@ class Runner:
         self.answers = {
             "git rev-parse": (0, "abc123def456\n", ""),
             "git status": (0, "", ""),
+            "tk.sh backend": (0, '{"name": "beads", "owned_paths": [".beads/"], "export_path": ".beads/issues.jsonl"}\n', ""),
             "tk.sh slot-acquire": (0, "", ""),
             "tk.sh slot-release": (0, "", ""),
             "tk.sh slot-check": (0, '{"free": false, "holder": "w9", "stale": true}\n', ""),
@@ -118,6 +119,22 @@ def test_a_dirty_tree_refuses_before_the_slot():
     r = Runner(git_status=(0, " M src/y.py\n", ""))
     text, code, _ = go(r, ["harness-w1-T-1"])
     assert code == 2 and "dirty" in text and "tk.sh slot-acquire" not in r.keys()
+
+
+def test_the_trackers_own_residue_is_not_dirt_but_a_source_change_beside_it_still_is():
+    """Measured: pre-flight's `autosync off` rewrites .beads/config.yaml for the run, and
+    every wave's merge was refused — the orchestrator committed the flag or set
+    skip-worktree by hand. Owned paths are named and ignored; anything else still refuses."""
+    r = Runner(git_status=(0, " M .beads/config.yaml\n", ""))
+    text, code, _ = go(r, ["harness-w1-T-1"])
+    assert code != 2 and "tracker residue ignored: .beads/config.yaml" in text
+    assert "tk.sh slot-acquire" in r.keys()
+    r = Runner(git_status=(0, " M .beads/config.yaml\n M src/y.py\n", ""))
+    text, code, _ = go(r, ["harness-w1-T-1"])
+    assert code == 2 and "1 path(s) dirty" in text and "src/y.py" in text
+    r = Runner(**{"git status": (0, " M .beads/config.yaml\n", ""), "tk.sh backend": (1, "", "no backend")})
+    text, code, _ = go(r, ["harness-w1-T-1"])
+    assert code == 2, "a backend that cannot say what it owns leaves the strict rule in force"
 
 
 def test_a_held_slot_is_reported_with_its_holder_and_nothing_merges():

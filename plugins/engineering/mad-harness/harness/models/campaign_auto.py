@@ -158,7 +158,13 @@ def run_epic(epic: dict[str, Any], *, runner: Runner | None = None, cwd: Path = 
         "digest": digest,
         "stderr_tail": "\n".join((proc.stderr or "").strip().splitlines()[-4:]),
         "result": str(out_file) if out_file.exists() else None,
-        "outcome": outcome_of(digest) if proc.returncode == EXIT_OK else ("stopped" if proc.returncode != EXIT_OK else "closed"),
+        # THE FIRST LINE, EVEN WHEN THE DISPATCH IS NOT-OK. A session denied one tool
+        # anywhere in its hour is not-ok (the dispatcher's rule), and this used to file
+        # its outcome as `stopped` regardless — measured: an epic the orchestrator PARKED
+        # (gate written, status blocked, pushed) recorded as stopped, because it had been
+        # refused one Read. The digest's first line is the contract; a session that left
+        # no readable outcome is what `stopped` means.
+        "outcome": outcome_of(digest),
     }
 
 
