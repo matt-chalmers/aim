@@ -294,7 +294,8 @@ def test_a_non_anthropic_tier_is_exempt_from_the_mirror_and_says_so(monkeypatch,
     """The frontmatter has no provider field: stamping a `qwen/...` id into `model:` would
     hand it to Anthropic on the native path. sync() leaves such an agent alone and main()
     prints the exemption instead of failing it as drift."""
-    from models import check_config, resolve as mod
+    from models import check_config
+    from models import resolve as mod
 
     shipped = load_config(merge_project=False)
     cfg = {**shipped, "tiers": {**shipped["tiers"], "worker": {**shipped["tiers"]["worker"], "provider": "deepseek", "model": "deepseek-v4"}}}
