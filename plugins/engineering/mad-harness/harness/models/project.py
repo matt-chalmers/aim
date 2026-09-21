@@ -350,6 +350,56 @@ class Project:
             raise ProjectError(f"dispatch: unknown key(s) {', '.join(sorted(unknown))}")
         return out
 
+    def model_config(self) -> dict[str, Any]:
+        """The project's patch over tiers.yaml — `tiers:`, `providers:`, `default_tier:`,
+        `ladder:` — each present only when the project names it, validated for SHAPE here
+        (a typo fails the config check, not a wave); the merged result is validated for
+        MEANING by `resolve._validate`. Two questions, kept apart: `agent_tiers` answers
+        which tier an agent runs on; this answers what a tier is.
+
+        Why a project may do this at all: routing tiers at non-Anthropic models (OpenRouter,
+        DeepSeek, local) to cut cost and measure whether cheaper models hold up. Until
+        0.10.30 the only way was to patch tiers.yaml inside the plugin cache, which no
+        consumer can do. The owner accepts that a project can redefine `strategic`, the
+        policy-forced tier; the protection is visibility (the config check and every
+        dispatch record say so), not prevention.
+        """
+        out: dict[str, Any] = {}
+        tiers = self.raw.get("tiers")
+        if tiers is not None:
+            if not isinstance(tiers, dict):
+                raise ProjectError("tiers: must be a map of tier name -> {provider, model, effort, max_budget_usd} (any subset patches the plugin's)")
+            for name, patch in tiers.items():
+                if not isinstance(patch, dict):
+                    raise ProjectError(f"tiers.{name}: must be a map; a tier is patched per key, never replaced by a scalar")
+                unknown = set(patch) - {"provider", "model", "effort", "max_budget_usd", "task_budget_tokens"}
+                if unknown:
+                    raise ProjectError(f"tiers.{name}: unknown key(s) {', '.join(sorted(unknown))}")
+            out["tiers"] = {str(k): dict(v) for k, v in tiers.items()}
+        providers = self.raw.get("providers")
+        if providers is not None:
+            if not isinstance(providers, dict):
+                raise ProjectError("providers: must be a map of provider name -> {env: {...}}")
+            for name, block in providers.items():
+                if not isinstance(block, dict):
+                    raise ProjectError(f"providers.{name}: must be a map")
+                unknown = set(block) - {"env"}
+                if unknown:
+                    raise ProjectError(f"providers.{name}: unknown key(s) {', '.join(sorted(unknown))}")
+                if "env" in block and not isinstance(block["env"], dict):
+                    raise ProjectError(f"providers.{name}.env: must be a map of variable -> value")
+            out["providers"] = {str(k): {kk: dict(vv) if isinstance(vv, dict) else vv for kk, vv in v.items()} for k, v in providers.items()}
+        if "default_tier" in self.raw:
+            if not isinstance(self.raw["default_tier"], str) or not self.raw["default_tier"]:
+                raise ProjectError("default_tier: must be a tier name")
+            out["default_tier"] = self.raw["default_tier"]
+        if "ladder" in self.raw:
+            ladder = self.raw["ladder"]
+            if not isinstance(ladder, list) or not all(isinstance(x, str) and x for x in ladder):
+                raise ProjectError("ladder: must be a list of tier names, weakest first")
+            out["ladder"] = list(ladder)
+        return out
+
     def ports(self) -> dict[str, int]:
         """The `ports:` block — every TCP port this project's servers bind, by name.
 

@@ -389,19 +389,22 @@ def effective_environ(environ: dict[str, str] | None = None) -> dict[str, str]:
     return base
 
 
-def load_config(path: Path | None = None) -> dict[str, Any]:
-    """Read and structurally validate tiers.yaml."""
-    path = path or TIERS_FILE
+def _read_config(path: Path) -> dict[str, Any]:
+    """tiers.yaml as written, unvalidated."""
     try:
-        config = yaml.safe_load(path.read_text()) or {}
+        return yaml.safe_load(path.read_text()) or {}
     except FileNotFoundError as exc:
         raise ConfigError(f"no tier config at {path}") from exc
     except yaml.YAMLError as exc:
         raise ConfigError(f"{path} is not valid YAML: {exc}") from exc
 
+
+def _validate(config: dict[str, Any], where: str = "tiers.yaml") -> dict[str, Any]:
+    """Every structural check the tier config must pass — run on the MERGED config, since
+    validating before the project's patch would judge a config nobody runs."""
     tiers = config.get("tiers")
     if not isinstance(tiers, dict) or not tiers:
-        raise ConfigError(f"{path} defines no tiers")
+        raise ConfigError(f"{where} defines no tiers")
 
     providers = config.get("providers") or {}
     default_tier = config.get("default_tier")
@@ -411,6 +414,8 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
         )
 
     for name, tier in tiers.items():
+        if not isinstance(tier, dict):
+            raise ConfigError(f"tier {name!r} must be a map of provider/model/effort/max_budget_usd")
         for key in ("provider", "model", "effort", "max_budget_usd"):
             if key not in tier:
                 raise ConfigError(f"tier {name!r} is missing {key!r}")
@@ -425,6 +430,75 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
             "high-risk work would have nowhere to escalate to"
         )
     return config
+
+
+def _project_model_config() -> dict[str, Any]:
+    """The consuming project's `model_config()` block, or `{}` where there is no project
+    or its config cannot be read — the plugin's own defaults then stand, exactly as
+    `orchestrator_domains` treats an unconfigured project. A project whose block is
+    present but malformed is NOT swallowed: that is a config error the check must show."""
+    try:
+        from .project import ProjectError, load
+    except ImportError:  # pragma: no cover — import cycle guard
+        return {}
+    try:
+        project = load()
+    except ProjectError:
+        return {}
+    except Exception:  # noqa: BLE001 — no project (the plugin's own checkout, a scratch dir)
+        return {}
+    return project.model_config()
+
+
+def merge_model_config(plugin: dict[str, Any], project: dict[str, Any]) -> dict[str, Any]:
+    """The project's patch over the plugin's defaults.
+
+    MAPS PATCH, SCALARS AND LISTS REPLACE. `tiers` merge by tier name and, within a tier,
+    per key — a project supplying only `max_budget_usd` inherits provider, model and
+    effort, so a plugin upgrade that changes a budget still reaches consumers. `providers`
+    merge by name and, within one, `env` per key. `default_tier` (a scalar) and `ladder`
+    (an ordered list) are replaced wholesale when the project names them: a ladder merged
+    per index would route escalation somewhere nobody chose. `{**plugin, **project}` keeps
+    a redefined tier in its original position and appends new ones, which is what
+    `Project.agent_tiers`' "declaration order, weakest first" relies on.
+    """
+    out: dict[str, Any] = dict(plugin)
+    if "tiers" in project:
+        merged = dict(plugin.get("tiers") or {})
+        for name, patch in (project["tiers"] or {}).items():
+            merged[name] = {**(merged.get(name) or {}), **(patch or {})}
+        out["tiers"] = merged
+    if "providers" in project:
+        merged = dict(plugin.get("providers") or {})
+        for name, patch in (project["providers"] or {}).items():
+            base = dict(merged.get(name) or {})
+            patch = dict(patch or {})
+            if "env" in patch or "env" in base:
+                patch["env"] = {**(base.get("env") or {}), **(patch.get("env") or {})}
+            merged[name] = {**base, **patch}
+        out["providers"] = merged
+    for key in ("default_tier", "ladder"):
+        if key in project:
+            out[key] = project[key]
+    return out
+
+
+def load_config(path: Path | None = None, *, merge_project: bool = True) -> dict[str, Any]:
+    """tiers.yaml, patched by the consuming project's `tiers:`/`providers:`/
+    `default_tier:`/`ladder:` blocks, then validated — the config that RUNS.
+
+    `merge_project=False` is the plugin's shipped defaults alone: what `check_config.py`
+    compares agent frontmatter against, because a project's deliberate redefinition is not
+    drift. The same distinction `resolve(project_tiers={})` already draws for selection.
+    """
+    path = path or TIERS_FILE
+    config = _read_config(path)
+    if merge_project:
+        project = _project_model_config()
+        if project:
+            config = merge_model_config(config, project)
+            return _validate(config, where=f"{path} patched by harness.yaml")
+    return _validate(config, where=str(path))
 
 
 def agent_frontmatter(agent: str, agents_dir: Path | None = None) -> dict[str, Any]:

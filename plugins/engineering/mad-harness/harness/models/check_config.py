@@ -37,7 +37,7 @@ def sync(name: str) -> tuple[str, str] | None:
     that is also the operative one is where a costly mistake hides, so it is
     generated, in the same spirit as any generated-artifact refresh.
     """
-    r = resolve(name, project_tiers={})
+    r = resolve(name, project_tiers={}, config=load_config(merge_project=False))
     path = AGENTS_DIR / f"{name}.md"
     text = path.read_text()
     fm = agent_frontmatter(name)
@@ -59,7 +59,10 @@ def sync(name: str) -> tuple[str, str] | None:
 def main() -> int:
     write = "--write" in sys.argv[1:]
     try:
-        config = load_config()
+        # THE PLUGIN'S SHIPPED DEFAULTS, not the project's patch of them: this compares
+        # agent frontmatter with what the plugin declares, and a project's deliberate
+        # redefinition of a tier is not drift — the same reason `project_tiers={}` below.
+        config = load_config(merge_project=False)
     except ConfigError as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 2
