@@ -12,12 +12,18 @@
 #            preload          off = today's writers                            on = + evidence-gathering
 #            lean_catalog     off = the CLI's full Skill catalog                on = plugin + project skills only
 #            release          off = the plugin at --pin-off (default 0.10.18)  on = the plugin at HEAD
+#            plan_tiers       off = §3 at declared tiers                       on = the READY sanity-check and the audit at strong
 #
 # TWO CODES, NOT TWO ENVIRONMENTS. Every lever above is one environment variable read by
 # the same code; `release` is the one lever where the ARMS ARE DIFFERENT COMMITS — the off
 # arm dispatches from a tree frozen at --pin-off, the on arm from HEAD, each running its
 # own wavelab scripts. It exists to measure the 0.10.19–0.10.27 series ("the deterministic
 # steps out of the prose") against the last release before it.
+#
+# --plan-only: §3 alone — `plan-epic.sh <epic> --mode auto --triage <what epic-queue says>`
+# run directly in the lab repo, no orchestrator, no waves. The instrument for a lever whose
+# effect is on planning (plan_tiers): a run is one survey and one sanity-check on a READY
+# epic, minutes and about a dollar, so `--runs 3` is affordable where a full epic is not.
 #
 # --orchestrated: instead of this script's own wave loop (dispatch-wave, merge-wave, the
 # lenses), ONE headless campaign-orchestrator runs the whole epic through the frozen tree's
@@ -42,7 +48,7 @@ LEVER="${1:?usage: ab.sh <lever> [--runs N] [--fanout N] [--root DIR] [--backend
 shift
 RUNS=5; FANOUT=2; ROOT="${WAVELAB_AB_ROOT:-$HOME/harness-wavelab-ab}"; BACKEND=beads; WAVE1_ONLY=0; ARMS="off,on"; LENSES=0
 # 0.10.18: the last release before the prose-to-code series (0.10.19 is 332a274).
-PIN_OFF="e2fa8d5d1226"; ORCHESTRATED=0
+PIN_OFF="e2fa8d5d1226"; ORCHESTRATED=0; PLAN_ONLY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --runs) RUNS="${2:?}"; shift ;;
@@ -54,18 +60,19 @@ while [ $# -gt 0 ]; do
     --arms) ARMS="${2:?}"; shift ;;
     --pin-off) PIN_OFF="${2:?}"; shift ;;
     --orchestrated) ORCHESTRATED=1 ;;
+    --plan-only) ORCHESTRATED=1; PLAN_ONLY=1 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
 done
-case "$LEVER" in cache_ttl|static_prefix|stagger|task_budget|preload|lean_catalog|release) ;; *) echo "unknown lever: $LEVER" >&2; exit 2 ;; esac
+case "$LEVER" in cache_ttl|static_prefix|stagger|task_budget|preload|lean_catalog|release|plan_tiers) ;; *) echo "unknown lever: $LEVER" >&2; exit 2 ;; esac
 
 # The environment each arm dispatches under. Everything else is inherited unchanged, and
 # every arm clears the levers it does not set, so a stray export cannot leak into an arm.
 ENVS=()
 arm_envs() {  # $1 = off|on  -> fills ENVS
   ENVS=(MAD_HARNESS_CACHE_TTL= MAD_HARNESS_STATIC_PREFIX= MAD_HARNESS_STAGGER_SECONDS=
-        MAD_HARNESS_TASK_BUDGET_TOKENS= MAD_HARNESS_PRELOAD=)
+        MAD_HARNESS_TASK_BUDGET_TOKENS= MAD_HARNESS_PRELOAD= MAD_HARNESS_PLAN_TIERS=)
   case "$LEVER:$1" in
     cache_ttl:on)      ENVS+=(MAD_HARNESS_CACHE_TTL=5m) ;;
     static_prefix:on)  ENVS+=(MAD_HARNESS_STATIC_PREFIX=1) ;;
@@ -75,6 +82,7 @@ arm_envs() {  # $1 = off|on  -> fills ENVS
     preload:on)        ENVS+=(MAD_HARNESS_PRELOAD=evidence-gathering) ;;
     lean_catalog:off)  ENVS+=(MAD_HARNESS_LEAN_CATALOG=0) ;;
     lean_catalog:on)   ENVS+=(MAD_HARNESS_LEAN_CATALOG=1) ;;
+    plan_tiers:on)     ENVS+=(MAD_HARNESS_PLAN_TIERS=1) ;;
   esac
 }
 
@@ -173,8 +181,19 @@ PY
       git -C "$LAB_REPO" add -A
       git -C "$LAB_REPO" -c user.email=wavelab@example.com -c user.name=wavelab commit -q -m "wavelab: stamp harness.version $ARM_VERSION; the owner's settlement on the epic" && git -C "$LAB_REPO" push -q
       [ -z "$(git -C "$LAB_REPO" status --porcelain)" ] || { echo "!! lab repo dirty after the seed commit:"; git -C "$LAB_REPO" status --porcelain; exit 4; }
+      if [ "$PLAN_ONLY" = "1" ]; then
+        # §3 alone. Pre-flight first, as the campaign would (autosync off, the tree clean),
+        # with the triage the queue computes for this epic — READY once the seed carries
+        # acceptance in the field.
+        ( cd "$LAB_REPO" && "$FHARNESS/swarm/preflight.sh" >/dev/null ) || { echo "!! pre-flight refused the lab repo"; ( cd "$LAB_REPO" && "$FHARNESS/swarm/preflight.sh" ); exit 4; }
+        TRIAGE=$(cd "$LAB_REPO" && "$FHARNESS/swarm/epic-queue.sh" --json | python3 -c 'import json,sys; d=json.load(sys.stdin); e=[x for x in d.get("epics",[]) if x["id"]==sys.argv[1]]; print((e[0].get("triage") or "UNPLANNED") if e else "UNPLANNED")' "$EPIC")
+        echo "-- plan-only: plan-epic.sh $EPIC --mode auto --triage $TRIAGE from $FHARNESS"
+        ( cd "$LAB_REPO" && env "${ENVS[@]}" "$FHARNESS/swarm/plan-epic.sh" "$EPIC" --mode auto --triage "$TRIAGE" ) || true
+        ( cd "$LAB_REPO" && "$FHARNESS/tracker/tk.sh" autosync on >/dev/null 2>&1 ) || true
+      else
       echo "-- orchestrated: campaign.sh --epic $EPIC from $FHARNESS"
       ( cd "$LAB_REPO" && env "${ENVS[@]}" "$FHARNESS/swarm/campaign.sh" --epic "$EPIC" --max-epics 1 ) || true
+      fi
       # WHAT THE EPIC CAME TO, from the tracker — the orchestrator judged as it went, so
       # there is no lens-verdicts.txt; the yield is what closed. ab_report reads this.
       ( cd "$LAB_REPO" && "$FHARNESS/tracker/tk.sh" list --json ) | python3 -c '

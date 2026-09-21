@@ -257,6 +257,16 @@ It runs ten to twenty-five minutes — longer than one Bash call may — so it i
 waited on, two commands, like `fanout.sh`. Measured: an orchestrator that ran it inline
 had the call backgrounded by the cap and spent 22 turns polling for it by hand.
 
+**It is proportionate to the epic, and says what it skipped.** Measured: §3 on a 3-task
+epic that already had its tasks cost 29 minutes and $7.33 — seven Opus dispatches in strict
+sequence — against $1.07 and 3.5 minutes to build it. So a design staged while the spec
+index reads REUSE is reused (`ARCHITECTURE: reused` note); a READY epic whose tasks pass
+the mechanical checks — acceptance and a `SURFACE:` line on every task, `validate --paths`
+clean — gets no planner and no audit (`PLAN: reused` note): the planner's review is what
+those checks compute. A task without acceptance, or one contention edge, brings the
+planner back. Judgement is never skipped, only the dispatches whose answer is already on
+disk or computable.
+
 Exit 0 planned and applied · 4 parked (the report says on what, and which command un-parks
 it; **the tracker export and the staging folder are already committed and pushed** — record
 the outcome, §6, and move to the next epic; nothing else is owed and nothing needs reading)

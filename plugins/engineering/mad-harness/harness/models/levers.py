@@ -17,6 +17,7 @@ has decided), then the default.
     task_budget      MAD_HARNESS_TASK_BUDGET_TOKENS  dispatch.task_budget_tokens, else tiers.yaml <tier>.task_budget_tokens
     preload          MAD_HARNESS_PRELOAD        —  (agents/<name>.md skills:)  none
     lean_catalog     MAD_HARNESS_LEAN_CATALOG   dispatch.lean_catalog   true  (the exception — see below)
+    plan_tiers       MAD_HARNESS_PLAN_TIERS     dispatch.plan_tiers     false — §3's READY sanity-check and audit at strong
     experiment       MAD_HARNESS_EXPERIMENT     —                       — (a label, recorded)
 
 DOCTRINE IS NOT A LEVER. The skills an agent declares in its frontmatter are part of its
@@ -52,6 +53,7 @@ _ENV = {
     "task_budget": "MAD_HARNESS_TASK_BUDGET_TOKENS",
     "preload": "MAD_HARNESS_PRELOAD",
     "lean_catalog": "MAD_HARNESS_LEAN_CATALOG",
+    "plan_tiers": "MAD_HARNESS_PLAN_TIERS",
 }
 _DEFAULT: dict[str, Any] = {
     "cache_ttl": None, "static_prefix": False, "stagger_seconds": 0, "task_budget": None, "preload": (),
@@ -60,6 +62,13 @@ _DEFAULT: dict[str, Any] = {
     # its Skill catalog held the plugin's own skills instead of those plus 17 bundled
     # CLI skills and 10 orchestrator commands a headless worker can never use.
     "lean_catalog": True,
+    # §3 AT STRONG. Measured (0.10.28, the release A/B): planning a 3-task epic that
+    # already had its tasks took 29 minutes and $7.33 — seven sequential dispatches, the
+    # architect at strategic (Opus, max effort) ~4 minutes each — against $1.07 and 3.5
+    # minutes to build it; a pre-step's time is per-turn thinking at the tier's effort,
+    # not the epic's size. On: the READY sanity-check and the audit run at strong. Off
+    # until the rig sizes it.
+    "plan_tiers": False,
 }
 #: The harness.yaml key each lever reads, where it differs from the lever's name.
 _KEY = {"task_budget": "task_budget_tokens"}
@@ -83,7 +92,7 @@ def lever(name: str, block: dict[str, Any] | None = None) -> Any:
         block = _project_block() if block is None else block
         key = _KEY.get(name, name)
         return block[key] if key in block else _DEFAULT[name]
-    if name in ("static_prefix", "lean_catalog"):
+    if name in ("static_prefix", "lean_catalog", "plan_tiers"):
         return raw.strip().lower() in _TRUE
     if name == "stagger_seconds":
         return max(0, int(raw))

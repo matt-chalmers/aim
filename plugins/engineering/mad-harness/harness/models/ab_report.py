@@ -125,11 +125,20 @@ def summarise(by_arm: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, An
         }
         per_run: dict[str, float] = defaultdict(float)
         writers_per_run: dict[str, float] = defaultdict(float)
+        minutes_per_run: dict[str, float] = defaultdict(float)
+        dispatches_per_run: dict[str, int] = defaultdict(int)
         for r in rows:
             per_run[r["_run"]] += float(r.get("cost_usd") or 0)
+            if r.get("agent") != ORCHESTRATOR:  # the container of the others, not one of them
+                minutes_per_run[r["_run"]] += float(r.get("duration_ms") or 0) / 60000
+                dispatches_per_run[r["_run"]] += 1
             if r.get("agent") in WRITERS:
                 writers_per_run[r["_run"]] += float(r.get("cost_usd") or 0)
         s["cost_per_run"] = _quartiles(list(per_run.values()))
+        # THE TIME, NOT ONLY THE MONEY. Summed dispatch durations per run: exact for a
+        # sequence (§3 is one), an upper bound where dispatches overlapped (the lenses).
+        s["minutes_per_run"] = _quartiles(list(minutes_per_run.values()))
+        s["dispatches_per_run"] = _quartiles([float(v) for v in dispatches_per_run.values()])
         # With --lenses a run's cost includes the judging; the writers' share is what the
         # earlier series measured, so both are kept.
         s["writer_cost_per_run"] = _quartiles(list(writers_per_run.values())) if writers_per_run else None
@@ -201,6 +210,9 @@ def main(argv: list[str] | None = None) -> int:
         if a.get("judged") and a.get("writer_cost_per_run"):
             wq1, wmed, wq3 = a["writer_cost_per_run"]
             print(f"  writers / run     ${wmed:.2f}   (IQR ${wq1:.2f}–${wq3:.2f})")
+        mq1, mmed, mq3 = a["minutes_per_run"]
+        dq1, dmed, dq3 = a["dispatches_per_run"]
+        print(f"  agent minutes/run {mmed:.1f}   (IQR {mq1:.1f}–{mq3:.1f}; summed, exact for a sequence)   {dmed:.0f} dispatch(es) / run (IQR {dq1:.0f}–{dq3:.0f})")
         if a.get("orch_turns"):
             t, c, i, m = a["orch_turns"], a["orch_cost"], a["orch_input"], a["orch_minutes"]
             print(f"  orchestrator      {t[1]:.0f} turns (IQR {t[0]:.0f}–{t[2]:.0f})   ${c[1]:.2f} (IQR ${c[0]:.2f}–${c[2]:.2f})   {i[1]:,.0f} input tok   {m[1]:.0f} min   ended: {', '.join(a['orch_terminals'])}" + ("   (a timeout's cost is unknown; its turns are real)" if "timeout" in a["orch_terminals"] else ""))
@@ -220,6 +232,8 @@ def main(argv: list[str] | None = None) -> int:
     if off and on:
         print("\ndelta, on vs off (medians; a delta whose IQRs overlap is noise until more runs say otherwise):")
         print(f"  {'cost / run':<18}{verdict(off['cost_per_run'], on['cost_per_run'], True)}")
+        print(f"  {'agent minutes/run':<18}{verdict(off['minutes_per_run'], on['minutes_per_run'], True)}")
+        print(f"  {'dispatches / run':<18}{verdict(off['dispatches_per_run'], on['dispatches_per_run'], True)}")
         if off.get("orch_turns") and on.get("orch_turns"):
             print(f"  {'orch turns':<18}{verdict(off['orch_turns'], on['orch_turns'], True)}")
             print(f"  {'orch cost':<18}{verdict(off['orch_cost'], on['orch_cost'], True)}")

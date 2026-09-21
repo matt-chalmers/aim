@@ -29,7 +29,7 @@ def test_defaults_are_off_except_the_one_that_only_removes(monkeypatch):
         monkeypatch.delenv(v, raising=False)
     assert levers.snapshot(block={}) == {
         "cache_ttl": None, "static_prefix": False, "stagger_seconds": 0, "task_budget": None, "preload": (),
-        "lean_catalog": True,
+        "lean_catalog": True, "plan_tiers": False,
     }
 
 
@@ -123,7 +123,7 @@ def test_every_dispatch_event_says_which_levers_were_on_and_which_experiment(mon
     assert t["experiment"] == "static_prefix:on:3"
     assert t["levers"] == {
         "cache_ttl": None, "static_prefix": True, "stagger_seconds": 0, "task_budget": None, "preload": (),
-        "lean_catalog": True,
+        "lean_catalog": True, "plan_tiers": False,
     }
 
 

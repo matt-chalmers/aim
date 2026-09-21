@@ -389,3 +389,122 @@ def test_could_not_judge_names_the_one_call_that_parks_and_syncs(repo):
     text, code = seq(repo, r, d).run()
     assert code == 2
     assert "halt.sh pause E-1" in text and "--from architect" in text and "Do not re-run the stage unchanged" in text
+
+
+# --- proportionality: planning must cost less than the work it plans -----------------------
+
+
+class StoreWithChildren(Store):
+    """An epic with open children; `ready` marks them READY by the planner's checks."""
+
+    def __init__(self, n=3, ready=True, notes=""):
+        super().__init__(notes)
+        self.kids = [
+            Task(id=f"E-1.{i}", type="task", status="open", title=f"Task {i}", parent="E-1",
+                 description=f"Do thing {i}.\nSURFACE: none" if ready else f"Do thing {i}.",
+                 acceptance="- it works" if ready else "")
+            for i in range(1, n + 1)
+        ]
+
+    def list(self, parent=None, **kw):
+        return list(self.kids) if parent == "E-1" else []
+
+
+VALIDATE_CLEAN = (0, json.dumps({"ok": True, "waves": [{"index": 1, "task_ids": ["E-1.1", "E-1.2", "E-1.3"]}], "contention": {"waves": [{"index": 1, "edges": []}]}}) + "\n", "")
+
+
+def test_a_ready_epic_whose_tasks_pass_the_mechanical_checks_skips_planner_audit_and_apply(repo):
+    """The planner's review is what `validate --paths` and the acceptance/SURFACE checks now
+    compute. Measured: 29 minutes and $7.33 of §3 for a 3-task epic that already had its
+    tasks, against 3.5 minutes and $1.07 to build it."""
+    r = Runner(**{"tk.sh validate": VALIDATE_CLEAN})
+    d = results_for(**{"analyst-survey": SURVEY, "architect": DESIGN})
+    s = seq(repo, r, d, store=StoreWithChildren(3, ready=True))
+    s.state.data["triage"] = "READY"
+    text, code = s.run()
+    assert code == 0, text
+    agents = [a for a, _ in d.seen]
+    assert agents == ["analyst-survey", "architect"], "no planner, no analyst"
+    assert "apply-plan.sh" not in r.keys() and "not dispatched — the tasks are READY by the mechanical checks" in text
+    assert any("PLAN: reused" in c[4] for c in r.calls if key(c) == "tk.sh update" and "--append-notes" in c)
+    assert "git commit" in r.keys(), "the sync still runs"
+
+
+def test_a_ready_epic_with_a_contention_edge_or_a_task_without_acceptance_still_gets_the_planner(repo):
+    """The companion: the skip is earned by the checks, never by the triage word alone."""
+    edge = json.dumps({"ok": True, "waves": [{"index": 1, "task_ids": ["E-1.1", "E-1.2"]}], "contention": {"waves": [{"index": 1, "edges": [{"tasks": ["E-1.1", "E-1.2"], "path": "src/x.py", "megafile": False, "lines": 10}]}]}})
+    r = Runner(**{"tk.sh validate": (0, edge + "\n", "")})
+    d = results_for(**{"analyst-survey": SURVEY, "architect": DESIGN, "planner": PLAN, "analyst": "VERDICT: PASS\n"})
+    s = seq(repo, r, d, store=StoreWithChildren(2, ready=True))
+    s.state.data["triage"] = "READY"
+    text, code = s.run()
+    assert code == 0 and "planner" in [a for a, _ in d.seen] and "file-contention edge(s) the planner must resolve" in text
+    r = Runner(**{"tk.sh validate": VALIDATE_CLEAN})
+    d = results_for(**{"analyst-survey": SURVEY, "architect": DESIGN, "planner": PLAN, "analyst": "VERDICT: PASS\n"})
+    s = seq(repo, r, d, store=StoreWithChildren(2, ready=False))
+    s.state.data["triage"] = "READY"
+    text, code = s.run()
+    assert "planner" in [a for a, _ in d.seen] and "without acceptance criteria or a SURFACE: line" in text
+
+
+def test_a_staged_design_is_reused_when_the_spec_index_reads_reuse_and_not_otherwise(repo):
+    folder = repo / "docs" / "proposed" / "E-1-widgets-epic"
+    folder.mkdir(parents=True)
+    (folder / "design.md").write_text("# Design\n\nARCHITECTURE: as staged\n")
+    (folder / "spec-index.md").write_text("---\ngenerated_sha: abc\n---\n")
+    r = Runner(**{"spec-index-status.sh": (0, "REUSE — nothing cited has moved\n", ""), "tk.sh validate": VALIDATE_CLEAN})
+    d = results_for(**{"planner": PLAN, "analyst": "VERDICT: PASS\n"})
+    s = seq(repo, r, d, store=StoreWithChildren(3, ready=True, notes="ADEQUACY: ADEQUATE 2026-09-01"))
+    s.state.data["triage"] = "PARTIAL"
+    text, code = s.run()
+    assert code == 0, text
+    assert "architect" not in [a for a, _ in d.seen] and "reused — " in text and "spec index reads REUSE" in text
+    assert any("ARCHITECTURE: reused" in c[4] for c in r.calls if key(c) == "tk.sh update" and "--append-notes" in c)
+    # REBUILD: the design is dispatched even though a file is staged
+    r = Runner(**{"tk.sh validate": VALIDATE_CLEAN})
+    d = results_for(**{"analyst-survey": SURVEY, "architect": DESIGN, "planner": PLAN, "analyst": "VERDICT: PASS\n"})
+    s = seq(repo, r, d, store=StoreWithChildren(3, ready=True))
+    s.state.data["triage"] = "PARTIAL"
+    s.run()
+    assert "architect" in [a for a, _ in d.seen]
+
+
+def test_the_plan_tiers_lever_runs_the_sanity_check_and_the_audit_at_strong_and_nothing_else(repo, monkeypatch):
+    """Off: every dispatch at its declared tier. On: the READY sanity-check and the audit
+    at strong. The design of an UNPLANNED epic and the planner are never moved — they
+    write the DAG. No task-count rule: a pre-step's time is the tier's effort, not the size."""
+    tiers = []
+
+    def dispatch(agent, pfile, out, tier=None):
+        tiers.append((agent, tier))
+        return results_for(**{"analyst-survey": SURVEY, "architect": DESIGN, "planner": PLAN, "analyst": "VERDICT: PASS\n"})(agent, pfile, out)
+
+    def run(triage, store):
+        r = Runner(**{"tk.sh validate": VALIDATE_CLEAN})
+        s = mod.Sequencer("E-1", mode="auto", project=project(), runner=r, cwd=str(repo), dispatch_fn=dispatch, store=store)
+        s.state.data["triage"] = triage
+        s.state.data["done"] = []
+        s.run()
+        out = dict(tiers)
+        tiers.clear()
+        return out
+
+    monkeypatch.delenv("MAD_HARNESS_PLAN_TIERS", raising=False)
+    assert all(t is None for t in run("READY", StoreWithChildren(2, ready=False)).values())
+    monkeypatch.setenv("MAD_HARNESS_PLAN_TIERS", "1")
+    by = run("READY", StoreWithChildren(2, ready=False))
+    assert by["architect"] == "strong" and by["analyst"] == "strong" and by["planner"] is None, by
+    by = run("READY", StoreWithChildren(40, ready=False))
+    assert by["architect"] == "strong" and by["analyst"] == "strong", "the same whatever the size"
+    by = run("UNPLANNED", StoreWithChildren(2, ready=False))
+    assert by["architect"] is None and by["analyst"] == "strong", "a design is never dropped a tier; the audit is"
+
+
+def test_the_audit_is_handed_the_rendered_view_and_told_not_to_loop(repo):
+    r = Runner()
+    d = results_for(**{"analyst-survey": SURVEY, "architect": DESIGN, "planner": PLAN, "analyst": "VERDICT: PASS\n"})
+    s = seq(repo, r, d)
+    s.state.data["triage"] = "PARTIAL"
+    s.run()
+    audit_prompt = next(t for a, t in d.seen if a == "analyst")
+    assert "tasks.md" in audit_prompt and "never in a shell loop" in audit_prompt

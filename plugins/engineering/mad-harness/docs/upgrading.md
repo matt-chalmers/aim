@@ -1282,6 +1282,21 @@ config note: a stack may now declare `bootstrap.strategy: none`.
   `campaign.sh` filed a session it had refused one `Read` as `stopped` although its first
   line said `**parked**` and the epic was parked: the outcome is the first line, whatever
   the exit code; `stopped` is a session that left none.
+- **§3 is proportionate by state, and its tiers are a lever.** Planning the 3-task lab
+  epic took 29 minutes and $7.33 against $1.07 and 3.5 minutes of building; and a pre-step
+  does not get quicker for a smaller epic on its own — the architect ran 12 turns at ~23 s
+  each, the planner 23 at ~15 s, per-turn thinking at the tier's fixed effort over a
+  reading procedure whose floor is the same however little there is to read. So
+  `plan-epic.sh` now reuses a staged design when the spec index reads REUSE
+  (`ARCHITECTURE: reused`), and for a READY epic whose tasks pass the mechanical checks —
+  acceptance and a `SURFACE:` line on every task, `tk.sh validate --paths` clean — runs
+  no planner and no audit (`PLAN: reused`): the planner's review is what those checks
+  compute, and one failing task or one contention edge brings it back. The `plan_tiers`
+  lever (`dispatch.plan_tiers`, `MAD_HARNESS_PLAN_TIERS`) runs the READY sanity-check and
+  the audit at strong; off until sized. `ab.sh --plan-only` is the instrument: §3 alone,
+  minutes and about a dollar a run. The lab seed now carries acceptance in the record's
+  field, so the lab epic triages READY as a planner's would. The analyst audit gets the
+  rendered task view, as the architect and planner did — it had looped the same way.
 - **The measurement the series owed** — `harness/wavelab/ab.sh release --orchestrated`,
   the same seeded epic (3 tasks, 2 waves, an owner's settlement noted on it), one headless
   `campaign-orchestrator` per arm, one run each, one hour each. **n = 1 in a system with a

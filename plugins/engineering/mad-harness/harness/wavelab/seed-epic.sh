@@ -115,6 +115,18 @@ tk dep "$C" "$A"
 tk dep "$C" "$B"
 for T in ${EXTRA[@]+"${EXTRA[@]}"}; do tk dep "$C" "$T"; done
 
+# ACCEPTANCE IN THE FIELD, NOT ONLY IN THE TEXT. The queue triages an epic READY only
+# when its tasks carry acceptance criteria in the record's own field; with them in the
+# description alone the lab epic read PARTIAL for every run and never exercised the READY
+# path (measured: the release A/B). The bullets after ACCEPTANCE become the field; the
+# description keeps the summary line, as a planner's create would leave them.
+for T in "$A" "$B" "$C" ${EXTRA[@]+"${EXTRA[@]}"}; do
+  DESC=$(tk show "$T" --json | python3 -c 'import json,sys; t=json.load(sys.stdin); t=t[0] if isinstance(t,list) else t; print(t.get("description",""))')
+  SUMMARY=$(printf '%s' "$DESC" | sed '/^ACCEPTANCE$/,$d')
+  AC=$(printf '%s' "$DESC" | sed -n '/^ACCEPTANCE$/,$p' | sed '1d')
+  [ -n "$AC" ] && tk update "$T" --description "$SUMMARY" --acceptance "$AC" >/dev/null
+done
+
 mkdir -p "$REPO/docs/proposed/$EPIC-normalise"
 ( cd "$REPO" && "$(cd "$HERE/.." && pwd)/tracker/render-epic.sh" \
   "$EPIC" --write "$REPO/docs/proposed/$EPIC-normalise/tasks.md" )

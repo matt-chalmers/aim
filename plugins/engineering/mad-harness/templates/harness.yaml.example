@@ -112,12 +112,17 @@ swarm:
 #                                plus your own .claude/skills/, not the CLI's 17 bundled skills and
 #                                the orchestrator commands. ON by default (measured -3.4k tokens per
 #                                request); false restores the CLI's full catalog.
+#   plan_tiers       false     — campaign-loop §3's READY sanity-check and audit at strong (Opus,
+#                                xhigh) rather than the architect's strategic (max). A pre-step's
+#                                time is per-turn thinking at the tier's effort, not the epic's
+#                                size. Off until the lab sizes it; numbers in docs/upgrading.md.
 # dispatch:
 #   cache_ttl: 5m
 #   static_prefix: true
 #   stagger_seconds: 8
 #   task_budget_tokens: 400000
 #   lean_catalog: true
+#   plan_tiers: false
 
 # Per-agent tier overrides — the A/B switch for moving an agent between tiers without
 # patching the plugin. Keys are agents the plugin ships, values are tiers from tiers.yaml.
