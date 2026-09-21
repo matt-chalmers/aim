@@ -15,7 +15,7 @@ THREE READINGS. FLAGGED: something the project marked — a path in an area with
 trigger, a security surface, a megafile, a contention edge — the declared (deepest) tier.
 SIMPLE: at least one task naming paths, and nothing flagged; new files count for nothing.
 UNREADABLE: no tasks, or tasks naming no paths — nothing to read the epic by. The owner's
-rule (0.10.28): the architect runs at `strong` unless the surface is FLAGGED, unreadable
+rule (0.10.29): the architect runs at `strong` unless the surface is FLAGGED, unreadable
 included, and escalates to `strategic` itself when what it reads needs it; the audit runs
 at `worker` only when SIMPLE.
 
