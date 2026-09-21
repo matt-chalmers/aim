@@ -104,12 +104,23 @@ def _note(epic: str, text: str, runner, cwd: str) -> Result:
     return Result(f"tk.sh update {epic} --append-notes", OK if ok else FAIL, text.splitlines()[0][:120] if ok else f"NOT written — {failure_detail(raw)}", raw)
 
 
+#: The last line of every §3 prompt. The lens prompts carry it since the lens gate's
+#: denials (0.10.28) and have had none since; the §3 prompts did not, and in the first
+#: plan-only series two of four surveys were refused one `echo …; cat …; find -exec` —
+#: complete surveys the sequencer rightly would not judge on, $0.25 and two minutes each.
+ONE_COMMAND = (
+    "\nEVERY Bash call is ONE plain command — no `;`, `&&`, `|`, `echo`, `find -exec`, `python3 -c`, `VAR=x cmd`: "
+    "a compound command is denied, and a dispatch denied anything is not judged whatever it wrote. "
+    "Put every search into one `scan.sh` call and every slice into one `peek.sh` call.\n"
+)
+
+
 def _dispatch(agent: str, prompt: str, epic: str, out: Path, runner, cwd: str, dispatch_fn=None, tier: str | None = None) -> tuple[Raw, str]:
     """One fresh dispatch; the whole result at `out`. Returns (raw, result text).
     `tier` overrides the agent's declared tier (`dispatch.sh --tier`) — the lever below."""
     pfile = out.with_suffix(".prompt.md")
     pfile.parent.mkdir(parents=True, exist_ok=True)
-    pfile.write_text(prompt)
+    pfile.write_text(prompt.rstrip("\n") + "\n" + ONE_COMMAND)
     if dispatch_fn:
         try:
             raw = dispatch_fn(agent, pfile, out, tier=tier)

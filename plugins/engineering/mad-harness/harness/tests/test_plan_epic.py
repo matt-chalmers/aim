@@ -529,3 +529,17 @@ def test_every_stage_prompt_states_the_size_of_the_epic_and_asks_for_proportion(
     s2.state.data["done"] = []
     s2.run()
     assert "SIZE: this epic has no tasks yet" in dict(d2.seen)["architect"] and "a small change gets a short design" in dict(d2.seen)["architect"]
+
+
+def test_every_stage_prompt_ends_with_the_one_plain_command_rule(repo):
+    """Two of four surveys in the first plan-only series were refused a compound command
+    and their complete results went unjudged; the lens prompts carried the rule and had
+    no denials. Every §3 prompt carries it."""
+    r = Runner(**{"tk.sh validate": VALIDATE_CLEAN})
+    d = results_for(**{"analyst-survey": SURVEY, "architect": DESIGN, "planner": PLAN, "analyst": "VERDICT: PASS\n"})
+    s = seq(repo, r, d, store=StoreWithChildren(3, ready=False))
+    s.state.data["triage"] = "PARTIAL"
+    s.run()
+    assert len(d.seen) >= 4
+    for agent, text in d.seen:
+        assert "EVERY Bash call is ONE plain command" in text and "find -exec" in text, agent
