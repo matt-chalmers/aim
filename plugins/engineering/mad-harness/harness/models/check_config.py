@@ -2,10 +2,16 @@
 
 WHY THIS EXISTS. The tier lives in ``tiers.yaml``; each agent declares which tier
 it wants; and each agent ALSO carries ``model:``/``effort:``, which is what Claude
-Code reads when the agent is dispatched natively through the Agent tool rather
-than through the boundary. Two readers, one intent. Let them drift and the same
-agent runs a different model depending on how it was called — the worst kind of
-bug, because both paths work and only the bill and the quality differ.
+Code reads when the agent is run natively (``claude --agent <name>``) rather than
+through the boundary. Two readers, one intent. Let them drift and the same agent
+runs a different model depending on how it was called — the worst kind of bug,
+because both paths work and only the bill and the quality differ. (The Agent-tool
+path is refused for this plugin's agents by ``swarm/guard-agent-tool.sh``; the
+native CLI path is what the mirror still guards.)
+
+A NON-ANTHROPIC TIER IS EXEMPT, out loud. The frontmatter has no provider field, so
+a tier routed at another provider cannot be mirrored into it; the agent is printed
+with the exemption rather than failed as drift.
 
 This is the same shape of guard as ``check-analyst-mirror.sh``: two files that
 must agree, and a script that says so out loud rather than trusting anyone to
@@ -31,13 +37,20 @@ def sync(name: str) -> tuple[str, str] | None:
     """Stamp an agent's `model:`/`effort:` from its tier. Returns (before, after).
 
     These two fields are DERIVED — fully determined by the agent's `model_tier:`
-    and by tiers.yaml — but they are also the fields that actually EXECUTE: Claude
-    Code reads them whenever an agent is dispatched through the Agent tool or
-    `claude --agent`, which is most dispatches. Hand-maintaining a derived field
-    that is also the operative one is where a costly mistake hides, so it is
-    generated, in the same spirit as any generated-artifact refresh.
+    and by tiers.yaml — but they are also the fields that EXECUTE on the native path:
+    Claude Code reads them when an agent is run as `claude --agent <name>`. (The Agent
+    tool path is refused for this plugin's agents by `swarm/guard-agent-tool.sh`, so
+    since 0.10.9 the boundary is how nearly every dispatch runs; the mirror guards the
+    native path that remains.) Hand-maintaining a derived field that is also an
+    operative one is where a costly mistake hides, so it is generated.
+
+    NOT FOR A NON-ANTHROPIC TIER. The frontmatter reader has no provider concept: a
+    `qwen/...` id stamped into `model:` would be handed to Anthropic. Such an agent is
+    left unstamped, and the check says so rather than reporting drift.
     """
     r = resolve(name, project_tiers={}, config=load_config(merge_project=False))
+    if r.provider != "anthropic":
+        return None
     path = AGENTS_DIR / f"{name}.md"
     text = path.read_text()
     fm = agent_frontmatter(name)
@@ -96,12 +109,18 @@ def main() -> int:
                 f"{name}: no model_tier declared, so it silently takes the global "
                 f"default ({config['default_tier']}). Declare it."
             )
+        if r.provider != "anthropic":
+            # The frontmatter reader cannot express a provider; the mirror is exempt and
+            # says so — a native `claude --agent` run of this agent would not reach the
+            # tier's model, and that is the fact to print, not a drift to fail on.
+            print(f"  {name:22s} {r.tier:10s} {r.provider}/{r.model} effort={r.effort}  (frontmatter not mirrored: non-Anthropic provider)")
+            continue
         for key in ("model", "effort"):
             declared, expected = fm.get(key), getattr(r, key)
             if declared != expected:
                 failures.append(
                     f"{name}: frontmatter {key}={declared!r} contradicts tier "
-                    f"{r.tier!r} which resolves {key}={expected!r}. The Agent tool "
+                    f"{r.tier!r} which resolves {key}={expected!r}. `claude --agent` "
                     f"reads frontmatter; the boundary reads the tier — so this "
                     f"agent runs differently depending on how it is dispatched."
                 )

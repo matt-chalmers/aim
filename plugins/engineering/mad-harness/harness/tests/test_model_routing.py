@@ -209,9 +209,13 @@ def test_real_frontmatter_matches_the_tier_it_declares():
     If they disagree the same agent runs a different model depending on how it
     was called, and both paths appear to work.
     """
-    config = load_config()
+    config = load_config(merge_project=False)
     for path in sorted(AGENTS_DIR.glob("*.md")):
-        r = resolve(path.stem, config=config)
+        r = resolve(path.stem, config=config, project_tiers={})
+        if r.provider != "anthropic":
+            # The frontmatter reader has no provider concept; a tier the plugin ships
+            # at another provider is exempt from the mirror, as check_config exempts it.
+            continue
         fm = agent_frontmatter(path.stem)
         assert (fm.get("model"), fm.get("effort")) == (r.model, r.effort), (
             f"{path.stem}: frontmatter {fm.get('model')}/{fm.get('effort')} != "
@@ -284,3 +288,20 @@ def test_frontmatter_parsing_survives_a_description_containing_a_colon():
     # decision that will change. What is pinned is that the key survives the
     # lenient path at all, which is what a return to safe_load would break.
     assert fm["model_tier"] in load_config()["tiers"]
+
+
+def test_a_non_anthropic_tier_is_exempt_from_the_mirror_and_says_so(monkeypatch, capsys):
+    """The frontmatter has no provider field: stamping a `qwen/...` id into `model:` would
+    hand it to Anthropic on the native path. sync() leaves such an agent alone and main()
+    prints the exemption instead of failing it as drift."""
+    from models import check_config, resolve as mod
+
+    shipped = load_config(merge_project=False)
+    cfg = {**shipped, "tiers": {**shipped["tiers"], "worker": {**shipped["tiers"]["worker"], "provider": "deepseek", "model": "deepseek-v4"}}}
+    monkeypatch.setattr(mod, "load_config", lambda *a, **k: cfg)
+    monkeypatch.setattr(check_config, "load_config", lambda *a, **k: cfg)
+    assert check_config.sync("analyst-survey") is None, "not stamped"
+    rc = check_config.main()
+    out = capsys.readouterr().out
+    assert "analyst-survey" in out and "frontmatter not mirrored: non-Anthropic provider" in out
+    assert rc == 0, out
