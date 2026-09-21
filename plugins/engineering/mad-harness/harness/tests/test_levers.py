@@ -21,15 +21,16 @@ def _project(raw):
 # --- precedence and validation -----------------------------------------------------------
 
 
-def test_defaults_are_off_except_the_one_that_only_removes(monkeypatch):
-    """`lean_catalog` is the stated exception: it takes content a worker cannot use out of
-    the catalog, sized at the request level (26,130 -> 22,743). Everything that CHANGES a
-    dispatch stays off until the lab has sized it."""
+def test_defaults_are_off_except_the_two_stated_exceptions(monkeypatch):
+    """`lean_catalog` takes content a worker cannot use out of the catalog, sized at the
+    request level (26,130 -> 22,743). `plan_tiers` moved on the owner's decision (2026-09-21,
+    "strong or lower, with escalation"), the exception to measured-before-moved, stated in
+    levers.py. Everything else that CHANGES a dispatch stays off until the lab has sized it."""
     for v in levers._ENV.values():
         monkeypatch.delenv(v, raising=False)
     assert levers.snapshot(block={}) == {
         "cache_ttl": None, "static_prefix": False, "stagger_seconds": 0, "task_budget": None, "preload": (),
-        "lean_catalog": True, "plan_tiers": False,
+        "lean_catalog": True, "plan_tiers": True,
     }
 
 
@@ -123,7 +124,7 @@ def test_every_dispatch_event_says_which_levers_were_on_and_which_experiment(mon
     assert t["experiment"] == "static_prefix:on:3"
     assert t["levers"] == {
         "cache_ttl": None, "static_prefix": True, "stagger_seconds": 0, "task_budget": None, "preload": (),
-        "lean_catalog": True, "plan_tiers": False,
+        "lean_catalog": True, "plan_tiers": True,
     }
 
 

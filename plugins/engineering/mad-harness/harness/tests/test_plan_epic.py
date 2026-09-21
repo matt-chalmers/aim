@@ -523,9 +523,9 @@ def test_the_plan_tiers_lever_tiers_from_the_card_and_never_moves_the_planner(re
         tiers.clear()
         return out
 
-    monkeypatch.delenv("MAD_HARNESS_PLAN_TIERS", raising=False)
-    assert all(t is None for t in run("READY", SimpleStore(2)).values())
-    monkeypatch.setenv("MAD_HARNESS_PLAN_TIERS", "1")
+    monkeypatch.setenv("MAD_HARNESS_PLAN_TIERS", "0")
+    assert all(t is None for t in run("READY", SimpleStore(2)).values()), "off restores every declared tier"
+    monkeypatch.delenv("MAD_HARNESS_PLAN_TIERS", raising=False)  # the default is ON, by the owner's decision
     by = run("READY", SimpleStore(2))
     assert by["architect"] == "strong" and by["analyst"] == "worker" and by["planner"] is None, by
     by = run("PARTIAL", SimpleStore(40))
@@ -572,7 +572,7 @@ def test_a_lighter_stage_may_escalate_once_to_its_declared_tier_and_the_reason_t
 
 
 def test_escalate_at_the_declared_tier_parks_rather_than_looping(repo, monkeypatch):
-    monkeypatch.delenv("MAD_HARNESS_PLAN_TIERS", raising=False)
+    monkeypatch.setenv("MAD_HARNESS_PLAN_TIERS", "0")
     r = Runner()
     d = results_for(**{"analyst-survey": SURVEY, "architect": "ADEQUACY: ESCALATE — beyond me\n"})
     text, code = seq(repo, r, d).run()

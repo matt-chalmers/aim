@@ -1301,7 +1301,8 @@ config note: a stack may now declare `bootstrap.strategy: none`.
     **simple** (tasks naming paths, nothing flagged), **unreadable** (no tasks, or none
     naming a path — a new epic, usually). The card is computed before the architect and
     again before the audit (from the design and the plan too), and noted on the epic.
-    The owner's rule, under the `plan_tiers` lever: the survey at `worker` as before; the
+    The owner's rule, **on by default** (`dispatch.plan_tiers: false` restores every
+    declared tier): the survey at `worker` as before; the
     architect (sanity-check or design) at `strong` unless the surface is flagged —
     unreadable included, since it can escalate itself; the audit at `worker` when the
     surface reads simple, else its declared `strong`; the planner never moved. A stage
@@ -1311,8 +1312,10 @@ config note: a stack may now declare `bootstrap.strategy: none`.
   Measured, §3 alone on the READY lab epic (`ab.sh plan_tiers --plan-only`, two clean
   runs per arm): the sanity-check at strong vs strategic — 150/95 s vs 175/184 s, output
   10.8k/6.2k vs 12.8k/10.8k tokens, $0.48 vs $0.64 median — cost and time −27%, output
-  −42% (the only spread that separates at n = 2). The lever stays off until a series
-  with the planner and audit running under it, on the corrected reuse rule, sizes it.
+  −42% (the only spread that separates at n = 2). The default moved on the owner's
+  decision ("strong or lower, with escalation"), the stated exception to
+  measured-before-moved; the series with the planner and audit under it, on the
+  corrected reuse rule, is below.
   The lab seed carries acceptance in the record's field so the lab epic triages READY.
   Every §3 prompt states the epic's size and ends with the one-plain-command rule (two
   of four surveys in the first series were refused a compound command).

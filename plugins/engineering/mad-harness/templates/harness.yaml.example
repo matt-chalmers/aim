@@ -112,18 +112,19 @@ swarm:
 #                                plus your own .claude/skills/, not the CLI's 17 bundled skills and
 #                                the orchestrator commands. ON by default (measured -3.4k tokens per
 #                                request); false restores the CLI's full catalog.
-#   plan_tiers       false     — campaign-loop §3 at strong or lower: the architect at strong unless
+#   plan_tiers       true      — campaign-loop §3 at strong or lower: the architect at strong unless
 #                                the epic's declared surface is flagged (models/complexity.py: a
 #                                triggered area, a security path, a megafile, a contention edge),
 #                                the audit at worker when that surface reads simple; each may
-#                                ESCALATE once to its declared tier. Off until sized; docs/upgrading.md.
+#                                ESCALATE once to its declared tier. ON by the owner's decision;
+#                                false restores every declared tier. Numbers in docs/upgrading.md.
 # dispatch:
 #   cache_ttl: 5m
 #   static_prefix: true
 #   stagger_seconds: 8
 #   task_budget_tokens: 400000
 #   lean_catalog: true
-#   plan_tiers: false
+#   plan_tiers: true
 
 # Per-agent tier overrides — the A/B switch for moving an agent between tiers without
 # patching the plugin. Keys are agents the plugin ships, values are tiers from tiers.yaml.
