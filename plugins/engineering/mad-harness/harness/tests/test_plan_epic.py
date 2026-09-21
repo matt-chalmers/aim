@@ -102,7 +102,10 @@ def repo(tmp_path, monkeypatch):
 
 
 def project():
-    return Project(name="T", slug="t", stacks=(), paths={"proposed": "docs/proposed", "adrs": "docs/decisions"}, areas=(), security={}, raw={"lanes": {"backend": {"cap": 4}}})
+    from models.project import Area
+
+    return Project(name="T", slug="t", stacks=(), paths={"proposed": "docs/proposed", "adrs": "docs/decisions"},
+                   areas=(Area(path="harness/models/", label="routing and dispatch", triggers=("security",)),), security={}, raw={"lanes": {"backend": {"cap": 4}}})
 
 
 SURVEY = "TASK / EPIC: E-1\nMODE: survey\nADEQUACY: ADEQUATE\nAUTHORITATIVE SPEC: docs/features/widgets/README.md §2\nSPEC INDEX: docs/features/widgets/README.md — §2 governs\n  DECISIONS: ADR-0007 (binds the key)\nSPEC vs EPIC: agree\n"
@@ -413,38 +416,60 @@ class StoreWithChildren(Store):
 VALIDATE_CLEAN = (0, json.dumps({"ok": True, "waves": [{"index": 1, "task_ids": ["E-1.1", "E-1.2", "E-1.3"]}], "contention": {"waves": [{"index": 1, "edges": []}]}}) + "\n", "")
 
 
-def test_a_ready_epic_whose_tasks_pass_the_mechanical_checks_skips_planner_audit_and_apply(repo):
-    """The planner's review is what `validate --paths` and the acceptance/SURFACE checks now
-    compute. Measured: 29 minutes and $7.33 of §3 for a 3-task epic that already had its
-    tasks, against 3.5 minutes and $1.07 to build it."""
-    r = Runner(**{"tk.sh validate": VALIDATE_CLEAN})
-    d = results_for(**{"analyst-survey": SURVEY, "architect": DESIGN})
-    s = seq(repo, r, d, store=StoreWithChildren(3, ready=True))
-    s.state.data["triage"] = "READY"
-    text, code = s.run()
+def test_a_plan_is_reused_only_when_audited_for_this_task_set_and_the_spec_is_unchanged(repo):
+    """The owner's rule: never redo a step that was done and whose inputs have not changed.
+    A plan was DONE when an AUDIT: PASS is on record for this exact task set; UNCHANGED when
+    the spec index reads REUSE. Neither alone; never the triage word; never a mechanical
+    check standing in for the audit's judgement."""
+    store = StoreWithChildren(3, ready=True)
+    fp = mod.Sequencer("E-1", mode="auto", project=project(), store=store, cwd=str(repo)).plan_fingerprint()
+    store.notes = f"ADEQUACY: ADEQUATE 2026-09-01\nAUDIT: PASS 2026-09-01 — 0 blocking, 2 filed; plan {fp}; see x"
+    folder = repo / "docs" / "proposed" / "E-1-widgets-epic"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "design.md").write_text("# Design\n")
+    r = Runner(**{"spec-index-status.sh": (0, "REUSE — nothing cited has moved\n", ""), "tk.sh validate": VALIDATE_CLEAN})
+    d = results_for()
+    text, code = seq(repo, r, d, store=store).run()
     assert code == 0, text
-    agents = [a for a, _ in d.seen]
-    assert agents == ["analyst-survey", "architect"], "no planner, no analyst"
-    assert "apply-plan.sh" not in r.keys() and "not dispatched — the tasks are READY by the mechanical checks" in text
+    assert [a for a, _ in d.seen] == [], "survey, design and plan all reused: no dispatch at all"
+    assert "AUDIT: PASS on record for this exact task set" in text and "apply-plan.sh" not in r.keys()
     assert any("PLAN: reused" in c[4] for c in r.calls if key(c) == "tk.sh update" and "--append-notes" in c)
-    assert "git commit" in r.keys(), "the sync still runs"
 
 
-def test_a_ready_epic_with_a_contention_edge_or_a_task_without_acceptance_still_gets_the_planner(repo):
-    """The companion: the skip is earned by the checks, never by the triage word alone."""
-    edge = json.dumps({"ok": True, "waves": [{"index": 1, "task_ids": ["E-1.1", "E-1.2"]}], "contention": {"waves": [{"index": 1, "edges": [{"tasks": ["E-1.1", "E-1.2"], "path": "src/x.py", "megafile": False, "lines": 10}]}]}})
-    r = Runner(**{"tk.sh validate": (0, edge + "\n", "")})
+def test_a_plan_is_not_reused_when_never_audited_or_the_tasks_changed_or_the_spec_moved(repo):
+    store = StoreWithChildren(3, ready=True)
+    fp = mod.Sequencer("E-1", mode="auto", project=project(), store=store, cwd=str(repo)).plan_fingerprint()
+    folder = repo / "docs" / "proposed" / "E-1-widgets-epic"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "design.md").write_text("# Design\n")
+    reuse = {"spec-index-status.sh": (0, "REUSE — nothing cited has moved\n", ""), "tk.sh validate": VALIDATE_CLEAN}
+    # never audited
+    store.notes = "ADEQUACY: ADEQUATE 2026-09-01"
+    d = results_for(**{"planner": PLAN, "analyst": "VERDICT: PASS\n"})
+    text, code = seq(repo, Runner(**reuse), d, store=store).run()
+    assert "planner" in [a for a, _ in d.seen] and "never been audited" in text
+    # audited, but the tasks changed since
+    store.notes = "ADEQUACY: ADEQUATE 2026-09-01\nAUDIT: PASS 2026-09-01 — plan 0000000000; see x"
+    d = results_for(**{"planner": PLAN, "analyst": "VERDICT: PASS\n"})
+    text, code = seq(repo, Runner(**reuse), d, store=store).run()
+    assert "planner" in [a for a, _ in d.seen] and "the tasks changed since" in text
+    # audited for this set, but the spec moved (DELTA → the survey re-runs, the plan's inputs moved)
+    store.notes = f"ADEQUACY: ADEQUATE 2026-09-01\nAUDIT: PASS 2026-09-01 — plan {fp}; see x"
     d = results_for(**{"analyst-survey": SURVEY, "architect": DESIGN, "planner": PLAN, "analyst": "VERDICT: PASS\n"})
-    s = seq(repo, r, d, store=StoreWithChildren(2, ready=True))
-    s.state.data["triage"] = "READY"
-    text, code = s.run()
-    assert code == 0 and "planner" in [a for a, _ in d.seen] and "file-contention edge(s) the planner must resolve" in text
+    text, code = seq(repo, Runner(**{"spec-index-status.sh": (0, "DELTA\n- docs/features/widgets/README.md\n", ""), "tk.sh validate": VALIDATE_CLEAN}), d, store=store).run()
+    assert "planner" in [a for a, _ in d.seen] and "the plan's inputs moved" in text
+    # and the audit note written by a fresh audit carries the fingerprint for next time
+
+
+def test_the_audit_note_carries_the_plan_fingerprint(repo):
+    store = StoreWithChildren(2, ready=True)
     r = Runner(**{"tk.sh validate": VALIDATE_CLEAN})
     d = results_for(**{"analyst-survey": SURVEY, "architect": DESIGN, "planner": PLAN, "analyst": "VERDICT: PASS\n"})
-    s = seq(repo, r, d, store=StoreWithChildren(2, ready=False))
-    s.state.data["triage"] = "READY"
-    text, code = s.run()
-    assert "planner" in [a for a, _ in d.seen] and "without acceptance criteria or a SURFACE: line" in text
+    s = seq(repo, r, d, store=store)
+    s.run()
+    fp = s.plan_fingerprint()
+    audit_notes = [c[4] for c in r.calls if key(c) == "tk.sh update" and "--append-notes" in c and c[4].startswith("AUDIT: PASS")]
+    assert audit_notes and f"plan {fp}" in audit_notes[0]
 
 
 def test_a_staged_design_is_reused_when_the_spec_index_reads_reuse_and_not_otherwise(repo):
@@ -469,10 +494,19 @@ def test_a_staged_design_is_reused_when_the_spec_index_reads_reuse_and_not_other
     assert "architect" in [a for a, _ in d.seen]
 
 
-def test_the_plan_tiers_lever_runs_the_sanity_check_and_the_audit_at_strong_and_nothing_else(repo, monkeypatch):
-    """Off: every dispatch at its declared tier. On: the READY sanity-check and the audit
-    at strong. The design of an UNPLANNED epic and the planner are never moved — they
-    write the DAG. No task-count rule: a pre-step's time is the tier's effort, not the size."""
+class SimpleStore(StoreWithChildren):
+    """Tasks that name new files under an untriggered area: the card reads simple."""
+
+    def __init__(self, n=2, notes=""):
+        super().__init__(n, ready=True, notes=notes)
+        self.kids = [Task(id=k.id, type=k.type, status=k.status, title=k.title, parent=k.parent, description=f"Add src/new{i}.py\nSURFACE: none", acceptance=k.acceptance) for i, k in enumerate(self.kids, 1)]
+
+
+def test_the_plan_tiers_lever_tiers_from_the_card_and_never_moves_the_planner(repo, monkeypatch):
+    """Off: every dispatch at its declared tier. On: the architect at strong unless the
+    surface is flagged (it escalates itself), the audit at worker only when the surface
+    reads simple. The planner is never moved — it writes the DAG."""
+    (repo / "src").mkdir(exist_ok=True)
     tiers = []
 
     def dispatch(agent, pfile, out, tier=None):
@@ -490,14 +524,60 @@ def test_the_plan_tiers_lever_runs_the_sanity_check_and_the_audit_at_strong_and_
         return out
 
     monkeypatch.delenv("MAD_HARNESS_PLAN_TIERS", raising=False)
-    assert all(t is None for t in run("READY", StoreWithChildren(2, ready=False)).values())
+    assert all(t is None for t in run("READY", SimpleStore(2)).values())
     monkeypatch.setenv("MAD_HARNESS_PLAN_TIERS", "1")
-    by = run("READY", StoreWithChildren(2, ready=False))
-    assert by["architect"] == "strong" and by["analyst"] == "strong" and by["planner"] is None, by
-    by = run("READY", StoreWithChildren(40, ready=False))
-    assert by["architect"] == "strong" and by["analyst"] == "strong", "the same whatever the size"
-    by = run("UNPLANNED", StoreWithChildren(2, ready=False))
-    assert by["architect"] is None and by["analyst"] == "strong", "a design is never dropped a tier; the audit is"
+    by = run("READY", SimpleStore(2))
+    assert by["architect"] == "strong" and by["analyst"] == "worker" and by["planner"] is None, by
+    by = run("PARTIAL", SimpleStore(40))
+    assert by["architect"] == "strong" and by["analyst"] == "worker", "forty new files in an untriggered area is still simple"
+    by = run("READY", StoreWithChildren(2, ready=True))
+    assert by["architect"] == "strong" and by["analyst"] is None, "tasks naming no paths: the architect still at strong (it escalates itself); the audit at its declared tier"
+    flagged = SimpleStore(2)
+    flagged.kids = [Task(id=k.id, type=k.type, status=k.status, title=k.title, parent=k.parent, description="Edit harness/models/dispatch.py\nSURFACE: none", acceptance=k.acceptance) for k in flagged.kids]
+    (repo / "harness" / "models").mkdir(parents=True, exist_ok=True)
+    (repo / "harness" / "models" / "dispatch.py").write_text("x = 1\n")
+    by = run("READY", flagged)
+    assert by["architect"] is None and by["analyst"] is None, "a triggered area: the declared tiers"
+
+
+def test_a_lighter_stage_may_escalate_once_to_its_declared_tier_and_the_reason_travels(repo, monkeypatch):
+    (repo / "src").mkdir(exist_ok=True)
+    monkeypatch.setenv("MAD_HARNESS_PLAN_TIERS", "1")
+    calls = []
+
+    def dispatch(agent, pfile, out, tier=None):
+        calls.append((agent, tier, pfile.read_text()))
+        if agent == "architect" and tier == "strong":
+            out.write_text("ADEQUACY: ESCALATE — the phone rule touches a contract three callers depend on\n")
+            return Raw(0, f"full: {out}", "")
+        if agent == "analyst" and tier == "worker":
+            out.write_text("VERDICT: ESCALATE — the plan re-scopes an ADR\n")
+            return Raw(0, f"full: {out}", "")
+        return results_for(**{"analyst-survey": SURVEY, "architect": DESIGN, "planner": PLAN, "analyst": "VERDICT: PASS\n"})(agent, pfile, out)
+
+    r = Runner(**{"tk.sh validate": VALIDATE_CLEAN})
+    s = mod.Sequencer("E-1", mode="auto", project=project(), runner=r, cwd=str(repo), dispatch_fn=dispatch, store=SimpleStore(2))
+    s.state.data["triage"] = "READY"
+    text, code = s.run()
+    assert code == 0, text
+    arch = [(t, p) for a, t, p in calls if a == "architect"]
+    assert [t for t, _ in arch] == ["strong", None], "once at strong, once escalated to the declared tier"
+    assert "ESCALATED from a lighter tier, which said: ADEQUACY: ESCALATE — the phone rule" in arch[1][1]
+    assert "TIER: you are running at `strong`" in arch[0][1] and "TIER:" not in arch[1][1]
+    aud = [(t, p) for a, t, p in calls if a == "analyst"]
+    assert [t for t, _ in aud] == ["worker", None] and "ESCALATED from tier worker" in aud[1][1]
+    notes = [c[4] for c in r.calls if key(c) == "tk.sh update" and "--append-notes" in c]
+    assert any(n.startswith("ESCALATED: architect strong") for n in notes) and any(n.startswith("ESCALATED: audit worker") for n in notes)
+    assert "ESCALATE at tier strong" in text and "ESCALATE at tier worker" in text
+
+
+def test_escalate_at_the_declared_tier_parks_rather_than_looping(repo, monkeypatch):
+    monkeypatch.delenv("MAD_HARNESS_PLAN_TIERS", raising=False)
+    r = Runner()
+    d = results_for(**{"analyst-survey": SURVEY, "architect": "ADEQUACY: ESCALATE — beyond me\n"})
+    text, code = seq(repo, r, d).run()
+    assert code == 4 and "nothing above it" in text and "tk.sh park" in r.keys()
+    assert [a for a, _ in d.seen].count("architect") == 1
 
 
 def test_the_audit_is_handed_the_rendered_view_and_told_not_to_loop(repo):

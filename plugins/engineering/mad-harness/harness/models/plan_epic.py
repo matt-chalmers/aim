@@ -60,7 +60,10 @@ DISPATCH_TIMEOUT = 3600
 # survey re-dispatch (measured, an orchestrated wavelab run: three attempts, one of them
 # this) before the parser tolerated emphasis, as `verdict.VERDICT` already did.
 _EM = r"[*_`]*"
-ADEQUACY = re.compile(rf"^\s*{_EM}ADEQUACY{_EM}:?{_EM}\s*{_EM}(?P<v>ADEQUATE|INFERABLE|ABSENT)(?![A-Za-z])", re.I | re.M)
+ADEQUACY = re.compile(rf"^\s*{_EM}ADEQUACY{_EM}:?{_EM}\s*{_EM}(?P<v>ADEQUATE|INFERABLE|ABSENT|ESCALATE)(?![A-Za-z])", re.I | re.M)
+#: `VERDICT: ESCALATE — <why>` from an analyst run at a lighter tier: re-run at its declared tier.
+AUDIT_PASS = re.compile(r"^\s*AUDIT:\s*PASS\b", re.I | re.M)
+ESCALATE = re.compile(rf"^\s*{_EM}(?:ADEQUACY|VERDICT){_EM}:?{_EM}\s*{_EM}ESCALATE(?![A-Za-z])[^\n]*", re.I | re.M)
 DECISION_LINE = re.compile(rf"^\s*{_EM}DECISION{_EM}:{_EM}\s*(?P<q>.+?)\s*$", re.M)
 REQUIREMENT_LINE = re.compile(rf"^\s*{_EM}REQUIREMENT{_EM}:{_EM}\s*(?P<q>.+?)\s*$", re.M)
 SPEC_INDEX = re.compile(r"^\s*SPEC INDEX:\s*(?P<body>.*?)(?=^\s*[A-Z][A-Z /]+:\s|\Z)", re.M | re.S)
@@ -189,11 +192,13 @@ class Sequencer:
     # get quicker for a smaller epic on its own: the architect ran 12 turns at ~23 s each,
     # the planner 23 at ~15 s — per-turn thinking latency at the tier's fixed effort, times
     # a reading procedure whose floor is the same however little there is to read. What
-    # moves it is (a) the effort, the `plan_tiers` lever, and (b) not dispatching at all
-    # when the answer is already on disk or computable: a design staged while the spec
-    # index reads REUSE is reused, and a READY epic whose tasks pass the mechanical checks
-    # gets no planner and no audit — the planner's review is what `validate --paths` and
-    # the acceptance/SURFACE checks now compute. State, never a task-count threshold.
+    # moves it is (a) the effort — the tier, from the complexity card — and (b) not redoing
+    # a step that was done and whose inputs have not changed: a design staged while the
+    # spec index reads REUSE is reused, and a plan is reused when the epic carries an
+    # `AUDIT: PASS` for THIS task set (the fingerprint below) and the spec index reads
+    # REUSE. Never on the triage word alone, never on a task count, and never by
+    # substituting a mechanical check for the audit's judgement — the audit has caught a
+    # false premise in every plan it has read, and `validate --paths` cannot.
 
     def children(self) -> list:
         try:
@@ -223,37 +228,80 @@ class Sequencer:
                     "A short plan gets a short audit.\n")
         return ""
 
+    def card(self, stage: str = "architect"):
+        """The complexity card — computed TWICE, because the surface is not known until it
+        is written down. Before the architect: from the epic's text and its tasks, which
+        for an unplanned epic usually name nothing (→ deep). Before the audit: from the
+        design and the plan as well, which name the modules and files the work touches.
+        Each is noted on the epic so the tier chosen is explained where the epic is read."""
+        from . import complexity
+
+        cache = getattr(self, "_cards", None)
+        if cache is None:
+            cache = self._cards = {}
+        if stage in cache:
+            return cache[stage]
+        self.title()
+        parts = [(self.epic_task.description if self.epic_task else ""), (self.epic_task.acceptance if self.epic_task else "")]
+        if stage == "audit":
+            parts += [_read(self.state.art("staged_design") or self.state.art("design")), _read(self.state.art("plan"))]
+        card = complexity.compute("\n".join(x for x in parts if x), self.children(), self.project, cwd=self.cwd, runner=self.runner, epic_id=self.epic)
+        cache[stage] = card
+        self.results.append(Result(f"complexity (before the {stage})", INFO, card.render()[len("COMPLEXITY: "):]))
+        self.results.append(_note(self.epic, f"{card.render()} (before the {stage}, {_dt.date.today().isoformat()})", self.runner, self.cwd))
+        return card
+
     def tier_for(self, role: str) -> str | None:
-        """The lever: the READY sanity-check and the audit at `strong` (the architect's
-        declared tier is strategic — Opus at max effort); None keeps the declared tier.
-        The design of an unplanned epic and the planner are never moved: they write the DAG."""
+        """The tier a §3 stage runs at, from the complexity card — the `plan_tiers` lever
+        turns this on; off keeps every declared tier. The owner's rule: the architect
+        (sanity-check or design) at `strong` unless the surface is FLAGGED — unreadable
+        included, since the architect escalates itself when what it reads needs
+        `strategic`; the audit at `worker` only when the surface reads SIMPLE. The planner
+        is never moved — it writes the DAG."""
         from . import levers
 
         if not levers.lever("plan_tiers"):
             return None
-        return "strong" if role in ("sanity-check", "audit") else None
+        if role in ("sanity-check", "design"):
+            return None if self.card("architect").flagged else "strong"
+        if role == "audit":
+            return "worker" if self.card("audit").simple else None
+        return None
 
-    def mechanically_ready(self) -> tuple[bool, str]:
-        """READY in the tracker's terms AND in the planner's: every open child carries
-        acceptance criteria and a `SURFACE:` line, `tk.sh validate --paths` is OK with no
-        contention edge. Returns (ready, why)."""
+    def escalation_line(self, tier: str | None, stage: str) -> str:
+        if not tier:
+            return ""
+        c = self.card('audit' if stage == 'audit' else 'architect')
+        return (f"TIER: you are running at `{tier}` — the epic's declared surface reads {c.reading} ({c.why()}); nothing it names is flagged. "
+                f"If what you read needs deeper deliberation than that — a cross-cutting change, a contract others depend on, a real trade-off — "
+                f"put `{'ADEQUACY' if stage == 'architect' else 'VERDICT'}: ESCALATE — <why>` first and stop; the stage is re-run at its full tier with your reason.\n")
+
+    def plan_fingerprint(self) -> str:
+        """What the audit judged: the open tasks' ids, titles, descriptions and acceptance,
+        hashed. Written into the `AUDIT:` note; a later run reuses the plan only when the
+        fingerprint it finds there is this one."""
+        import hashlib
+
+        kids = sorted(self.children(), key=lambda c: c.id)
+        blob = "\n".join(f"{c.id}\x1f{c.title}\x1f{c.description or ''}\x1f{c.acceptance or ''}" for c in kids)
+        return hashlib.sha256(blob.encode()).hexdigest()[:10]
+
+    def audited_unchanged(self) -> tuple[bool, str]:
+        """(reuse the plan?, why): the epic carries `AUDIT: PASS … plan <fp>` for the
+        current task set AND the spec index reads REUSE. Done, and unchanged since."""
         kids = self.children()
         if not kids:
-            return False, "no open children"
-        lacking = [c.id for c in kids if not (c.acceptance or "").strip() or "SURFACE:" not in ((c.description or "") + (c.acceptance or ""))]
-        if lacking:
-            return False, f"{len(lacking)} task(s) without acceptance criteria or a SURFACE: line: {', '.join(lacking[:5])}"
-        raw = execute([str(TK), "validate", self.epic, "--paths"], cwd=self.cwd, runner=self.runner)
-        if not raw.ran or raw.returncode != 0:
-            return False, "validate --paths is not OK: " + (tail(raw.stderr) or tail(raw.stdout) or failure_detail(raw))
-        try:
-            doc = json.loads(raw.stdout or "{}")
-        except ValueError:
-            return False, "validate --paths did not answer in JSON"
-        edges = [e for w in ((doc.get("contention") or {}).get("waves") or []) for e in (w.get("edges") or [])]
-        if edges:
-            return False, f"{len(edges)} file-contention edge(s) the planner must resolve: " + "; ".join(f"{' × '.join(e['tasks'])}: {e['path']}" for e in edges[:3])
-        return True, f"{len(kids)} task(s), every one with acceptance and a SURFACE: line; validate --paths clean"
+            return False, "no open tasks — nothing to reuse"
+        if self.state.data.get("spec_status") != "REUSE":
+            return False, f"the spec index reads {self.state.data.get('spec_status') or 'REBUILD'} — the plan's inputs moved"
+        fp = self.plan_fingerprint()
+        self.title()
+        notes = (self.epic_task.notes if self.epic_task else "") or ""
+        if AUDIT_PASS.search(notes) and f"plan {fp}" in notes:
+            return True, f"AUDIT: PASS on record for this exact task set (plan {fp}) and the spec index reads REUSE"
+        if AUDIT_PASS.search(notes):
+            return False, f"an AUDIT: PASS is on record but for a different task set (now plan {fp}) — the tasks changed since"
+        return False, "no AUDIT: PASS on record for this epic — the plan has never been audited"
 
     def folder(self) -> Path | None:
         from tracker.staging import ensure_folder, known_prefix
@@ -430,9 +478,15 @@ class Sequencer:
             self.state.done("stage", staged_design=staged)
             return
         view = self.render_view() if triage != "UNPLANNED" else None
-        tier = self.tier_for("sanity-check") if triage == "READY" else None
+        tier = self.tier_for("sanity-check" if triage == "READY" else "design")
+        self._architect_at(triage, view, tier, escalated=None)
+
+    def _architect_at(self, triage: str, view, tier: str | None, escalated: str | None) -> None:
         base = (f"Epic {self.epic} — {self.title()}. The SPEC INDEX is at `{self.state.art('spec_index') or '(none staged; read the epic)'}`; the survey at `{self.state.art('survey') or '(reused)'}`. Start there; open what it points at.\n"
                 + (f"The epic's existing tasks are rendered, in full, at `{view}` — read that file; do not fetch them one by one, and never in a shell loop (a compound command is denied).\n" if view else ""))
+        base += self.escalation_line(tier, "architect")
+        if escalated:
+            base += f"ESCALATED from a lighter tier, which said: {escalated}\n"
         if triage == "READY":
             prompt = base + self.size_line("sanity-check") + ("SANITY-CHECK the existing design and tasks: 1) is the recorded or implied design still correct given everything that has landed since the tasks were written — check the feature docs and the ADRs, including ones written after these tasks; 2) has the ground moved underneath it — run `tk.sh memories` and look for a documented framework that is a veneer; 3) confirm, or flag the drift precisely. Begin your output with an `ARCHITECTURE:` block. "
                              "If you cannot proceed without inventing scope, put `ADEQUACY: ABSENT` first and stop. Put every open question on its own line as `DECISION: <question>`.\n")
@@ -445,6 +499,17 @@ class Sequencer:
             return
         m = ADEQUACY.search(text)
         v = m.group("v").upper() if m else "ADEQUATE"
+        if v == "ESCALATE":
+            why = (ESCALATE.search(text).group(0).strip() if ESCALATE.search(text) else "no reason given")
+            if tier:
+                self.results.append(Result("dispatch architect", INFO, f"ESCALATE at tier {tier} — {why[:160]}; re-running at the declared tier", raw))
+                self.results.append(_note(self.epic, f"ESCALATED: architect {tier} → declared tier — {why[:200]}", self.runner, self.cwd))
+                self._architect_at(triage, view, None, escalated=why)
+                return
+            self.results.append(Result("dispatch architect", FAIL, f"ESCALATE at the declared tier — nothing above it. Read `{out}`; the architect could not proceed: {why[:160]}", raw))
+            self.results.append(_park(self.epic, f"the architect asked to escalate at its top tier: {why[:120]}", self.runner, self.cwd))
+            self.stop = (EXIT_PARKED, "architect")
+            return
         self.results.append(Result("dispatch architect", OK if v != "ABSENT" else FAIL, f"{'sanity-check' if triage == 'READY' else 'design'}{f' at tier {tier}' if tier else ''} — ADEQUACY: {v}{' (disputed)' if m else ''}\nfull: {out}", raw))
         note = execute([str(TK), "update", self.epic, "--append-notes-file", str(out)], cwd=self.cwd, runner=self.runner)
         self.results.append(Result(f"tk.sh update {self.epic} --append-notes-file", OK if note.ran and note.returncode == 0 else FAIL, "the architect's output, by file — never retyped" if note.ran and note.returncode == 0 else failure_detail(note), note))
@@ -488,18 +553,18 @@ class Sequencer:
 
     def planner(self, findings: str | None = None) -> None:
         """§3c: a FRESH planner dispatch — with the audit's findings path on a revision."""
-        if findings is None and (self.state.data.get("triage") or "UNPLANNED") == "READY":
-            ready, why = self.mechanically_ready()
-            if ready:
-                self.results.append(Result("planner", OK, f"not dispatched — the tasks are READY by the mechanical checks: {why}. The planner's review is what those checks compute; the audit gates a plan, and there is none to audit."))
-                self.results.append(_note(self.epic, f"PLAN: reused {_dt.date.today().isoformat()} — READY; {why}", self.runner, self.cwd))
+        if findings is None and self.children():
+            reuse, why = self.audited_unchanged()
+            if reuse:
+                self.results.append(Result("planner", OK, f"not dispatched — {why}; the plan and its audit stand"))
+                self.results.append(_note(self.epic, f"PLAN: reused {_dt.date.today().isoformat()} — {why}", self.runner, self.cwd))
                 self.state.data["plan_reused"] = True
                 self.state.done("planner")
                 self.state.done("audit")
                 self.state.done("gate")
                 self.state.done("apply")
                 return
-            self.results.append(Result("planner", INFO, f"dispatched — READY in the tracker but not by the mechanical checks: {why}"))
+            self.results.append(Result("planner", INFO, f"dispatched — {why}"))
         adrs = (self.project.paths or {}).get("adrs") if self.project else None
         from tracker.staging import adr_next
 
@@ -541,14 +606,22 @@ class Sequencer:
         n = self.state.data["audit_attempts"] + 1
         out = self.out_dir / f"audit-{n}.md"
         tier = self.tier_for("audit")
+        prompt = self.escalation_line(tier, "audit") + prompt
         raw, text = _dispatch("analyst", prompt, self.epic, out, self.runner, self.cwd, self.dispatch_fn, tier=tier)
+        if tier and raw.ran and raw.returncode == 0 and ESCALATE.search(text):
+            why = ESCALATE.search(text).group(0).strip()
+            self.results.append(Result("dispatch analyst (audit)", INFO, f"ESCALATE at tier {tier} — {why[:160]}; re-running at the declared tier", raw))
+            self.results.append(_note(self.epic, f"ESCALATED: audit {tier} → declared tier — {why[:200]}", self.runner, self.cwd))
+            out = self.out_dir / f"audit-{n}-escalated.md"
+            raw, text = _dispatch("analyst", f"ESCALATED from tier {tier}, which said: {why}\n" + prompt.replace(self.escalation_line(tier, "audit"), ""), self.epic, out, self.runner, self.cwd, self.dispatch_fn, tier=None)
+            tier = None
         if not self.judged("dispatch analyst (audit)", raw, text, verdict_mod.VERDICT):
             return
         v = verdict_mod.parse(text)
         self.state.data["audit_attempts"] = n
         self.state.save()
         self.results.append(Result(f"dispatch analyst (audit {n})", OK if v.status == verdict_mod.PASS else FAIL, f"{v.status}{f' at tier {tier}' if tier else ''} — {v.blocking} blocking, {v.filed} filed\nfull: {out}", raw))
-        self.results.append(_note(self.epic, f"AUDIT: {v.status} {_dt.date.today().isoformat()} — {v.blocking} blocking, {v.filed} filed; see {out}", self.runner, self.cwd))
+        self.results.append(_note(self.epic, f"AUDIT: {v.status} {_dt.date.today().isoformat()} — {v.blocking} blocking, {v.filed} filed; plan {self.plan_fingerprint()}; see {out}", self.runner, self.cwd))
         if v.status == verdict_mod.PASS:
             self.state.done("audit", audit=out)
             return

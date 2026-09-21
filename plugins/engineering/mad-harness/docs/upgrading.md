@@ -1282,21 +1282,40 @@ config note: a stack may now declare `bootstrap.strategy: none`.
   `campaign.sh` filed a session it had refused one `Read` as `stopped` although its first
   line said `**parked**` and the epic was parked: the outcome is the first line, whatever
   the exit code; `stopped` is a session that left none.
-- **§3 is proportionate by state, and its tiers are a lever.** Planning the 3-task lab
-  epic took 29 minutes and $7.33 against $1.07 and 3.5 minutes of building; and a pre-step
-  does not get quicker for a smaller epic on its own — the architect ran 12 turns at ~23 s
-  each, the planner 23 at ~15 s, per-turn thinking at the tier's fixed effort over a
-  reading procedure whose floor is the same however little there is to read. So
-  `plan-epic.sh` now reuses a staged design when the spec index reads REUSE
-  (`ARCHITECTURE: reused`), and for a READY epic whose tasks pass the mechanical checks —
-  acceptance and a `SURFACE:` line on every task, `tk.sh validate --paths` clean — runs
-  no planner and no audit (`PLAN: reused`): the planner's review is what those checks
-  compute, and one failing task or one contention edge brings it back. The `plan_tiers`
-  lever (`dispatch.plan_tiers`, `MAD_HARNESS_PLAN_TIERS`) runs the READY sanity-check and
-  the audit at strong; off until sized. `ab.sh --plan-only` is the instrument: §3 alone,
-  minutes and about a dollar a run. The lab seed now carries acceptance in the record's
-  field, so the lab epic triages READY as a planner's would. The analyst audit gets the
-  rendered task view, as the architect and planner did — it had looped the same way.
+- **§3 does not redo what is done and unchanged, and tiers its stages by the epic's
+  declared surface, with escalation.** Planning the 3-task lab epic took 29 minutes and
+  $7.33 against $1.07 and 3.5 minutes of building; a pre-step does not get quicker for a
+  smaller epic on its own — ~90% of each stage's output tokens were thinking at the
+  tier's fixed effort, and the visible design (1,621 words) was ~11% of them. Two rules,
+  both the owner's:
+  - *Reuse.* A design staged while the spec index reads REUSE is reused (`ARCHITECTURE:
+    reused`). A plan is reused only when the epic carries an `AUDIT: PASS` for **this**
+    task set — the audit note now records a fingerprint of the tasks' ids, titles,
+    descriptions and acceptance — and the spec index reads REUSE (`PLAN: reused`). Never
+    on the triage word, never on a task count, never a mechanical check standing in for
+    the audit's judgement.
+  - *Tier from the surface.* `models/complexity.py` reads what the project declared: the
+    paths the epic and its tasks name (existing, with line counts; new), the `areas`
+    they fall in and whether one carries a trigger, `security.paths`/`tokens`, megafiles,
+    contention edges. Three readings: **flagged** (something the project marked),
+    **simple** (tasks naming paths, nothing flagged), **unreadable** (no tasks, or none
+    naming a path — a new epic, usually). The card is computed before the architect and
+    again before the audit (from the design and the plan too), and noted on the epic.
+    The owner's rule, under the `plan_tiers` lever: the survey at `worker` as before; the
+    architect (sanity-check or design) at `strong` unless the surface is flagged —
+    unreadable included, since it can escalate itself; the audit at `worker` when the
+    surface reads simple, else its declared `strong`; the planner never moved. A stage
+    run lighter may answer `ADEQUACY: ESCALATE — <why>` / `VERDICT: ESCALATE — <why>`
+    and is re-run once at its declared tier with the reason; at the top tier, ESCALATE
+    parks.
+  Measured, §3 alone on the READY lab epic (`ab.sh plan_tiers --plan-only`, two clean
+  runs per arm): the sanity-check at strong vs strategic — 150/95 s vs 175/184 s, output
+  10.8k/6.2k vs 12.8k/10.8k tokens, $0.48 vs $0.64 median — cost and time −27%, output
+  −42% (the only spread that separates at n = 2). The lever stays off until a series
+  with the planner and audit running under it, on the corrected reuse rule, sizes it.
+  The lab seed carries acceptance in the record's field so the lab epic triages READY.
+  Every §3 prompt states the epic's size and ends with the one-plain-command rule (two
+  of four surveys in the first series were refused a compound command).
 - **§3 writes in proportion to the epic.** The time was the output, and the output was
   the template: for an epic whose whole source was 239 words the architect wrote a
   1,621-word design (20k output tokens, 273 s), the planner a 3,876-word plan for three

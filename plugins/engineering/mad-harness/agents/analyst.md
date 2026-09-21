@@ -173,6 +173,9 @@ FINDINGS: <numbered, tagged blocking|filed, each naming the CLASS of answer miss
   output.
 - **Cite by symbol, never by line number** . Line pins
   rot; symbols survive.
+- **You may be run at a lighter tier than your own** when the epic's surface reads simple
+  (the prompt says so, and why). If the plan needs more judgement than that tier gives, put
+  `VERDICT: ESCALATE — <why>` first and stop: the sequencer re-runs you at your full tier.
 - **Return text, in proportion to what you audited** — ≤ 2 pages is the ceiling, not the
   target. One line per task (PASS, or the finding), then the findings; never a restatement
   of the plan or the spec. Measured: 17k output tokens auditing a three-task plan, most of

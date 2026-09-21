@@ -112,10 +112,11 @@ swarm:
 #                                plus your own .claude/skills/, not the CLI's 17 bundled skills and
 #                                the orchestrator commands. ON by default (measured -3.4k tokens per
 #                                request); false restores the CLI's full catalog.
-#   plan_tiers       false     — campaign-loop §3's READY sanity-check and audit at strong (Opus,
-#                                xhigh) rather than the architect's strategic (max). A pre-step's
-#                                time is per-turn thinking at the tier's effort, not the epic's
-#                                size. Off until the lab sizes it; numbers in docs/upgrading.md.
+#   plan_tiers       false     — campaign-loop §3 at strong or lower: the architect at strong unless
+#                                the epic's declared surface is flagged (models/complexity.py: a
+#                                triggered area, a security path, a megafile, a contention edge),
+#                                the audit at worker when that surface reads simple; each may
+#                                ESCALATE once to its declared tier. Off until sized; docs/upgrading.md.
 # dispatch:
 #   cache_ttl: 5m
 #   static_prefix: true

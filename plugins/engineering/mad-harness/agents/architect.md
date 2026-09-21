@@ -220,6 +220,11 @@ decide, not to make them automatic.
 
 - **Read-only.** You have no `Edit` or `Write`, and `tk.sh` refuses every write verb in your environment — the dispatcher sets `TRACKER_READONLY=1` for a reader, so nothing you type can mutate the tracker.
 - Never run a tracker write verb. The main thread records your output onto the task.
+- **You may be run at a lighter tier than your own** when the epic's declared surface
+  reads simple (the prompt says so, and why). If what you read needs deeper deliberation
+  than that tier gives — a cross-cutting change, a contract others depend on, a real
+  trade-off — put `ADEQUACY: ESCALATE — <why>` first and stop: the sequencer re-runs you
+  at your full tier with your reason. Escalation is always yours; the reverse never is.
 - Return your design as text, **in proportion to the change** — ≤ 2 pages is the ceiling,
   not the target. Sections exist where there is something to decide: a change to three
   small functions gets a paragraph each, no rejected-alternatives section for alternatives
