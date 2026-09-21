@@ -207,3 +207,92 @@ def test_the_four_keys_are_normative_and_a_dotted_path_under_them_is_refused(tmp
     for path in ("tiers.worker.model", "providers.openrouter.env.ANTHROPIC_BASE_URL", "default_tier", "ladder"):
         with pytest.raises(ValueError, match="agent-maintained"):
             write_repair("python-uv", path, "x", tmp_path / "harness.yaml")
+
+
+# --- phase 3: redefinition is loud ------------------------------------------------------------
+
+
+def _patched(raw):
+    """A live load_config that sees `raw` as the project's model config."""
+    return lambda *a, **k: mod._validate(mod.merge_model_config(mod._read_config(mod.TIERS_FILE), _project(raw).model_config()), where="test") if k.get("merge_project", True) else mod._validate(mod._read_config(mod.TIERS_FILE))
+
+
+def test_telemetry_carries_tier_source_project_for_a_redefined_tier_and_plugin_otherwise(monkeypatch):
+    monkeypatch.setattr(mod, "load_config", _patched({"tiers": {"worker": {"provider": "anthropic", "model": "claude-sonnet-5", "max_budget_usd": 2.0}}}))
+    r = mod.resolve("analyst-survey", project_tiers={})
+    assert r.tier == "worker" and r.tier_source == "project" and r.max_budget_usd == 2.0
+    assert r.redacted()["tier_source"] == "project"
+    assert "(redefined by project)" in str(r)
+    r2 = mod.resolve("verifier", project_tiers={})
+    assert r2.tier_source == "plugin" and "(redefined" not in str(r2)
+
+
+def test_the_dispatch_record_carries_the_source(monkeypatch):
+    from models.dispatch import dispatch
+
+    monkeypatch.setattr("models.dispatch.require_sandbox", lambda: None)
+    monkeypatch.setattr(mod, "load_config", _patched({"tiers": {"strong": {"provider": "anthropic", "model": "claude-opus-5"}}}))
+    payload = {"subtype": "success", "is_error": False, "result": "PASS", "total_cost_usd": 0.1, "num_turns": 1,
+               "duration_ms": 1000, "session_id": "s", "usage": {"input_tokens": 1, "output_tokens": 1}, "permission_denials": []}
+    out = dispatch("verifier", "judge", runner=lambda r, p, **kw: payload)
+    assert out.telemetry(task="T-1")["tier_source"] == "project"
+
+
+def test_the_cost_report_never_shares_a_row_between_a_project_tier_and_the_plugins():
+    from models.report import summarise
+
+    events = [
+        {"agent": "verifier", "tier": "strong", "provider": "anthropic", "tier_source": "plugin", "cost_usd": 1.0, "turns": 5, "ok": True},
+        {"agent": "verifier", "tier": "strong", "provider": "anthropic", "tier_source": "project", "cost_usd": 0.2, "turns": 5, "ok": True},
+        {"agent": "verifier", "tier": "strong", "provider": "anthropic", "cost_usd": 1.0, "turns": 5, "ok": True},  # an event from before the field
+    ]
+    rows = summarise(events)
+    by = {(r["tier_source"]): r for r in rows}
+    assert by["plugin"]["n"] == 2 and by["project"]["n"] == 1, "an old event with no field is the plugin's"
+
+
+def test_the_ab_report_flags_an_arm_that_mixes_tier_sources():
+    from models.ab_report import summarise
+
+    rows = [{"_run": "1", "_sha": "abc", "agent": "verifier", "cost_usd": 1.0, "tier_source": "plugin"},
+            {"_run": "2", "_sha": "abc", "agent": "verifier", "cost_usd": 1.0, "tier_source": "project"}]
+    s = summarise({"on": rows})["on"]
+    assert s["tier_sources"] == ["plugin", "project"]
+    s = summarise({"on": rows[:1]})["on"]
+    assert s["tier_sources"] == ["plugin"]
+
+
+def _check(monkeypatch, raw, model_raw=None):
+    import io
+    import sys
+
+    from models import check_project
+
+    monkeypatch.setattr(check_project, "load", lambda: _project({"harness": {"version": "0.9.1"}, **raw}))
+    monkeypatch.setattr(check_project, "plugin_version", lambda: "0.9.1")
+    monkeypatch.setattr(mod, "load_config", _patched(model_raw if model_raw is not None else raw))
+    out, err = io.StringIO(), io.StringIO()
+    monkeypatch.setattr(sys, "stdout", out)
+    monkeypatch.setattr(sys, "stderr", err)
+    rc = check_project.main([])
+    return rc, out.getvalue(), err.getvalue()
+
+
+def test_check_project_config_prints_each_redefinition_beside_what_the_plugin_ships_and_names_strategic(monkeypatch):
+    rc, out, _ = _check(monkeypatch, {"providers": {"openrouter": {"env": {"ANTHROPIC_BASE_URL": "https://openrouter.ai/api", "ANTHROPIC_AUTH_TOKEN": "${OPENROUTER_API_KEY}"}}},
+                                      "tiers": {"worker": {"provider": "openrouter", "model": "qwen/qwen3-coder-plus"},
+                                                "strategic": {"provider": "anthropic", "model": "claude-opus-5"}}})
+    assert rc == 0, out
+    lines = [ln for ln in out.splitlines() if ln.startswith("models:")]
+    assert any("worker = openrouter/qwen/qwen3-coder-plus" in ln and "plugin ships anthropic/claude-sonnet-5" in ln for ln in lines), lines
+    assert any("strategic = anthropic/claude-opus-5" in ln and "THE POLICY-FORCED TIER" in ln for ln in lines), lines
+    assert any("provider openrouter = env [ANTHROPIC_AUTH_TOKEN, ANTHROPIC_BASE_URL]" in ln for ln in lines), lines
+
+
+def test_check_project_config_is_silent_without_a_redefinition_and_prints_routing_with_provenance(monkeypatch):
+    rc, out, _ = _check(monkeypatch, {})
+    assert rc == 0 and not [ln for ln in out.splitlines() if ln.startswith(("models:", "routing:"))]
+    rc, out, err = _check(monkeypatch, {"ladder": ["worker", "strategic", "strong"]})
+    assert rc == 0
+    assert "routing: default_tier=strong  ladder=[worker, strategic, strong]  (plugin default_tier, project ladder)" in out
+    assert "not last on the project's ladder" in out + err, "allowed, and said out loud"

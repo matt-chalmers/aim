@@ -902,6 +902,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.dry_run:
             r = resolve(args.agent, override_tier=args.tier, high_risk=args.high_risk)
             print(r)
+            # The routing the project set, with provenance — a run's property, not a
+            # dispatch's, so it is printed here and never repeated on every event.
+            from .resolve import load_config, provenance
+
+            cfg = load_config()
+            prov = provenance(cfg)
+            print(f"  route: default_tier={cfg['default_tier']} ({'project' if prov['default_tier'] else 'plugin'})"
+                  f"  ladder=[{', '.join(cfg.get('ladder') or [])}] ({'project' if prov['ladder'] else 'plugin'})")
             o = r.sdk_options(cwd=str(REPO))
             print("  agent:", o.extra_args.get("agent"))
             print("  mode :", o.permission_mode, "| settings:", ",".join(o.setting_sources or []))

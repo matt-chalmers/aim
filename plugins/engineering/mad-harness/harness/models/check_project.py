@@ -155,6 +155,32 @@ def main(argv: list[str] | None = None) -> int:
             print(f"agent_tiers: {', '.join(f'{k}->{v}' for k, v in sorted(moved.items()))}  (project overrides)")
     except (ProjectError, ConfigError) as exc:
         failures.append(str(exc))
+    # WHAT THE PROJECT REDEFINED, said out loud. A project may redefine any tier — the
+    # policy-forced one included — and the protection is this row, not a refusal: an
+    # operator reading the check sees exactly which tier now runs on what, beside what
+    # the plugin ships. `routing:` is the effective default and ladder with provenance;
+    # a policy-forced tier not last on a project ladder is legal and named.
+    try:
+        from .resolve import POLICY_FORCED_TIER, load_config, provenance
+
+        cfg = load_config()
+        prov = provenance(cfg)
+        for name in prov["tiers"]:
+            spec = cfg["tiers"][name]
+            shipped = prov["shipped"].get(name)
+            was = f"plugin ships {shipped['provider']}/{shipped['model']}" if shipped else "a new tier; the plugin ships none"
+            forced = "  — THE POLICY-FORCED TIER: high-risk work lands here" if name == POLICY_FORCED_TIER else ""
+            print(f"models:  {name} = {spec['provider']}/{spec['model']} effort={spec['effort']} budget=${spec['max_budget_usd']}  (project redefinition; {was}){forced}")
+        for name in prov["providers"]:
+            print(f"models:  provider {name} = env [{', '.join(sorted((cfg['providers'][name].get('env') or {})))}]  (project {'redefinition' if name in ('anthropic', 'deepseek') else 'addition'})")
+        if prov["default_tier"] or prov["ladder"]:
+            src = "project" if prov["default_tier"] and prov["ladder"] else ("project default_tier, plugin ladder" if prov["default_tier"] else "plugin default_tier, project ladder")
+            print(f"routing: default_tier={cfg['default_tier']}  ladder=[{', '.join(cfg.get('ladder') or [])}]  ({src})")
+            ladder = cfg.get("ladder") or []
+            if ladder and ladder[-1] != POLICY_FORCED_TIER:
+                warnings.append(f"the policy-forced tier {POLICY_FORCED_TIER!r} is not last on the project's ladder [{', '.join(ladder)}] — high-risk work is forced to it, and escalation from it continues upward to {ladder[-1]!r}; allowed, and worth knowing")
+    except (ProjectError, ConfigError) as exc:
+        failures.append(str(exc))
 
     try:
         ports = p.ports()

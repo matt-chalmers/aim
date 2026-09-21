@@ -117,6 +117,9 @@ def summarise(by_arm: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, An
             "n_dispatches": len(rows),
             "n_runs": len({r["_run"] for r in rows}),
             "shas": sorted({r.get("_sha", "?") for r in rows}),
+            # A series that mixes a project's redefined tier with the plugin's is two
+            # series; flagged like mixed code, never averaged.
+            "tier_sources": sorted({str(r.get("tier_source") or "plugin") for r in rows}),
             "kills": sum(1 for r in rows if r.get("terminal") == "budget"),
             "not_ok": sum(1 for r in rows if not r.get("ok")),
             # A dispatch the timeout killed has turns but no cost (None): the arm's cost
@@ -204,6 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         a = s[arm]
         q1, med, q3 = a["cost_per_run"]
         code = ", ".join(a["shas"]) + ("  ← MIXED CODE across runs; do not read this arm as one sample" if len(a["shas"]) > 1 else "")
+        code += f", tiers {'/'.join(a['tier_sources'])}" + ("  ← MIXED TIER SOURCES (plugin and project); not one sample" if len(a["tier_sources"]) > 1 else "")
         print(f"\n[{arm}]  {a['n_runs']} run(s), {a['n_dispatches']} dispatch(es), {a['kills']} budget kill(s), {a['not_ok']} not-ok, code {code}")
         floor = f"   — a FLOOR: {a['timeouts']} dispatch(es) killed at timeout, cost unknown" if a.get("timeouts") else ""
         print(f"  cost / run        ${med:.2f}   (IQR ${q1:.2f}–${q3:.2f}){'   — writers AND lenses' if a.get('judged') else ''}{floor}")

@@ -223,6 +223,10 @@ class Resolved:
     max_budget_usd: float
     env: dict[str, str] = field(default_factory=dict)
     missing_env: tuple[str, ...] = ()
+    #: `plugin` when the tier is as tiers.yaml ships it, `project` when the consuming
+    #: project's harness.yaml redefined it. In every dispatch record, so a cost series
+    #: never silently mixes a project's `worker` with the plugin's.
+    tier_source: str = "plugin"
     #: `default` for a read-only agent; `acceptEdits` for one that writes. See
     #: :func:`permission_for`.
     permission_mode: str = "default"
@@ -342,6 +346,7 @@ class Resolved:
             "model": self.model,
             "effort": self.effort,
             "max_budget_usd": self.max_budget_usd,
+            "tier_source": self.tier_source,
             "task_budget_tokens": self.task_budget_tokens,
             "doctrine_chars": len(self.doctrine),
             "env_names": sorted(self.env),
@@ -350,8 +355,9 @@ class Resolved:
 
     def __str__(self) -> str:
         env = ",".join(sorted(self.env)) or "-"
+        redefined = " (redefined by project)" if self.tier_source == "project" else ""
         return (
-            f"{self.agent} -> {self.tier} ({self.reason}): "
+            f"{self.agent} -> {self.tier}{redefined} ({self.reason}): "
             f"{self.provider}/{self.model} effort={self.effort} "
             f"budget=${self.max_budget_usd} env=[{env}]"
         )
@@ -499,10 +505,18 @@ def merge_model_config(plugin: dict[str, Any], project: dict[str, Any]) -> dict[
     `Project.agent_tiers`' "declaration order, weakest first" relies on.
     """
     out: dict[str, Any] = dict(plugin)
+    # WHAT THE PROJECT TOUCHED, kept beside the result so every reader can say so: the
+    # config check prints it, `Resolved.tier_source` carries it into every dispatch
+    # record, and the A/B rig refuses to read a series that mixes the two as one sample.
+    # This replaces the guarantee being given up — a project may now redefine even the
+    # policy-forced tier; the protection is visibility, not prevention.
+    prov: dict[str, Any] = {"tiers": [], "providers": [], "default_tier": False, "ladder": False,
+                            "shipped": {name: dict(spec) for name, spec in (plugin.get("tiers") or {}).items()}}
     if "tiers" in project:
         merged = dict(plugin.get("tiers") or {})
         for name, patch in (project["tiers"] or {}).items():
             merged[name] = {**(merged.get(name) or {}), **(patch or {})}
+            prov["tiers"].append(name)
         out["tiers"] = merged
     if "providers" in project:
         merged = dict(plugin.get("providers") or {})
@@ -512,11 +526,19 @@ def merge_model_config(plugin: dict[str, Any], project: dict[str, Any]) -> dict[
             if "env" in patch or "env" in base:
                 patch["env"] = {**(base.get("env") or {}), **(patch.get("env") or {})}
             merged[name] = {**base, **patch}
+            prov["providers"].append(name)
         out["providers"] = merged
     for key in ("default_tier", "ladder"):
         if key in project:
             out[key] = project[key]
+            prov[key] = True
+    out["provenance"] = prov
     return out
+
+
+def provenance(config: dict[str, Any]) -> dict[str, Any]:
+    """What a project redefined in this config, or nothing for the plugin's own."""
+    return config.get("provenance") or {"tiers": [], "providers": [], "default_tier": False, "ladder": False, "shipped": {}}
 
 
 def load_config(path: Path | None = None, *, merge_project: bool = True) -> dict[str, Any]:
@@ -1150,6 +1172,7 @@ def resolve(
         agent=agent,
         tier=tier,
         reason=reason,
+        tier_source="project" if tier in provenance(config)["tiers"] else "plugin",
         provider=spec["provider"],
         model=spec["model"],
         effort=spec["effort"],
