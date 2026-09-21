@@ -17,7 +17,7 @@ slug: acme                    # lowercase, no hyphens — names per-worker resou
 # stop until /harness-setup has applied the upgrade notes (docs/upgrading.md) and
 # re-stamped. Leave it out and every pre-flight treats the config as unreviewed.
 harness:
-  version: 0.10.29
+  version: 0.10.30
 
 # Toolchains: how to RUN things. See harness/stacks/ for shipped modules, and add
 # your own under .harness/stacks/ to shadow or extend them.
@@ -125,6 +125,38 @@ swarm:
 #   task_budget_tokens: 400000
 #   lean_catalog: true
 #   plan_tiers: true
+
+# Tier DEFINITIONS, patched over the plugin's (harness/models/tiers.yaml). Any subset of
+# provider/model/effort/max_budget_usd per tier — keys you leave out stay the plugin's, so
+# an upgrade that changes a budget still reaches you. `model` and `provider` move
+# together: a tier pointed at `qwen/...` with the provider left as anthropic would dispatch
+# to Anthropic with an unknown id and read as an outage. A new tier goes on `ladder:`.
+# `check-project-config.sh` prints every redefinition beside what the plugin ships, and
+# every dispatch record carries `tier_source: project` — a cost series never mixes the two.
+# You may redefine `strategic`, the tier high-risk work is forced to; the check says so.
+# tiers:
+#   worker:
+#     provider: openrouter
+#     model: qwen/qwen3-coder-plus
+#   strong:
+#     provider: anthropic
+#     model: claude-opus-5[1m]
+#     max_budget_usd: 6.00
+#
+# Providers, patched per name; within one, `env` per key. Reached through Claude Code's
+# Anthropic-compatible path. A credential is a ${VAR} reference — this file is committed;
+# the value lives in harness/.env. No *MODEL* key: the tier owns the model. Probe a new
+# provider with harness/models/probe-compat.sh before routing anything real at it.
+# providers:
+#   openrouter:
+#     env:
+#       ANTHROPIC_BASE_URL: https://openrouter.ai/api
+#       ANTHROPIC_AUTH_TOKEN: ${OPENROUTER_API_KEY}
+#
+# Routing, replaced wholesale when named (a ladder merged per index would route escalation
+# somewhere nobody chose): every defined tier must be on the ladder, weakest first.
+# default_tier: strong
+# ladder: [worker, strong, strategic]
 
 # Per-agent tier overrides — the A/B switch for moving an agent between tiers without
 # patching the plugin. Keys are agents the plugin ships, values are tiers from tiers.yaml.

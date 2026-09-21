@@ -4,7 +4,9 @@
 # agent runs at different tiers for different work; that is the whole point of the
 # split, and it is why there are no junior/senior agent variants.
 #
-# This file owns provider, model, effort and budget. It does NOT own which agent
+# This file owns the DEFAULTS for provider, model, effort and budget; a consuming
+# project patches them in its own harness.yaml (`tiers:`, `providers:`, `default_tier:`,
+# `ladder:` — see models/resolve.py::merge_model_config). It does NOT own which agent
 # uses which tier — that is declared by each agent, in its own frontmatter
 # (`model_tier:`), so an agent definition stays authoritative for its own defaults
 # and there is no second source of truth to drift.

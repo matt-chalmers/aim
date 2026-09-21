@@ -13,6 +13,7 @@ telemetry port. Beside the identity fields (`agent`, `tier`, `reason`, `model`, 
 
 | field | is |
 |---|---|
+| `tier_source` | `plugin` when the tier is as `tiers.yaml` ships it, `project` when the consuming project's `harness.yaml` redefined it. `make models-cost` never shares a row between the two and `ab-report.sh` refuses an arm that mixes them — a series run under a project's tiers is not comparable with one run under the plugin's, and one run under a project `ladder` is not comparable with one under the plugin's either |
 | `cost_usd`, `turns`, `duration_ms` | the SDK's own accounting — a client-side estimate, not billing |
 | `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens` | the four token classes |
 | `cache_hit_pct`, `cache_write_pct` | shares of everything the dispatch sent; a cold start shows low hit, a resumed agent ~0 |

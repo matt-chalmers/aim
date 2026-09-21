@@ -60,7 +60,14 @@ and returned not-ok (1), so a pipe like `dispatch.sh … | tail` has something t
 
 ## Tier resolution
 
-First match wins:
+Two questions, kept apart in code and in config:
+
+| | question | answered by |
+|---|---|---|
+| **selection** | which tier does this agent run on? | frontmatter `model_tier:`, `default_tier`, the project's `agent_tiers:`, policy, `--tier` — the table below |
+| **definition** | what *is* that tier? | `tiers.yaml`, patched by the project's `tiers:` / `providers:` / `default_tier:` / `ladder:` (`merge_model_config`); every dispatch record carries `tier_source: plugin\|project` |
+
+First match wins for selection:
 
 | # | source | set by |
 |---|---|---|
@@ -145,7 +152,7 @@ if needs_worktree(agent) and cwd == REPO: raise DispatchError
 `record()` appends one event per dispatch through the Telemetry port:
 
 ```python
-{"agent", "task", "attempt", "tier", "reason", "model", "effort", "max_budget_usd",
+{"agent", "task", "attempt", "tier", "reason", "tier_source", "model", "effort", "max_budget_usd",
  "task_budget_tokens", "doctrine_chars", "cost_usd", "input_tokens", "output_tokens",
  "cache_read_tokens", "cache_creation_tokens", "cache_hit_pct", "cache_write_pct",
  "models", "turns", "duration_ms", "ok", "terminal", "experiment", "levers",

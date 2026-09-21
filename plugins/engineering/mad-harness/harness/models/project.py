@@ -481,7 +481,10 @@ class Project:
             )
         if not raw:
             return {}
-        known = list((config or load_config())["tiers"])  # declaration order: weakest first
+        cfg = config or load_config()
+        # LADDER ORDER, weakest first — the message reads that way, and a project may now
+        # supply its own ladder, so declaration order is no longer the truth of it.
+        known = list(cfg.get("ladder") or cfg["tiers"])
         agents_dir = agents_dir or AGENTS_DIR
         shipped = sorted(p.stem for p in agents_dir.glob("*.md"))
         out: dict[str, str] = {}
@@ -495,9 +498,9 @@ class Project:
                 )
             if not isinstance(tier, str) or tier not in known:
                 raise ProjectError(
-                    f"agent_tiers.{agent} is {tier!r}, which is not a tier; known: "
+                    f"agent_tiers.{agent} is {tier!r}, which is not a tier; known (weakest first): "
                     f"{', '.join(known)}. Tiers are defined in the plugin's tiers.yaml, "
-                    f"never here."
+                    f"and patched or added in this file's `tiers:` block."
                 )
             out[agent] = tier
         return out

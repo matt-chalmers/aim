@@ -17,6 +17,10 @@ The one file that makes the harness fit your repository. Written by
 | `ports` | every TCP port your servers bind, by name — the pre-flight probes them | no |
 | `dispatch` | cost levers, each a measured switch: `cache_ttl`, `static_prefix`, `stagger_seconds`, `task_budget_tokens`, `lean_catalog`, `plan_tiers` — see [`models/levers.py`](../../harness/models/levers.py) | no (`task_budget_tokens` defaults from the tier, `lean_catalog` and `plan_tiers` on; the rest off) |
 | `agent_tiers` | per-agent tier overrides, agent → tier — the A/B switch for tier-splitting a lens; policy still forces high-risk up — see [`models/resolve.py`](../../harness/models/resolve.py) precedence. (Was `tiers` until 0.10.30, before any consumer used it: `tiers` is now the definitions block below.) | no |
+| `tiers` | the tier DEFINITIONS, patched over the plugin's: per tier, any of `provider`, `model`, `effort`, `max_budget_usd` — keys you leave out are the plugin's, so an upgrade still reaches you; `model` and `provider` move together — see [`models/resolve.py`](../../harness/models/resolve.py) `merge_model_config` | no |
+| `providers` | the provider set, patched per name and, within one, `env` per key; a credential must be a `${VAR}` reference (`harness.yaml` is committed) — same module | no |
+| `default_tier` | where an agent declaring no `model_tier:` lands — replaces the plugin's outright | no |
+| `ladder` | escalation order, weakest first — replaces the plugin's outright, never interleaved; every defined tier must be on it | no |
 | `paths` | docs, staging, archive — **omit any your project lacks** | yes |
 | `domain` | your domain vocabulary — prompts are guarded against naming it | no |
 | `lanes` | concurrency per lane, measured on your hardware | no |

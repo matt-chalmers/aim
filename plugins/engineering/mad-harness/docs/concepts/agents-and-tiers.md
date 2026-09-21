@@ -6,6 +6,8 @@ the first time an agent changes shape.
 
 ## The tiers
 
+These are the plugin's **defaults**. A consuming project patches any of them, adds tiers, and replaces the ladder in its own `harness.yaml` — see [harness.yaml](../reference/harness-yaml.md); every dispatch record then says `tier_source: project`.
+
 | tier | model | effort | ceiling | for |
 |---|---|---|---|---|
 | `worker` | `claude-sonnet-5` | high | $3.00, and a told budget of 400k tokens | well-specified work with a cheap recovery path |

@@ -170,6 +170,26 @@ if the spreads separate, in its own patch release, with the numbers in `upgradin
 
 ---
 
+## Add a provider
+
+A provider is reached through Claude Code's Anthropic-compatible path (`ANTHROPIC_BASE_URL`
++ `ANTHROPIC_AUTH_TOKEN`); no client library is involved. A project adds one in its own
+`harness.yaml`; the plugin's own defaults live in `models/tiers.yaml`.
+
+**1.** The provider block: `providers: {<name>: {env: {ANTHROPIC_BASE_URL: <url>,
+ANTHROPIC_AUTH_TOKEN: "${<NAME>_API_KEY}"}}}`. A credential is a `${VAR}` reference — the file
+is committed — and no `*MODEL*` key: the tier owns the model.
+**2.** The tier that reaches it: `tiers: {<tier>: {provider: <name>, model: <concrete id>}}` —
+`model` and `provider` together, always; a new tier goes on `ladder:` too.
+**3.** The `.env` entry in `harness/.env` (`harness/.env.example` has the shape).
+**4.** `models/probe-compat.sh <name>` before anything real is routed there — it runs the
+CLI's tool loop against the endpoint and says what broke. It runs `claude -p` unsandboxed,
+so it cannot tell you a sandboxed worker reaches the endpoint; the lab can.
+**5.** `check-project-config.sh` prints the redefinition beside what the plugin ships;
+`dispatch.sh <agent> --dry-run` shows the provider the tier now resolves to.
+
+---
+
 ## Add a hook
 
 The plugin installs hooks from `hooks/hooks.json`; a hook denies or informs, never grants.
@@ -191,7 +211,8 @@ and the registration itself. Pipe-test the wrapper end to end.
 **1.** Extend the payload in `models/dispatch.py::Outcome.telemetry` — or, for something
 read from the session transcript, `models/transcript.py::ResultVolume`.
 **2.** Read it back in `models/report.py::summarise`, and in `models/ab_report.py::METRICS`
-if a series should compare it.
+if a series should compare it — a numeric field; a label (`tier_source`) is a grouping
+key there, never a metric.
 **3.** Confirm `make models-cost` still renders, and document the field in
 [cost](../concepts/cost.md).
 

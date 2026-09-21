@@ -1388,3 +1388,41 @@ tier).
 - **mechanical** — re-stamp `harness.version`, when convenient:
   `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`. Nothing to set
   unless you want the declared tiers back: `dispatch: {plan_tiers: false}`.
+
+### 0.10.30
+
+**Project-owned model config: redefine tiers, add tiers, extend or redefine providers.**
+Two config notes: the per-agent override block is renamed, and four blocks are new.
+
+- **What was wrong.** Routing a tier at a non-Anthropic model (OpenRouter, DeepSeek, a
+  local endpoint) — to cut cost and to measure whether a cheaper model holds up — meant
+  patching `harness/models/tiers.yaml` inside the plugin cache, which no consumer can
+  do. Now a project's `harness.yaml` patches the definitions: `tiers:` per tier per key
+  (leave out what you do not change and the plugin's value stands, so an upgrade still
+  reaches you), `providers:` per name with `env` per key, `default_tier:` and `ladder:`
+  replaced wholesale. The merged config is what gets validated. Two questions, one word
+  each: `agent_tiers:` says which tier an agent runs on; `tiers:` says what a tier is.
+- **The refusals.** A tier patch that sets `model` without `provider` (restating
+  `anthropic` is fine, and is the point); a literal credential in a project provider
+  block (`${VAR}` references only — the file is committed); a ladder naming a ghost, a
+  rung twice, or leaving a defined tier or the policy-forced tier off it. The three
+  tiers.yaml rules — no model in a provider env, concrete model ids, no bare alias — now
+  hold on the merged config. All four new keys are the owner's: no agent may write them.
+- **Redefinition is loud.** You may redefine `strategic`, the tier high-risk work is
+  forced to; the protection is visibility, not prevention. Every dispatch record carries
+  `tier_source: plugin|project`; `make models-cost` never shares a row between the two and
+  `ab-report.sh` refuses an arm that mixes them; `check-project-config.sh` prints each
+  redefinition beside what the plugin ships and names a redefined `strategic`;
+  `dispatch.sh --dry-run` says `(redefined by project)` and prints the effective route.
+- **The frontmatter mirror** (`check-model-config.sh --write`) stamps `model:`/`effort:`
+  only for Anthropic tiers — the frontmatter reader has no provider concept — and prints
+  the exemption for any other.
+
+- **mechanical** — rename the per-agent override block, if you have one: `tiers:` →
+  `agent_tiers:`. No consumer had one when the rename shipped; the old key now means the
+  definitions block, and a map of agent names under it fails the config check by name.
+- **mechanical** — re-stamp `harness.version`, when convenient:
+  `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`.
+- **ask the owner** — whether to route a tier at another provider. The worked example
+  is commented out in `templates/harness.yaml.example`; `models/probe-compat.sh <name>`
+  first; then one A/B under `make models-cost`, reading `tier_source`.
