@@ -958,7 +958,7 @@ def main(argv: list[str] | None = None) -> int:
             task=args.task,
         )
     except (ConfigError, DispatchError, ProjectError) as exc:
-        # ProjectError: the project's `tiers:` block names an agent or tier that does
+        # ProjectError: the project's `agent_tiers:` block names an agent or tier that does
         # not exist. Routing on the agent's default instead would run the A/B on the
         # wrong arm and record it as the right one — so it stops here, like any other
         # config that cannot be dispatched.

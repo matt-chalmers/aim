@@ -129,10 +129,10 @@ swarm:
 # Per-agent tier overrides — the A/B switch for moving an agent between tiers without
 # patching the plugin. Keys are agents the plugin ships, values are tiers from tiers.yaml.
 # Policy still wins: a high-risk dispatch is forced up whatever this says. Every dispatch
-# record says `project override (harness.yaml tiers)` so `make models-cost` can split
+# record says `project override (harness.yaml agent_tiers)` so `make models-cost` can split
 # the series by arm. Off by default: a verification gate's catch rate has to be measured
 # before its tier moves for everyone.
-# tiers:
+# agent_tiers:
 #   verifier-spec: worker
 #   verifier-security: worker
 

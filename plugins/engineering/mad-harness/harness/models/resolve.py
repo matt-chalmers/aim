@@ -9,7 +9,7 @@ The precedence, highest first:
 
     1. explicit task override   an operator or an escalation said so outright
     2. policy                   high-risk work is forced up, whatever steps 3-5 say
-    3. project tier override    `tiers:` in the consuming project's harness.yaml
+    3. project tier override    `agent_tiers:` in the consuming project's harness.yaml
     4. agent default            `model_tier:` in the agent's own frontmatter
     5. global default           `default_tier:` in tiers.yaml
 
@@ -196,9 +196,9 @@ AGENTS_DIR = _prompts_dir("agents")
 
 #: The tier that high-risk work is forced to, regardless of the agent's default.
 POLICY_FORCED_TIER = "strategic"
-#: The reason recorded when a project's `tiers:` block moved the agent. Telemetry
+#: The reason recorded when a project's `agent_tiers:` block moved the agent. Telemetry
 #: carries it verbatim, which is how an A/B series is split by arm.
-PROJECT_OVERRIDE = "project override (harness.yaml tiers)"
+PROJECT_OVERRIDE = "project override (harness.yaml agent_tiers)"
 
 _ENV_REF = re.compile(r"^\$\{([A-Z_][A-Z0-9_]*)\}$")
 _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
@@ -959,7 +959,7 @@ def sees_no_diff(agent: str, agents_dir: Path | None = None) -> bool:
 def project_tier_overrides(
     config: dict[str, Any] | None = None, agents_dir: Path | None = None
 ) -> dict[str, str]:
-    """The consuming project's `tiers:` overrides, validated — `{}` where there is no
+    """The consuming project's `agent_tiers:` overrides, validated — `{}` where there is no
     harness.yaml to read.
 
     A missing config is the old behaviour, not an error: the block is optional and a
@@ -974,7 +974,7 @@ def project_tier_overrides(
 
     if not PROJECT_FILE.is_file():
         return {}
-    return load().tiers(config=config, agents_dir=agents_dir)
+    return load().agent_tiers(config=config, agents_dir=agents_dir)
 
 
 def resolve(

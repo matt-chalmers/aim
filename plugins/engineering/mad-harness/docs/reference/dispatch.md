@@ -66,14 +66,14 @@ First match wins:
 |---|---|---|
 | 1 | explicit override | `--tier`, or `escalate.py` |
 | 2 | policy | `--high-risk` forces up regardless of 3–5 — a project override can never lower a high-risk dispatch |
-| 3 | project override | `tiers:` in `harness.yaml`, agent → tier; the A/B switch for moving a lens between tiers |
+| 3 | project override | `agent_tiers:` in `harness.yaml`, agent → tier; the A/B switch for moving a lens between tiers |
 | 4 | agent default | `model_tier:` in frontmatter |
 | 5 | global default | `default_tier:` in `tiers.yaml` |
 
-`Resolved.reason` records which applied (`project override (harness.yaml tiers)` for 3),
+`Resolved.reason` records which applied (`project override (harness.yaml agent_tiers)` for 3),
 so the telemetry says why. `check-model-config.sh` fails the build if an agent names a
 tier that does not exist, and judges the plugin's defaults rather than a project's
-overrides; a malformed `tiers:` block stops the dispatch rather than falling through.
+overrides; a malformed `agent_tiers:` block stops the dispatch rather than falling through.
 
 ## `ok` is not "the model returned something"
 

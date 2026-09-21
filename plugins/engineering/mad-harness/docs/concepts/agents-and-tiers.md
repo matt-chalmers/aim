@@ -26,7 +26,7 @@ bill can be traced to a decision rather than guessed at.
 1. **explicit override** — an operator or an escalation said so outright
 2. **policy** — high-risk work is forced up regardless of what follows; a project override
    can never lower it
-3. **project override** — `tiers:` in `harness.yaml`, agent → tier. The switch for moving a
+3. **project override** — `agent_tiers:` in `harness.yaml`, agent → tier. The switch for moving a
    lens between tiers without patching the plugin — `verifier-spec: worker`, say — and a
    switch rather than a default because a verification gate's catch rate is measured in
    the field before its tier moves for everyone

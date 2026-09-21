@@ -378,10 +378,14 @@ class Project:
             out[str(name)] = port
         return out
 
-    def tiers(
+    def agent_tiers(
         self, config: dict[str, Any] | None = None, agents_dir: Path | None = None
     ) -> dict[str, str]:
-        """The `tiers:` block — per-agent tier overrides, agent name -> tier name.
+        """The `agent_tiers:` block — per-agent tier overrides, agent name -> tier name.
+
+        RENAMED from `tiers:` (0.10.30) before any consumer used it: `tiers:` now means what
+        it means in tiers.yaml — the DEFINITIONS a project may patch (`Project.model_config`)
+        — and this block answers the other question, which agent runs on which tier.
 
         THE SWITCH FOR TIER-SPLITTING A LENS, and a switch rather than a default on
         purpose. The field cost analysis (cost_control_orchestration.md, A3) ranked moving
@@ -397,20 +401,20 @@ class Project:
 
         Validated here so a typo fails the config check, not a wave: every key must be an
         agent the plugin ships and every value a tier tiers.yaml defines. Absent, or an
-        explicit `tiers: {}`, means every agent keeps its own default. A high-risk
+        explicit `agent_tiers: {}`, means every agent keeps its own default. A high-risk
         dispatch is still forced up whatever this block says — see `resolve.resolve`.
 
         :param config: tiers.yaml already loaded, so a caller holding it does not read it
             twice and a test can supply its own; None loads the real one
         :param agents_dir: where the agents live; None means the plugin's own
         """
-        raw = self.raw.get("tiers")
+        raw = self.raw.get("agent_tiers")
         if raw is None:
             return {}
         if not isinstance(raw, dict):
             raise ProjectError(
-                f"tiers must be a map of agent -> tier, got {type(raw).__name__}. "
-                f"For example: tiers: {{verifier-spec: worker, verifier-security: worker}}"
+                f"agent_tiers must be a map of agent -> tier, got {type(raw).__name__}. "
+                f"For example: agent_tiers: {{verifier-spec: worker, verifier-security: worker}}"
             )
         if not raw:
             return {}
@@ -422,13 +426,13 @@ class Project:
             agent = str(agent)
             if not (agents_dir / f"{agent}.md").is_file():
                 raise ProjectError(
-                    f"tiers.{agent}: no such agent — the plugin ships {', '.join(shipped)}. "
+                    f"agent_tiers.{agent}: no such agent — the plugin ships {', '.join(shipped)}. "
                     f"An override names an agent the dispatcher can route; it cannot "
                     f"invent one."
                 )
             if not isinstance(tier, str) or tier not in known:
                 raise ProjectError(
-                    f"tiers.{agent} is {tier!r}, which is not a tier; known: "
+                    f"agent_tiers.{agent} is {tier!r}, which is not a tier; known: "
                     f"{', '.join(known)}. Tiers are defined in the plugin's tiers.yaml, "
                     f"never here."
                 )

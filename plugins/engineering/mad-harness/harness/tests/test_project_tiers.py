@@ -52,7 +52,7 @@ def agents(tmp_path):
 def test_the_override_moves_the_agent_and_the_reason_names_harness_yaml(agents):
     r = resolve("lens", project_tiers={"lens": "worker"}, config=CONFIG, agents_dir=agents)
     assert (r.tier, r.reason) == ("worker", PROJECT_OVERRIDE)
-    assert r.reason == "project override (harness.yaml tiers)", "telemetry carries this string verbatim"
+    assert r.reason == "project override (harness.yaml agent_tiers)", "telemetry carries this string verbatim"
     assert r.model == "claude-sonnet-5", "the tier's model, not the agent's frontmatter"
     assert r.redacted()["reason"] == PROJECT_OVERRIDE
 
@@ -98,27 +98,27 @@ def test_an_override_handed_in_directly_is_still_checked_against_the_tiers(agent
 
 def test_an_unknown_agent_in_the_block_fails_the_config_check_naming_it(agents):
     with pytest.raises(ProjectError, match=r"tiers\.ghost: no such agent") as exc:
-        _project({"tiers": {"ghost": "worker"}}).tiers(config=CONFIG, agents_dir=agents)
+        _project({"agent_tiers": {"ghost": "worker"}}).agent_tiers(config=CONFIG, agents_dir=agents)
     assert "lens" in str(exc.value) and "untiered" in str(exc.value), "the fix is listed, not left to guess"
 
 
 def test_an_unknown_tier_in_the_block_fails_the_config_check_naming_it(agents):
     with pytest.raises(ProjectError, match=r"tiers\.lens is 'turbo'") as exc:
-        _project({"tiers": {"lens": "turbo"}}).tiers(config=CONFIG, agents_dir=agents)
+        _project({"agent_tiers": {"lens": "turbo"}}).agent_tiers(config=CONFIG, agents_dir=agents)
     assert "worker, strong, strategic" in str(exc.value)
     with pytest.raises(ProjectError, match=r"tiers\.lens is None"):
-        _project({"tiers": {"lens": None}}).tiers(config=CONFIG, agents_dir=agents)
+        _project({"agent_tiers": {"lens": None}}).agent_tiers(config=CONFIG, agents_dir=agents)
 
 
 @pytest.mark.parametrize("raw", ["worker", ["lens"], 3])
 def test_a_block_that_is_not_a_map_is_refused_with_the_shape_it_wanted(agents, raw):
     with pytest.raises(ProjectError, match="map of agent -> tier"):
-        _project({"tiers": raw}).tiers(config=CONFIG, agents_dir=agents)
+        _project({"agent_tiers": raw}).agent_tiers(config=CONFIG, agents_dir=agents)
 
 
 def test_a_valid_block_round_trips_and_the_guard_can_pass(agents):
     """The refusals above would pass vacuously if `tiers()` refused everything."""
-    assert _project({"tiers": {"lens": "worker", "untiered": "strategic"}}).tiers(
+    assert _project({"agent_tiers": {"lens": "worker", "untiered": "strategic"}}).agent_tiers(
         config=CONFIG, agents_dir=agents
     ) == {"lens": "worker", "untiered": "strategic"}
 
@@ -127,9 +127,9 @@ def test_a_valid_block_round_trips_and_the_guard_can_pass(agents):
 
 
 def test_an_absent_or_empty_block_is_no_overrides_and_no_error(agents):
-    assert _project({}).tiers(config=CONFIG, agents_dir=agents) == {}
-    assert _project({"tiers": {}}).tiers(config=CONFIG, agents_dir=agents) == {}
-    assert _project({"tiers": None}).tiers(config=CONFIG, agents_dir=agents) == {}
+    assert _project({}).agent_tiers(config=CONFIG, agents_dir=agents) == {}
+    assert _project({"agent_tiers": {}}).agent_tiers(config=CONFIG, agents_dir=agents) == {}
+    assert _project({"agent_tiers": None}).agent_tiers(config=CONFIG, agents_dir=agents) == {}
 
 
 def test_the_plugins_own_config_declares_no_overrides_so_every_real_agent_keeps_its_default():
@@ -154,7 +154,7 @@ def test_passing_an_empty_map_asks_for_the_plugins_defaults_whatever_the_project
 
 def test_the_overrides_are_read_from_the_projects_harness_yaml(tmp_path, monkeypatch, agents):
     cfg = tmp_path / "harness.yaml"
-    cfg.write_text("name: x\nslug: x\nareas: []\ntiers: {lens: worker}\n")
+    cfg.write_text("name: x\nslug: x\nareas: []\nagent_tiers: {lens: worker}\n")
     monkeypatch.setattr("models.project.PROJECT_FILE", cfg)
     assert mod.project_tier_overrides(config=CONFIG, agents_dir=agents) == {"lens": "worker"}
     r = resolve("lens", config=CONFIG, agents_dir=agents)
@@ -174,14 +174,14 @@ def test_a_malformed_block_stops_the_dispatch_rather_than_routing_on_the_default
     from models import dispatch as dmod
 
     cfg = tmp_path / "harness.yaml"
-    cfg.write_text("name: x\nslug: x\nareas: []\ntiers: {verifer-spec: worker}\n")
+    cfg.write_text("name: x\nslug: x\nareas: []\nagent_tiers: {verifer-spec: worker}\n")
     monkeypatch.setattr("models.project.PROJECT_FILE", cfg)
     with pytest.raises(ProjectError, match=r"tiers\.verifer-spec: no such agent"):
         resolve("verifier-spec")
     pf = tmp_path / "p.txt"
     pf.write_text("do the thing")
     assert dmod.main(["verifier-spec", "--prompt-file", str(pf), "--dry-run"]) == 2
-    assert "FAIL: tiers.verifer-spec: no such agent" in capsys.readouterr().err
+    assert "FAIL: agent_tiers.verifer-spec: no such agent" in capsys.readouterr().err
 
 
 # --- the record says which arm ------------------------------------------------------------
@@ -224,10 +224,10 @@ def _check(monkeypatch, raw):
 
 
 def test_check_project_config_prints_the_overrides_on_one_line_and_calls_them_overrides(monkeypatch):
-    rc, out, _ = _check(monkeypatch, {"tiers": {"verifier-spec": "worker", "verifier-security": "worker"}})
+    rc, out, _ = _check(monkeypatch, {"agent_tiers": {"verifier-spec": "worker", "verifier-security": "worker"}})
     assert rc == 0
-    [line] = [ln for ln in out.splitlines() if ln.startswith("tiers:")]
-    assert line == "tiers:   verifier-security->worker, verifier-spec->worker  (project overrides)"
+    [line] = [ln for ln in out.splitlines() if ln.startswith("agent_tiers:")]
+    assert line == "agent_tiers: verifier-security->worker, verifier-spec->worker  (project overrides)"
 
 
 def test_check_project_config_is_silent_about_tiers_when_none_are_overridden(monkeypatch):
@@ -236,8 +236,8 @@ def test_check_project_config_is_silent_about_tiers_when_none_are_overridden(mon
 
 
 def test_check_project_config_fails_on_a_bad_override_naming_it(monkeypatch):
-    rc, _, err = _check(monkeypatch, {"tiers": {"verifier-spec": "turbo"}})
-    assert rc == 1 and "tiers.verifier-spec is 'turbo'" in err
+    rc, _, err = _check(monkeypatch, {"agent_tiers": {"verifier-spec": "turbo"}})
+    assert rc == 1 and "agent_tiers.verifier-spec is 'turbo'" in err
 
 
 # --- the switch is the owner's ------------------------------------------------------------
@@ -248,9 +248,9 @@ def test_the_tiers_block_is_normative_so_no_agent_can_move_the_lens_judging_it(t
     it off; the repair mechanism must refuse the key like it refuses `security`."""
     from models.check_commands import _NORMATIVE, write_repair
 
-    assert "tiers" in _NORMATIVE
+    assert "agent_tiers" in _NORMATIVE
     with pytest.raises(ValueError, match="agent-maintained"):
-        write_repair("python-uv", "tiers.verifier-spec", "worker", tmp_path / "harness.yaml")
+        write_repair("python-uv", "agent_tiers.verifier-spec", "worker", tmp_path / "harness.yaml")
 
 
 def test_check_model_config_judges_the_plugins_defaults_not_the_projects_arm(monkeypatch, capsys):

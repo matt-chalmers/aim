@@ -150,9 +150,9 @@ def main(argv: list[str] | None = None) -> int:
     # output knows which agents are off the plugin's defaults, and named as an override
     # so nobody mistakes it for the agent's own declaration.
     try:
-        moved = p.tiers()
+        moved = p.agent_tiers()
         if moved:
-            print(f"tiers:   {', '.join(f'{k}->{v}' for k, v in sorted(moved.items()))}  (project overrides)")
+            print(f"agent_tiers: {', '.join(f'{k}->{v}' for k, v in sorted(moved.items()))}  (project overrides)")
     except (ProjectError, ConfigError) as exc:
         failures.append(str(exc))
 

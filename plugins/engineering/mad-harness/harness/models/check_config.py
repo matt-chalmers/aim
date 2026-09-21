@@ -12,7 +12,7 @@ must agree, and a script that says so out loud rather than trusting anyone to
 remember.
 
 THE PLUGIN'S DEFAULTS, NOT A PROJECT'S ARM. Every resolve here passes
-``project_tiers={}``: a consuming project's ``tiers:`` block moves an agent
+``project_tiers={}``: a consuming project's ``agent_tiers:`` block moves an agent
 deliberately, for a measured A/B, and the frontmatter is meant to keep saying what
 the plugin ships. Run from such a project, the override would otherwise read as
 drift between the two readers and fail a config that is exactly as intended.
