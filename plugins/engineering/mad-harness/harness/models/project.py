@@ -375,6 +375,12 @@ class Project:
                 unknown = set(patch) - {"provider", "model", "effort", "max_budget_usd", "task_budget_tokens"}
                 if unknown:
                     raise ProjectError(f"tiers.{name}: unknown key(s) {', '.join(sorted(unknown))}")
+                # MODEL AND PROVIDER MOVE TOGETHER. A project pointing a tier at `qwen/...`
+                # while the provider silently stays `anthropic` dispatches to Anthropic
+                # with an unknown id and reads as a provider outage. Restating
+                # `provider: anthropic` is fine, and is the point.
+                if "model" in patch and "provider" not in patch:
+                    raise ProjectError(f"tiers.{name}: sets `model` without `provider` — the two move together; name the provider (restating `anthropic` is fine)")
             out["tiers"] = {str(k): dict(v) for k, v in tiers.items()}
         providers = self.raw.get("providers")
         if providers is not None:
@@ -388,6 +394,13 @@ class Project:
                     raise ProjectError(f"providers.{name}: unknown key(s) {', '.join(sorted(unknown))}")
                 if "env" in block and not isinstance(block["env"], dict):
                     raise ProjectError(f"providers.{name}.env: must be a map of variable -> value")
+                # NO LITERAL CREDENTIAL IN A COMMITTED FILE. harness.yaml is tracked;
+                # tiers.yaml is plugin-owned and reviewed, so this rule is the project
+                # layer's alone. A literal base URL is not a secret and stays legal.
+                for var, value in (block.get("env") or {}).items():
+                    up = str(var).upper()
+                    if any(tok in up for tok in ("TOKEN", "KEY", "SECRET")) and not (isinstance(value, str) and value.strip().startswith("${") and value.strip().endswith("}")):
+                        raise ProjectError(f"providers.{name}.env.{var}: a credential must be a ${{VAR}} reference, never a literal — harness.yaml is committed")
             out["providers"] = {str(k): {kk: dict(vv) if isinstance(vv, dict) else vv for kk, vv in v.items()} for k, v in providers.items()}
         if "default_tier" in self.raw:
             if not isinstance(self.raw["default_tier"], str) or not self.raw["default_tier"]:

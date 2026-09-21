@@ -75,7 +75,7 @@ def test_a_brand_new_tier_is_selectable_through_agent_tiers_and_keeps_declaratio
 
 
 def test_a_redefined_tier_keeps_its_position(agents):
-    cfg = merged({"tiers": {"strong": {"model": "claude-opus-5"}}})
+    cfg = merged({"tiers": {"strong": {"provider": "anthropic", "model": "claude-opus-5"}}})
     assert list(cfg["tiers"]) == ["worker", "strong", "strategic"]
     assert cfg["tiers"]["strong"]["model"] == "claude-opus-5" and cfg["tiers"]["strong"]["effort"] == "xhigh"
 
@@ -104,7 +104,7 @@ def test_overriding_anthropics_env_merges_per_key_not_the_whole_map():
 
 
 def test_merge_project_false_is_the_plugins_shipped_config_whatever_the_project_says(monkeypatch):
-    monkeypatch.setattr(mod, "_project_model_config", lambda: {"tiers": {"worker": {"model": "qwen/x", "provider": "anthropic"}}})
+    monkeypatch.setattr(mod, "_project_model_config", lambda: {"tiers": {"worker": {"provider": "anthropic", "model": "qwen/x"}}})
     shipped = mod.load_config(merge_project=False)
     assert shipped["tiers"]["worker"]["model"] == "claude-sonnet-5"
     live = mod.load_config()
@@ -146,3 +146,64 @@ def test_the_merged_config_is_what_is_validated():
         merged({"tiers": {"candidate": {"provider": "nowhere", "model": "m", "effort": "high", "max_budget_usd": 1.0}}})
     with pytest.raises(mod.ConfigError, match="default_tier 'ghost'"):
         merged({"default_tier": "ghost"})
+
+
+# --- phase 2: the refusals, each with the violation planted ---------------------------------
+
+
+def test_a_model_without_a_provider_is_refused_naming_both_keys():
+    with pytest.raises(ProjectError, match="tiers.worker: sets `model` without `provider`"):
+        _project({"tiers": {"worker": {"model": "qwen/qwen3-coder-plus"}}}).model_config()
+    ok = _project({"tiers": {"worker": {"provider": "anthropic", "model": "claude-sonnet-5"}}}).model_config()
+    assert ok["tiers"]["worker"]["provider"] == "anthropic", "restating anthropic is fine, and is the point"
+
+
+@pytest.mark.parametrize("var", ["ANTHROPIC_AUTH_TOKEN", "OPENROUTER_API_KEY", "MY_SECRET"])
+def test_a_literal_credential_in_a_project_provider_is_refused_and_a_reference_is_not(var):
+    import re
+
+    with pytest.raises(ProjectError, match=re.escape(f"providers.openrouter.env.{var}: a credential must be a ${{VAR}} reference")):
+        _project({"providers": {"openrouter": {"env": {var: "sk-or-v1-abc123"}}}}).model_config()
+    ok = _project({"providers": {"openrouter": {"env": {var: "${OPENROUTER_API_KEY}", "ANTHROPIC_BASE_URL": "https://openrouter.ai/api"}}}}).model_config()
+    assert ok["providers"]["openrouter"]["env"]["ANTHROPIC_BASE_URL"] == "https://openrouter.ai/api", "a literal base URL is not a secret"
+
+
+def test_the_merged_config_refuses_a_model_in_a_provider_env_a_templated_model_and_a_bare_alias():
+    """These were tests on tiers.yaml; with a project patching the config they are rules
+    on the merged one, so the new door cannot reintroduce what the old tests forbade."""
+    with pytest.raises(mod.ConfigError, match="provider 'openrouter' names a model in its env"):
+        merged({"providers": {"openrouter": {"env": {"ANTHROPIC_MODEL": "x"}}}})
+    with pytest.raises(mod.ConfigError, match="tier 'worker' must name a concrete model"):
+        merged({"tiers": {"worker": {"provider": "anthropic", "model": "${MODEL}"}}})
+    with pytest.raises(mod.ConfigError, match="tier 'worker' names the alias 'opus'"):
+        merged({"tiers": {"worker": {"provider": "anthropic", "model": "opus"}}})
+
+
+@pytest.mark.parametrize(
+    "raw, msg",
+    [
+        ({"ladder": ["worker", "ghost", "strong", "strategic"]}, "ladder names tier\(s\) that do not exist: ghost"),
+        ({"ladder": ["worker", "worker", "strong", "strategic"]}, "ladder names tier\(s\) more than once: worker"),
+        ({"tiers": {"candidate": {"provider": "deepseek", "model": "m", "effort": "high", "max_budget_usd": 1.0}}}, "defined but not on the ladder: candidate"),
+        ({"ladder": ["worker", "strong"]}, "not on the ladder"),
+    ],
+)
+def test_the_ladder_and_the_default_are_validated_on_the_merged_config_by_name(raw, msg):
+    with pytest.raises(mod.ConfigError, match=msg):
+        merged(raw)
+
+
+def test_the_policy_forced_tier_may_sit_anywhere_on_a_project_ladder():
+    """Allowed — and the config check says so out loud (phase 3) rather than refusing."""
+    cfg = merged({"ladder": ["worker", "strategic", "strong"]})
+    assert cfg["ladder"] == ["worker", "strategic", "strong"]
+
+
+def test_the_four_keys_are_normative_and_a_dotted_path_under_them_is_refused(tmp_path):
+    from models.check_commands import _NORMATIVE, write_repair
+
+    for key in ("tiers", "providers", "default_tier", "ladder"):
+        assert key in _NORMATIVE
+    for path in ("tiers.worker.model", "providers.openrouter.env.ANTHROPIC_BASE_URL", "default_tier", "ladder"):
+        with pytest.raises(ValueError, match="agent-maintained"):
+            write_repair("python-uv", path, "x", tmp_path / "harness.yaml")

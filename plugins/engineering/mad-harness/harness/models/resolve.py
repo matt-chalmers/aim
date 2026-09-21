@@ -196,6 +196,8 @@ AGENTS_DIR = _prompts_dir("agents")
 
 #: The tier that high-risk work is forced to, regardless of the agent's default.
 POLICY_FORCED_TIER = "strategic"
+#: Model words that resolve differently per dispatch path; a tier must name a concrete id.
+MODEL_ALIASES = frozenset({"opus", "sonnet", "haiku", "fable", "inherit", "default"})
 #: The reason recorded when a project's `agent_tiers:` block moved the agent. Telemetry
 #: carries it verbatim, which is how an A/B series is split by arm.
 PROJECT_OVERRIDE = "project override (harness.yaml agent_tiers)"
@@ -429,6 +431,40 @@ def _validate(config: dict[str, Any], where: str = "tiers.yaml") -> dict[str, An
             f"the policy-forced tier {POLICY_FORCED_TIER!r} is not defined; "
             "high-risk work would have nowhere to escalate to"
         )
+    # THE TIER OWNS THE MODEL, and names it concretely. A provider env naming a model
+    # (`ANTHROPIC_MODEL`) would be a second source of truth; a `${...}` model is one; and a
+    # bare alias (`opus`) resolved to different generations on different dispatch paths
+    # (measured — it invalidated a parity experiment). These were tests on tiers.yaml;
+    # with a project patching the config they are rules on the merged one.
+    for name, spec in providers.items():
+        for key in (spec or {}).get("env") or {}:
+            if "MODEL" in str(key).upper():
+                raise ConfigError(f"provider {name!r} names a model in its env ({key}); the tier owns that")
+    for name, tier in tiers.items():
+        model = str(tier.get("model", ""))
+        if not model or "${" in model:
+            raise ConfigError(f"tier {name!r} must name a concrete model, got {tier.get('model')!r}")
+        if model.lower() in MODEL_ALIASES:
+            raise ConfigError(f"tier {name!r} names the alias {model!r}; use a concrete model id so every dispatch path resolves it the same way")
+    # THE LADDER, ON THE MERGED CONFIG. escalate.next_tier raises on an off-ladder tier —
+    # at dispatch time, on the one path where a silent wrong direction is expensive. A
+    # project that adds a tier must place it; a ladder naming a ghost, or the same rung
+    # twice, or leaving the policy-forced tier off, fails here by name.
+    ladder = config.get("ladder")
+    if ladder is not None:
+        if not isinstance(ladder, list) or not ladder:
+            raise ConfigError(f"{where}: `ladder` must be a non-empty list of tier names, weakest first")
+        ghosts = [t for t in ladder if t not in tiers]
+        if ghosts:
+            raise ConfigError(f"ladder names tier(s) that do not exist: {', '.join(map(str, ghosts))}")
+        dupes = sorted({t for t in ladder if ladder.count(t) > 1})
+        if dupes:
+            raise ConfigError(f"ladder names tier(s) more than once: {', '.join(dupes)}")
+        missing = [t for t in tiers if t not in ladder]
+        if missing:
+            raise ConfigError(f"tier(s) defined but not on the ladder: {', '.join(missing)} — a tier that exists must be placed, or escalation cannot reason about it")
+        if POLICY_FORCED_TIER not in ladder:
+            raise ConfigError(f"the policy-forced tier {POLICY_FORCED_TIER!r} is not on the ladder")
     return config
 
 
