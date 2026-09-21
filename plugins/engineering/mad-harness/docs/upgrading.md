@@ -1314,8 +1314,24 @@ config note: a stack may now declare `bootstrap.strategy: none`.
   10.8k/6.2k vs 12.8k/10.8k tokens, $0.48 vs $0.64 median — cost and time −27%, output
   −42% (the only spread that separates at n = 2). The default moved on the owner's
   decision ("strong or lower, with escalation"), the stated exception to
-  measured-before-moved; the series with the planner and audit under it, on the
-  corrected reuse rule, is below.
+  measured-before-moved — and the second series then sized the whole rule: §3 in full
+  (survey → sanity-check → planner → audit) on the never-audited lab epic, three clean
+  runs per arm, all PLANNED, no denials, no escalations:
+
+  | stage | declared | default | seconds (median) | cost (median) |
+  |---|---|---|---|---|
+  | survey | worker | worker | 82 → 103 (noise) | $0.19 → $0.19 |
+  | sanity-check | strategic | strong | 146 → 112 (−23%) | $0.63 → $0.54 (−14%) |
+  | planner | strong | strong | 143 → 185 (noise) | $0.71 → $0.73 |
+  | audit | strong | worker | 147 → 64 (−56%) | $0.65 → $0.19 (−71%) |
+  | §3 per run | | | 8.4 → 8.2 min (overlap) | **$2.43 → $1.63, −33%, spreads separate** |
+
+  The same §3 on the same epic cost 29 minutes and $7.33 before this release's
+  proportion, rendered-view and one-command fixes (both arms carry those); the tiers
+  took the cost down a further third. Two caveats: the epic is trivial, so both arms'
+  audits passed 3/3 — this sizes the audit's cost at `worker`, not its catch rate,
+  which needs a plan with a real flaw in it; and escalation fired zero times, so the
+  path is pinned by the suite and not yet seen in the field.
   The lab seed carries acceptance in the record's field so the lab epic triages READY.
   Every §3 prompt states the epic's size and ends with the one-plain-command rule (two
   of four surveys in the first series were refused a compound command).
