@@ -271,3 +271,21 @@ def test_a_dispatch_disables_cloud_connectors():
 
     _, settings = mod.sandbox_for()
     assert json.loads(settings)["disableClaudeAiConnectors"] is True
+
+
+def test_every_lever_the_environment_knows_is_a_key_the_project_block_accepts():
+    """`plan_tiers` shipped (0.10.29) in levers.py but not in Project.dispatch()'s known
+    keys: a project writing `dispatch: {plan_tiers: false}` failed its config check, and
+    levers._project_block swallowed the error and dropped the WHOLE dispatch block. Every
+    lever with an environment variable must be a key the block validates."""
+    from models.project import Project
+
+    for name in levers._ENV:
+        key = levers._KEY.get(name, name)
+        value = {"cache_ttl": "5m", "task_budget_tokens": 400000, "preload": "x", "stagger_seconds": 8}.get(key, False)
+        if name == "preload":
+            continue  # preload is the rig's arm, not a project key
+        p = Project(name="n", slug="n", stacks=(), paths={}, areas=(), security={}, raw={"dispatch": {key: value}})
+        assert key in p.dispatch(), f"{key} is refused by Project.dispatch()"
+    p = Project(name="n", slug="n", stacks=(), paths={}, areas=(), security={}, raw={"dispatch": {"plan_tiers": False}})
+    assert levers.lever("plan_tiers", block=p.dispatch()) is False

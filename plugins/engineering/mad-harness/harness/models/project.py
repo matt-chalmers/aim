@@ -324,7 +324,7 @@ class Project:
             if ttl not in ("5m", "1h"):
                 raise ProjectError(f"dispatch.cache_ttl must be 5m or 1h, got {ttl!r}")
             out["cache_ttl"] = ttl
-        for flag in ("static_prefix", "lean_catalog"):
+        for flag in ("static_prefix", "lean_catalog", "plan_tiers"):
             if flag in raw:
                 if not isinstance(raw[flag], bool):
                     raise ProjectError(f"dispatch.{flag} must be true or false")
@@ -345,7 +345,7 @@ class Project:
             if budget < 50_000:
                 raise ProjectError(f"dispatch.task_budget_tokens is {budget}; below 50000 a worker cannot read its own task")
             out["task_budget_tokens"] = budget
-        unknown = set(raw) - {"cache_ttl", "static_prefix", "stagger_seconds", "task_budget_tokens", "lean_catalog"}
+        unknown = set(raw) - {"cache_ttl", "static_prefix", "stagger_seconds", "task_budget_tokens", "lean_catalog", "plan_tiers"}
         if unknown:
             raise ProjectError(f"dispatch: unknown key(s) {', '.join(sorted(unknown))}")
         return out
