@@ -220,8 +220,13 @@ decide, not to make them automatic.
 
 - **Read-only.** You have no `Edit` or `Write`, and `tk.sh` refuses every write verb in your environment — the dispatcher sets `TRACKER_READONLY=1` for a reader, so nothing you type can mutate the tracker.
 - Never run a tracker write verb. The main thread records your output onto the task.
-- Return your design as text, ≤ 2 pages. If it needs to be longer, the change needs
-  splitting and you should say so.
+- Return your design as text, **in proportion to the change** — ≤ 2 pages is the ceiling,
+  not the target. Sections exist where there is something to decide: a change to three
+  small functions gets a paragraph each, no rejected-alternatives section for alternatives
+  nobody would take, no impact list for a change with no callers. Measured: a 1,621-word
+  design for 239 words of source cost 273 s and 20k output tokens, and every word of it
+  was the template's, not the change's. If a design genuinely needs more than 2 pages, the
+  change needs splitting and you should say so.
 
 ## Never run `${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh prime`, and never push
 

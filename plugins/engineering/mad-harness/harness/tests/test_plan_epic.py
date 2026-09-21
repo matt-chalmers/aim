@@ -508,3 +508,24 @@ def test_the_audit_is_handed_the_rendered_view_and_told_not_to_loop(repo):
     s.run()
     audit_prompt = next(t for a, t in d.seen if a == "analyst")
     assert "tasks.md" in audit_prompt and "never in a shell loop" in audit_prompt
+
+
+def test_every_stage_prompt_states_the_size_of_the_epic_and_asks_for_proportion(repo):
+    """Measured: for an epic whose whole source was 239 words the architect wrote 1,621
+    words, the planner 3,876, the audit 17k tokens — each stage's time was its output and
+    the output was the template's shape. The sequencer knows the task count; it says so."""
+    r = Runner(**{"tk.sh validate": VALIDATE_CLEAN})
+    d = results_for(**{"analyst-survey": SURVEY, "architect": DESIGN, "planner": PLAN, "analyst": "VERDICT: PASS\n"})
+    s = seq(repo, r, d, store=StoreWithChildren(3, ready=False))
+    s.state.data["triage"] = "READY"
+    s.run()
+    prompts = dict(d.seen)
+    assert "SIZE: this epic has 3 open task(s)" in prompts["architect"] and "a paragraph per task at most" in prompts["architect"]
+    assert "SIZE: this epic has 3 open task(s)" in prompts["planner"] and "Emit only what changes" in prompts["planner"]
+    assert "SIZE: the plan covers 3 open task(s)" in prompts["analyst"] and "One line per task" in prompts["analyst"]
+    d2 = results_for(**{"analyst-survey": SURVEY, "architect": DESIGN, "planner": PLAN, "analyst": "VERDICT: PASS\n"})
+    s2 = seq(repo, Runner(**{"tk.sh validate": VALIDATE_CLEAN}), d2, store=Store())
+    s2.state.data["triage"] = "UNPLANNED"
+    s2.state.data["done"] = []
+    s2.run()
+    assert "SIZE: this epic has no tasks yet" in dict(d2.seen)["architect"] and "a small change gets a short design" in dict(d2.seen)["architect"]

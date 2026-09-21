@@ -207,6 +207,11 @@ exists for.
 
 ## Output contract — text only, in this order
 
+**In proportion to the epic.** Emit only what changes: an existing task that stands as
+recorded is named in the DAG, not re-issued as a `create`; the matrix is as long as its
+edges, the wave plan as long as its waves. A three-task epic's plan is a page. Measured: a
+3,876-word plan for three tasks that already existed — 28k output tokens, 342 s — and the
+sequencer's applier refuses nothing in a short plan that it would accept in a long one.
 
 1. The DAG as an indented tree with edge types, **each task carrying its `SURFACE:` line**.
 2. The file-contention matrix, with every edge resolved and the resolution named.

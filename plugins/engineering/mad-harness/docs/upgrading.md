@@ -1297,6 +1297,15 @@ config note: a stack may now declare `bootstrap.strategy: none`.
   minutes and about a dollar a run. The lab seed now carries acceptance in the record's
   field, so the lab epic triages READY as a planner's would. The analyst audit gets the
   rendered task view, as the architect and planner did — it had looped the same way.
+- **§3 writes in proportion to the epic.** The time was the output, and the output was
+  the template: for an epic whose whole source was 239 words the architect wrote a
+  1,621-word design (20k output tokens, 273 s), the planner a 3,876-word plan for three
+  tasks that already existed (28k, 342 s), the audit 17k tokens about it, at ~1,300 output
+  tokens a turn — while the survey, which had little to index, took 75 s. Each sequencer
+  prompt now opens with the epic's task count and what a proportionate deliverable is
+  (confirm or flag, a paragraph per task; emit only what changes; one line per task), and
+  the architect's, planner's and analyst's contracts say ≤ 2 pages is a ceiling, not a
+  target. Measured next by `ab.sh plan_tiers --plan-only`, whose both arms carry this.
 - **The measurement the series owed** — `harness/wavelab/ab.sh release --orchestrated`,
   the same seeded epic (3 tasks, 2 waves, an owner's settlement noted on it), one headless
   `campaign-orchestrator` per arm, one run each, one hour each. **n = 1 in a system with a

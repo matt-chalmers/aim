@@ -173,8 +173,11 @@ FINDINGS: <numbered, tagged blocking|filed, each naming the CLASS of answer miss
   output.
 - **Cite by symbol, never by line number** . Line pins
   rot; symbols survive.
-- **Return text, ≤ 2 pages.** If the audit needs more, the spec is too big for one feature and
-  saying so is your finding.
+- **Return text, in proportion to what you audited** — ≤ 2 pages is the ceiling, not the
+  target. One line per task (PASS, or the finding), then the findings; never a restatement
+  of the plan or the spec. Measured: 17k output tokens auditing a three-task plan, most of
+  it the plan said back. If the audit genuinely needs more than 2 pages, the spec is too big
+  for one feature and saying so is your finding.
 - **Never propose the missing requirement.** Name its class — *"no failure state for delivery"*
   — and stop. The owner fills it. That boundary is the whole reason you can be trusted near a
   spec.

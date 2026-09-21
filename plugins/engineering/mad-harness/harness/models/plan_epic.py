@@ -190,6 +190,28 @@ class Sequencer:
         except Exception:  # noqa: BLE001 — a tracker that cannot answer reads as "no children"
             return []
 
+    def size_line(self, role: str) -> str:
+        """WRITE IN PROPORTION TO THE EPIC. Measured: for an epic whose whole source was 239
+        words, the architect wrote a 1,621-word design (20k output tokens, 273 s), the
+        planner a 3,876-word plan for three tasks that already existed (28k, 342 s), the
+        audit 17k tokens about it — each stage's time was its output, and its output was the
+        deliverable's prescribed SHAPE, not what there was to say. The count is known here."""
+        n = len(self.children())
+        what = f"{n} open task(s)" if n else "no tasks yet"
+        if role == "sanity-check":
+            return (f"SIZE: this epic has {what}. Confirm or flag, in proportion — a paragraph per task at most, one page in all; "
+                    "no rejected-alternatives section, no impact list, no draft decision record unless a real fork exists. A design that says nothing has changed is a short one.\n")
+        if role == "design":
+            return (f"SIZE: this epic has {what}. Write in proportion to the change — a page per module touched at most, sections only where there is something to decide; "
+                    "a small change gets a short design, not a full template.\n")
+        if role == "plan":
+            return (f"SIZE: this epic has {what}. Emit only what changes: a task that stands as recorded is named, not re-issued; the matrix and the wave plan are as long as their edges and waves; "
+                    "a three-task epic's plan is a page, not a document.\n")
+        if role == "audit":
+            return (f"SIZE: the plan covers {what}. One line per task — PASS, or the finding — then the blocking/filed findings; never a restatement of the plan. "
+                    "A short plan gets a short audit.\n")
+        return ""
+
     def tier_for(self, role: str) -> str | None:
         """The lever: the READY sanity-check and the audit at `strong` (the architect's
         declared tier is strategic — Opus at max effort); None keeps the declared tier.
@@ -401,10 +423,10 @@ class Sequencer:
         base = (f"Epic {self.epic} — {self.title()}. The SPEC INDEX is at `{self.state.art('spec_index') or '(none staged; read the epic)'}`; the survey at `{self.state.art('survey') or '(reused)'}`. Start there; open what it points at.\n"
                 + (f"The epic's existing tasks are rendered, in full, at `{view}` — read that file; do not fetch them one by one, and never in a shell loop (a compound command is denied).\n" if view else ""))
         if triage == "READY":
-            prompt = base + ("SANITY-CHECK the existing design and tasks: 1) is the recorded or implied design still correct given everything that has landed since the tasks were written — check the feature docs and the ADRs, including ones written after these tasks; 2) has the ground moved underneath it — run `tk.sh memories` and look for a documented framework that is a veneer; 3) confirm, or flag the drift precisely. Begin your output with an `ARCHITECTURE:` block. "
+            prompt = base + self.size_line("sanity-check") + ("SANITY-CHECK the existing design and tasks: 1) is the recorded or implied design still correct given everything that has landed since the tasks were written — check the feature docs and the ADRs, including ones written after these tasks; 2) has the ground moved underneath it — run `tk.sh memories` and look for a documented framework that is a veneer; 3) confirm, or flag the drift precisely. Begin your output with an `ARCHITECTURE:` block. "
                              "If you cannot proceed without inventing scope, put `ADEQUACY: ABSENT` first and stop. Put every open question on its own line as `DECISION: <question>`.\n")
         else:
-            prompt = base + ("DESIGN it: the recommended approach (modules, service functions, schema, API contract), rejected alternatives with reasons, the impact list, a draft decision record where the call is non-obvious. Begin your output with an `ARCHITECTURE:` block. "
+            prompt = base + self.size_line("design") + ("DESIGN it: the recommended approach (modules, service functions, schema, API contract), rejected alternatives with reasons, the impact list, a draft decision record where the call is non-obvious. Begin your output with an `ARCHITECTURE:` block. "
                              "If you cannot design without inventing scope, put `ADEQUACY: ABSENT` first and stop. Put every open question on its own line as `DECISION: <question>`; put a missing requirement as `REQUIREMENT: <what is unspecified>`.\n")
         out = self.out_dir / "design.md"
         raw, text = _dispatch("architect", prompt, self.epic, out, self.runner, self.cwd, self.dispatch_fn, tier=tier)
@@ -478,7 +500,7 @@ class Sequencer:
         # attempts, a complete plan refused each time (measured, $4.13 of planner).
         view = self.render_view()
         tasks_line = f"Its current tasks are rendered, in full, at `{view}` — read that file; do not fetch them one by one, and never in a shell loop (a compound command is denied)." if view else f"Its current tasks: `{TK} list --parent {self.epic}`, then `{TK} show <id>` one at a time — never in a shell loop (a compound command is denied)."
-        prompt = (f"PLAN epic {self.epic} — {self.title()}. {tasks_line} The design is at `{self.state.art('staged_design') or self.state.art('design') or '(the ARCHITECTURE: note)'}`; the SPEC INDEX at `{self.state.art('spec_index') or '(none)'}`; the survey at `{self.state.art('survey') or '(reused)'}`.\n"
+        prompt = (self.size_line("plan") + f"PLAN epic {self.epic} — {self.title()}. {tasks_line} The design is at `{self.state.art('staged_design') or self.state.art('design') or '(the ARCHITECTURE: note)'}`; the SPEC INDEX at `{self.state.art('spec_index') or '(none)'}`; the survey at `{self.state.art('survey') or '(reused)'}`.\n"
                   f"Lanes and caps: {lane_text}. " + (f"The next free decision-record number is {next_adr}; a task that needs one names it. " if next_adr else "") +
                   "Produce the DAG with a SURFACE: line per task, the file-contention matrix with every edge resolved, the wave plan, and the tracker commands in fenced bash blocks with `T1:` labels for apply-plan.sh. Open questions as `DECISION: <question>` lines outside the blocks.\n")
         if findings:
@@ -504,7 +526,7 @@ class Sequencer:
         # records — denied, a re-dispatch at $1.06 (measured).
         view = self.render_view()
         view_line = f" The epic's existing tasks are rendered, in full, at `{view}` — read that file; do not fetch them one by one, and never in a shell loop (a compound command is denied)." if view else ""
-        prompt = f"AUDIT the plan for epic {self.epic} at `{plan}` — its task set, acceptance criteria and SURFACE: lines — against the standard.{view_line} Return the AUDIT return contract: `VERDICT: PASS` or `VERDICT: FAIL` first, findings tagged blocking|filed. A gap written down (an open question, a decision task, a stated deferral) is a PASS; the same gap silent is a FAIL.\n"
+        prompt = self.size_line("audit") + f"AUDIT the plan for epic {self.epic} at `{plan}` — its task set, acceptance criteria and SURFACE: lines — against the standard.{view_line} Return the AUDIT return contract: `VERDICT: PASS` or `VERDICT: FAIL` first, findings tagged blocking|filed. A gap written down (an open question, a decision task, a stated deferral) is a PASS; the same gap silent is a FAIL.\n"
         n = self.state.data["audit_attempts"] + 1
         out = self.out_dir / f"audit-{n}.md"
         tier = self.tier_for("audit")
