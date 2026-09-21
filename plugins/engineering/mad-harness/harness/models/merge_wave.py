@@ -113,10 +113,24 @@ def preconditions(branches: list[str], runner, cwd: str) -> tuple[list[Result], 
     owned = _tracker_owned(runner, cwd)
     dirty = [ln for ln in lines if not _under(ln[3:], owned)]
     residue = [ln for ln in lines if _under(ln[3:], owned)]
+    # STAGED RESIDUE IS UNSTAGED, or the merge refuses. beads' own hooks (`core.hooksPath`
+    # = .beads/hooks) `git add` the export on every write, and git will not merge over a
+    # STAGED entry it has to set back to HEAD's blob — "Your local changes to the
+    # following files would be overwritten by merge: .beads/issues.jsonl", on two branches
+    # that never touched it (measured; by hand, with the file merely modified, it merged).
+    # The worktree copy is left as it is: it is the export, regenerated at close-wave.
+    staged = [ln[3:] for ln in residue if ln[0] not in (" ", "?")]
+    if staged:
+        rs = execute(["git", "reset", "-q", "--", *staged], cwd=cwd, runner=runner)
+        if not rs.ran or rs.returncode != 0:
+            out.append(Result("git reset -- <tracker residue>", FAIL, "the tracker's staged export could not be unstaged, and git will not merge over it:\n" + failure_detail(rs), rs))
     if not raw.ran or raw.returncode != 0 or dirty:
         out.append(Result("git status --porcelain", FAIL, f"{len(dirty)} path(s) dirty — a merge onto a dirty tree loses work:\n" + "\n".join(dirty[:8]) if dirty else failure_detail(raw)))
     else:
-        out.append(Result("git status --porcelain", OK, "clean" + (f" (tracker residue ignored: {', '.join(ln[3:] for ln in residue)})" if residue else "")))
+        note = ""
+        if residue:
+            note = f" (tracker residue ignored: {', '.join(ln[3:] for ln in residue)}" + (f"; unstaged: {', '.join(staged)}" if staged else "") + ")"
+        out.append(Result("git status --porcelain", OK, "clean" + note))
     head = execute(["git", "rev-parse", "HEAD"], cwd=cwd, runner=runner)
     base = head.stdout.strip() if head.ran and head.returncode == 0 else None
     return out, base
@@ -157,9 +171,19 @@ def merge_all(branches: list[str], holder: str, runner, cwd: str, dry_run: bool)
                 continue
             paths_raw = execute(["git", "diff", "--name-only", "--diff-filter=U"], cwd=cwd, runner=runner)
             paths = [ln.strip() for ln in (paths_raw.stdout if paths_raw.ran else "").splitlines() if ln.strip()]
+            if not paths:
+                # NOT A CONFLICT. A merge that fails with nothing left unmerged failed for
+                # another reason — an identity git cannot commit as, a lock, a hook, a
+                # ref that moved — and filing it as a planning miss sent the orchestrator
+                # to re-queue work that merges cleanly (measured: two disjoint new-file
+                # branches "CONFLICT in unknown paths"; by hand, "Merge made by the 'ort'
+                # strategy"). Say what git said, and stop: the cause is shared.
+                execute(["git", "merge", "--abort"], cwd=cwd, runner=runner)
+                results.append(Result(name, FAIL, f"git merge failed and left no conflicted path — NOT a conflict; the remaining branches were not attempted:\n{failure_detail(raw)}", raw))
+                break
             execute(["git", "merge", "--abort"], cwd=cwd, runner=runner)
             conflicts.append({"task": task_of(b), "branch": b, "paths": paths})
-            results.append(Result(name, FAIL, f"CONFLICT in {', '.join(paths[:4]) or 'unknown paths'} — aborted, left unmerged. A conflict is a step-3 planning miss: re-queue {task_of(b)} on top of the merged result, or resolve it yourself as the neutral party and send it through every lens.", raw))
+            results.append(Result(name, FAIL, f"CONFLICT in {', '.join(paths[:4])} — aborted, left unmerged. A conflict is a step-3 planning miss: re-queue {task_of(b)} on top of the merged result, or resolve it yourself as the neutral party and send it through every lens.", raw))
     finally:
         rel = execute([str(TK), "slot-release", "--holder", holder], cwd=cwd, runner=runner)
         results.append(Result("tk.sh slot-release", OK if (rel.ran and rel.returncode == 0) else FAIL, "released" if (rel.ran and rel.returncode == 0) else f"NOT released — `tk.sh slot-release --holder {holder} --force`:\n{failure_detail(rel)}", rel))
@@ -288,7 +312,10 @@ def run(
     else:
         results.append(Result("manifest", INFO, "none (no --wave)"))
 
-    code = EXIT_RED if (gate_facts["status"] == "red" or conflicts) else EXIT_OK
+    # A merge that FAILED (not a conflict, not a hang — git said why) is red too: the
+    # branches after it were not attempted and nothing landed.
+    failed_merge = any(r.name.startswith("merge ") and r.status == FAIL for r in merges)
+    code = EXIT_RED if (gate_facts["status"] == "red" or conflicts or failed_merge) else EXIT_OK
     return _report(results, code, facts), code, facts
 
 

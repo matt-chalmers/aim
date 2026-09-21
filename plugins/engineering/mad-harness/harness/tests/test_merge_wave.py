@@ -115,6 +115,19 @@ def test_a_non_ref_argument_refuses_before_acquiring_the_slot():
     assert "tk.sh slot-acquire" not in r.keys() and "git merge" not in r.keys()
 
 
+def test_staged_tracker_residue_is_unstaged_before_the_merge_and_said():
+    """beads' hooks `git add` the export on every write; git will not merge over a STAGED
+    entry it must set back to HEAD's blob — "would be overwritten by merge:
+    .beads/issues.jsonl" on branches that never touched it (measured). Unstaged, said."""
+    r = Runner(**{"git status": (0, "M  .beads/issues.jsonl\n M .beads/config.yaml\n", ""), "git reset": (0, "", "")})
+    text, code, _ = go(r, ["harness-w1-T-1"])
+    assert code == 0, text
+    reset = next(c for c in r.calls if key(c) == "git reset")
+    assert reset[-1] == ".beads/issues.jsonl" and ".beads/config.yaml" not in reset, "only what is staged"
+    assert "unstaged: .beads/issues.jsonl" in text
+    assert r.keys().index("git reset") < r.keys().index("git merge")
+
+
 def test_a_dirty_tree_refuses_before_the_slot():
     r = Runner(git_status=(0, " M src/y.py\n", ""))
     text, code, _ = go(r, ["harness-w1-T-1"])
@@ -148,6 +161,28 @@ def test_slot_is_released_even_when_a_merge_raises():
     with pytest.raises(RuntimeError):
         mod.merge_all(["harness-w1-T-1"], "h", r, "/repo", False)
     assert r.keys()[-1] == "tk.sh slot-release"
+
+
+def test_a_merge_that_fails_with_no_conflicted_path_is_not_a_conflict_and_says_what_git_said():
+    """Measured: two disjoint new-file branches reported "CONFLICT in unknown paths" and
+    the manifest filed two planning misses; by hand both merged clean. A failure git
+    explains (identity, lock, hook, a ref that moved) is shared by every branch, so the
+    rest are not attempted, and the orchestrator reads git's words, not "conflict"."""
+    r = Runner(**{"git diff": (0, "", "")})
+    real = r.__call__
+
+    def call(argv, **kw):
+        out = real(argv, **kw)
+        if key(argv) == "git merge" and argv[-1] == "harness-w1-T-1":
+            out.returncode = 128
+            out.stderr = "fatal: Committer identity unknown\n"
+        return out
+
+    text, code, facts = mod.run(["harness-w1-T-1", "harness-w2-T-2"], project=project(), runner=call, cwd="/repo", holder="h", stacks=["python-uv"])
+    assert code != 0 and facts["conflicts"] == [], "not filed as a conflict"
+    assert "NOT a conflict" in text and "Committer identity unknown" in text
+    assert facts["merged"] == [] and r.keys().count("git merge") == 1, "the remaining branches were not attempted"
+    assert "tk.sh slot-release" in r.keys(), "the slot is still released"
 
 
 def test_a_git_that_hangs_mid_wave_stops_the_merges_and_is_not_a_conflict():

@@ -1418,6 +1418,15 @@ Two config notes: the per-agent override block is renamed, and four blocks are n
   only for Anthropic tiers — the frontmatter reader has no provider concept — and prints
   the exemption for any other.
 
+- **Two merge defects the release's lab run found.** beads' own hooks (`core.hooksPath =
+  .beads/hooks`) *stage* the export on every write, and git will not merge over a staged
+  entry it must set back to HEAD's blob: two branches that never touched
+  `.beads/issues.jsonl` were refused — and `merge-wave.sh` filed the refusal as "CONFLICT
+  in unknown paths", a planning miss, on both. A merge that fails with no conflicted path
+  is now reported with git's own words and stops the wave (the cause is shared); staged
+  tracker residue is unstaged before the merge, and `commit.sh` unstages a worker's
+  pre-staged export instead of refusing it as a contaminated index it was told never to
+  reset.
 - **mechanical** — rename the per-agent override block, if you have one: `tiers:` →
   `agent_tiers:`. No consumer had one when the rename shipped; the old key now means the
   definitions block, and a map of agent names under it fails the config check by name.

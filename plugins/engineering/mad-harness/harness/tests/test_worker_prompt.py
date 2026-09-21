@@ -219,6 +219,18 @@ def test_the_tracked_export_is_refused():
     assert code == 1 and "never commit the tracker's export" in text and "tk.sh slot-acquire" not in r.keys()
 
 
+def test_a_staged_export_the_worker_never_touched_is_unstaged_not_contamination():
+    """beads' hooks stage the export on every write; refusing `M  .beads/issues.jsonl` as a
+    contaminated index — with "never reset" — left the worker unable to commit at all."""
+    r = Runner(**{"git status": (0, "M  .beads/issues.jsonl\n M src/x.py\n", ""), "git reset": (0, "", "")})
+    text, code = cm.run("T-7", "feat (T-7)", ["src/x.py"], runner=r, cwd="/wt", export=".beads/issues.jsonl")
+    assert code == 0, text
+    reset = next(c for c in r.calls if key(c) == "git reset")
+    assert reset[-1] == ".beads/issues.jsonl" and "unstaged, not yours to commit" in text
+    add = next(c for c in r.calls if key(c) == "git add")
+    assert ".beads/issues.jsonl" not in add and r.keys().index("git reset") < r.keys().index("git add")
+
+
 def test_a_named_path_with_no_change_is_refused():
     r = Runner(git_status=(0, " M src/x.py\n", ""))
     text, code = cm.run("T-7", "feat (T-7)", ["src/x.py", "src/y.py"], runner=r, cwd="/wt")

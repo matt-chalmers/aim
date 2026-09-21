@@ -21,7 +21,7 @@ import os
 import sys
 
 from .resolve import CHECKOUT, HARNESS
-from .steps import FAIL, OK, Result, execute, failure_detail, render
+from .steps import FAIL, INFO, OK, Result, execute, failure_detail, render
 
 TK = HARNESS / "tracker" / "tk.sh"
 
@@ -57,6 +57,16 @@ def run(task: str, message: str, paths: list[str], *, runner=None, cwd: str | No
 
     changed, untracked = dirty_paths(runner, at)
     mine = set(paths)
+    # THE TRACKER'S EXPORT IS RESIDUE, NOT CONTAMINATION. beads' hooks stage the export on
+    # every write, so a worker's index carries `M  .beads/issues.jsonl` it never touched;
+    # refusing that as "contaminated index — never reset" left the worker unable to
+    # commit at all. It is unstaged here (the file is left as it is) and never named.
+    if export:
+        staged_export = [p for p in changed if (p == export or p.startswith(export.rstrip("/") + "/")) and p not in paths]
+        if staged_export:
+            execute(["git", "reset", "-q", "--", *staged_export], cwd=at, runner=runner)
+            changed = [p for p in changed if p not in staged_export]
+            results.append(Result("tracker export", INFO, f"unstaged, not yours to commit: {', '.join(staged_export)}"))
     foreign = [p for p in changed if p not in mine and not _residue(p)]
     if foreign:
         results.append(Result("git status --porcelain", FAIL, "contaminated index — paths you did not name are modified or staged; a sibling's work, or yours unnamed:\n" + "\n".join(f"  {p}" for p in foreign[:10]) + "\nName every path you changed, or FAIL contaminated index. Never stash, checkout or reset them."))
