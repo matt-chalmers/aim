@@ -77,13 +77,17 @@ def test_architect_and_analyst_pass_only_as_debate_teammates_and_nothing_else_do
     monkeypatch.setenv("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "1")
     assert mod.decision(_call(subagent_type=f"{name}:architect")) is not None, "teams on but not the experiment: denied"
     monkeypatch.setenv("MAD_HARNESS_TEAMS_DEBATE", "1")
-    assert mod.decision(_call(subagent_type=f"{name}:architect")) is None
-    assert mod.decision(_call(subagent_type="analyst")) is None
+    # A TEAMMATE spawn carries a name (observed: {"subagent_type": "mad-harness:architect",
+    # "name": "arch-hello"}); a subagent call does not, and its result would land in the
+    # caller's context — refused whatever the environment says.
+    assert mod.decision(_call(subagent_type=f"{name}:architect")) is not None, "no name: a subagent, denied"
+    assert mod.decision(_call(subagent_type=f"{name}:architect", name="arch")) is None
+    assert mod.decision(_call(subagent_type="analyst", name="aud")) is None
     for other in ("planner", "verifier", "fullstack-engineer", "analyst-survey", "campaign-orchestrator"):
-        v = mod.decision(_call(subagent_type=f"{name}:{other}"))
+        v = mod.decision(_call(subagent_type=f"{name}:{other}", name="x"))
         assert v is not None and "design-debate" in v["hookSpecificOutput"]["permissionDecisionReason"], other
     monkeypatch.delenv("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS")
-    assert mod.decision(_call(subagent_type=f"{name}:analyst")) is not None, "the experiment flag alone is not enough"
+    assert mod.decision(_call(subagent_type=f"{name}:analyst", name="aud")) is not None, "the experiment flag alone is not enough"
 
 
 def test_the_trace_is_written_only_when_asked_and_never_breaks_the_call(tmp_path, monkeypatch):

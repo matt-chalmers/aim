@@ -20,10 +20,17 @@ experiment with a person watching: `/design-debate`, an architect and an analyst
 a design. So `architect` and `analyst` pass when BOTH `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`
 (teams on) and `MAD_HARNESS_TEAMS_DEBATE=1` (this experiment, set by the person for the
 session) are in the hook's environment; every other agent, and every other session, is
-refused as before. Whether a teammate spawn reaches this hook at all, and with what
-payload, the docs do not say: `MAD_HARNESS_HOOK_TRACE=1` appends every payload seen to
-`.harness/run/events/harness.hook.jsonl`, and the exemption narrows to the marker that
-trace shows once one has been read.
+refused as before — and only for a TEAMMATE spawn. Observed (0.10.31, a driven lead in
+the wavelab with `MAD_HARNESS_HOOK_TRACE=1`, which appends every payload this hook sees
+to `.harness/run/events/harness.hook.jsonl`): a teammate spawn reaches this hook as the
+`Agent` tool with `subagent_type: "mad-harness:architect"` and a `name` field
+(`"name": "arch-hello"`) that a plain subagent call does not carry; the stop reports
+`task_type: in_process_teammate`. So the marker is `tool_input.name`: without it the call
+is a subagent whose result lands in the caller's context, and it is refused whatever the
+environment says. Also observed: the teammate ran `claude-opus-5`, not the definition's
+`claude-opus-5[1m]`, at the lead's effort; and its final text was NOT delivered — the idle
+notification carried only `idleReason: available` — so a teammate's result reaches the lead
+only by an explicit SendMessage.
 """
 
 from __future__ import annotations
@@ -43,10 +50,16 @@ DEBATE_AGENTS = frozenset({"architect", "analyst"})
 TRACE = REPO / ".harness" / "run" / "events" / "harness.hook.jsonl"
 
 
-def debate_exempt(bare: str, environ: dict[str, str] | None = None) -> bool:
+def is_teammate_spawn(tool_input: dict[str, Any]) -> bool:
+    """A teammate is spawned with a `name`; a subagent is not (observed, see above)."""
+    return bool(str(tool_input.get("name") or "").strip())
+
+
+def debate_exempt(bare: str, tool_input: dict[str, Any] | None = None, environ: dict[str, str] | None = None) -> bool:
     env = os.environ if environ is None else environ
     return (
         bare in DEBATE_AGENTS
+        and is_teammate_spawn(tool_input or {})
         and bool(env.get("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"))
         and env.get("MAD_HARNESS_TEAMS_DEBATE") == "1"
     )
@@ -86,7 +99,7 @@ def decision(payload: dict[str, Any]) -> dict[str, Any] | None:
         return None  # another plugin's agent
     if bare not in _plugin_agents():
         return None
-    if debate_exempt(bare):
+    if debate_exempt(bare, payload.get("tool_input") or {}):
         return None
     return {
         "hookSpecificOutput": {

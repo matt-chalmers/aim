@@ -1454,9 +1454,16 @@ environment variables for the experiment only.
   under exactly those two variables and refuses everything else as before.
 - **`doctrine.sh <agent>`** writes the agent's doctrine to a file — a teammate loads its
   definition's tools and model, not its skills — and the spawn prompt says read it first.
-- **`MAD_HARNESS_HOOK_TRACE=1`** makes the guard append every payload it sees to
-  `.harness/run/events/harness.hook.jsonl`: whether a teammate spawn reaches the hook, and
-  with what marker, the docs do not say; the exemption narrows to that marker once read.
+- **Observed, with `MAD_HARNESS_HOOK_TRACE=1`** (the guard appends every payload it sees
+  to `.harness/run/events/harness.hook.jsonl`), from a driven lead session in the wavelab:
+  a teammate spawn reaches the guard as the `Agent` tool with `subagent_type:
+  "mad-harness:architect"` and a **`name`** field a subagent call does not carry — that is
+  the marker the exemption now requires, so a plain subagent call for `architect` is still
+  refused whatever the environment says. The teammate ran `claude-opus-5`, not the
+  definition's `claude-opus-5[1m]`, at the lead's effort. Its closing text was **not**
+  delivered to the lead — the idle notification carried only `idleReason: available` — so
+  a teammate's result reaches the lead only by an explicit `SendMessage`; the command says
+  so.
 - **The measurement** (owed; interactive, so run by a person): the same epic under `/design`
   + one `dispatch.sh analyst` audit, and under `/design-debate`; the lead session's growth
   (`session-cost.sh`) before and after each, wall-clock, rounds, the analyst's final verdict

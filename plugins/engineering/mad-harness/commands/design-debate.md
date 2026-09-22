@@ -28,8 +28,9 @@ Why a debate, and why only here: a teammate's output reaches you only by message
 result landing in your context — which is the measured reason plugin agents are otherwise kept
 off the Agent tool (67.2M prompt tokens through it against 6.9M through the dispatcher). What a
 teammate still lacks is everything else the dispatcher provides: a tier's effort (teammates
-inherit yours), a cost ceiling, a sandbox, a cost record, and its doctrine (a teammate loads its
-definition's tools and model, not its skills). Those are accepted here because a person is
+inherit yours), the definition's model variant (measured: `claude-opus-5[1m]` in the definition,
+`claude-opus-5` in the teammate), a cost ceiling, a sandbox, a cost record, and its doctrine (a
+teammate loads its definition's tools and model, not its skills). Those are accepted here because a person is
 present, the rounds are capped, and the doctrine is handed over by file. The measurement this
 command exists for is in `docs/upgrading.md` § 0.10.31.
 
@@ -64,12 +65,15 @@ Spawn them from the plugin's own definitions — `mad-harness:architect` and `ma
 4. The protocol:
    - **architect**: draft the design under your normal contract (`ARCHITECTURE:` block first;
      `ADEQUACY: ABSENT` and stop if you cannot design without inventing scope; every open
-     question on its own `DECISION:` line). Send the draft to the analyst. On each round of
-     findings, revise and send again. When the analyst answers `VERDICT: PASS`, or after three
-     rounds, send the final design to the lead as your final answer, whole.
+     question on its own `DECISION:` line). `SendMessage` the draft to the analyst. On each
+     round of findings, revise and send again. When the analyst answers `VERDICT: PASS`, or
+     after three rounds, `SendMessage` the final design to the lead, whole — **a final answer
+     is not delivered** (measured: a teammate's closing text never reached the lead; only the
+     idle notification did, carrying no text).
    - **analyst**: audit each draft against your standard (your AUDIT contract: `VERDICT: PASS`
      or `VERDICT: FAIL` first, then findings tagged blocking or filed; a gap written down is a
-     PASS, the same gap silent is a FAIL). Reply to the architect. On PASS, tell the lead.
+     PASS, the same gap silent is a FAIL). `SendMessage` it to the architect, and the final one
+     to the lead as well.
    - **both**: every Bash call is one plain command — no `;`, `&&`, `|`, `echo`, `python3 -c`;
      never a tracker write verb; nothing you write on disk, ever — you have no Write tool and the
      lead records the outcome.
