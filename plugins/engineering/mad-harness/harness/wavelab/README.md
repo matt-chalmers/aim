@@ -75,6 +75,27 @@ Wave 1 is the two file-disjoint tasks in parallel — which is what tests the cl
 under real concurrency. Wave 2 is the one that depends on them, which tests that closing a
 blocker actually releases its dependent.
 
+## Driving an interactive command
+
+`claude -p` and the SDK cover every dispatched agent; `dispatch-wave.sh` covers a wave. An
+**interactive** command cannot be reached either way — `/design` stops at an
+`AskUserQuestion`, and agent teams do not spawn teammates in `-p` at all — so
+`drive-interactive.py` runs a real session in a pty and answers the TUI's dialogs:
+
+```bash
+harness/wavelab/reset.sh --only beads
+cd ~/harness-wavelab/beads
+printf '/mad-harness:design <epic>\n' > /tmp/p.md
+python3 <this repo>/harness/wavelab/drive-interactive.py "$PWD" 1600 /tmp/p.md \
+  --plugin-dir <the plugin> --settings <scratch settings disabling the installed copy>
+```
+
+Read the session transcript under `~/.claude/projects/<slug>/` — and its `subagents/`
+directory, which is where a teammate's cost lives, since the harness records none for them
+— plus `checks/session-cost.sh` on the lead. Never read the screen log: it is a terminal's
+redraw. Answering a dialog is a decision a person would have made, so this belongs in the
+lab and nowhere near a real repository. It measured the 0.10.31 `/design-debate` arms.
+
 ## A/B-ing a cost lever
 
 Every cost lever in `harness/models/levers.py` is a switch, off until measured. This is

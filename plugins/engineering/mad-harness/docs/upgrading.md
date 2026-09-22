@@ -1464,10 +1464,36 @@ environment variables for the experiment only.
   delivered to the lead — the idle notification carried only `idleReason: available` — so
   a teammate's result reaches the lead only by an explicit `SendMessage`; the command says
   so.
-- **The measurement** (owed; interactive, so run by a person): the same epic under `/design`
-  + one `dispatch.sh analyst` audit, and under `/design-debate`; the lead session's growth
-  (`session-cost.sh`) before and after each, wall-clock, rounds, the analyst's final verdict
-  and blocking count, the `DECISION:` lines raised. One run per arm: direction, not size.
+- **The measurement, run.** Interactive is not the same as manual: `wavelab/drive-interactive.py`
+  drives a real `claude` session in a pty and answers the TUI's dialogs, so both arms ran in
+  the lab against the same seeded epic, with the plugin loaded from the checkout
+  (`--plugin-dir`) and the installed copy disabled. One run per arm — direction, not size.
+
+  | | A: `/design` + one audit | B: `/design-debate` |
+  |---|---|---|
+  | lead session | 30 requests, 8 min, ~$12.45 | 19 requests, 10 min, ~$12.01 |
+  | agents | architect 3 turns $0.46 · analyst 14 turns $0.93 — **recorded, capped, sandboxed** | architect ~$10.00 · analyst ~$11.03 — **no event, no ceiling, no sandbox** |
+  | **total** | **~$13.84** | **~$33.03 (2.4×)** |
+  | design | 2,102 words | 1,772 words, 2 rounds |
+  | audit | `VERDICT: PASS`, 0 blocking, 3 filed | round 1 **FAIL, 1 blocking** → fixed → round 2 PASS, 4 filed |
+
+  (Lead and teammate costs are estimated from their transcripts at list rates; the two
+  dispatch figures are the SDK's own accounting, from the events. Not the same method.)
+
+  **What the debate bought**: the round-1 FAIL was a real defect — the design's fold-in
+  routing named a *kind* of destination rather than a path, in a repository declaring no
+  `paths.architecture`, so the epic's durable output would have been routed into the staged
+  folder that `archive-epic.sh` deletes. The architect fixed it and the analyst re-audited.
+  Arm A's single audit of its (different) design passed it with three filed findings: a
+  post-hoc audit files what a dialogue would have fixed.
+
+  **What it cost**: 2.4×, and the teammates are invisible to the harness — arm B wrote
+  **zero** `harness.dispatch` events, so `make models-cost` and every A/B series see none of
+  it. That is the accounting gap the assessment predicted, measured.
+
+  **Recommendation**: keep `/design-debate` for a design that is worth $20 to get right —
+  a schema, a contract others depend on, an epic whose blast radius is wide — and keep
+  `/design` as the default. Revisit when a teammate carries a ceiling and a cost record.
 
 - **mechanical** — re-stamp `harness.version`, when convenient:
   `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`. Nothing to set.
