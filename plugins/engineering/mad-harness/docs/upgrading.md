@@ -1435,3 +1435,32 @@ Two config notes: the per-agent override block is renamed, and four blocks are n
 - **ask the owner** — whether to route a tier at another provider. The worked example
   is commented out in `templates/harness.yaml.example`; `models/probe-compat.sh <name>`
   first; then one A/B under `make models-cost`, reading `tier_source`.
+
+### 0.10.31
+
+**Agent teams, assessed; `/design-debate`, the one experiment.** No config change; two
+environment variables for the experiment only.
+
+- **The assessment.** Would agent teams change the harness? No — see
+  `docs/concepts/architecture.md`: teammates do not spawn unattended, inherit the lead's
+  effort, carry no documented ceiling, cost record, sandbox or permission mode at spawn,
+  and do not load their definition's skills. The boundary stays. Teams fit interactive
+  judgement stages where the value is discussion.
+- **`/design-debate <id>`** — `/design` with §2 replaced: an architect and an analyst
+  spawned as teammates from the plugin's definitions argue the design, up to three rounds,
+  until the analyst passes it; the lead records both and stages as `/design` does. Needs
+  `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` and `MAD_HARNESS_TEAMS_DEBATE=1`; without both it
+  says so and runs `/design`. The guard hook admits exactly `architect` and `analyst`
+  under exactly those two variables and refuses everything else as before.
+- **`doctrine.sh <agent>`** writes the agent's doctrine to a file — a teammate loads its
+  definition's tools and model, not its skills — and the spawn prompt says read it first.
+- **`MAD_HARNESS_HOOK_TRACE=1`** makes the guard append every payload it sees to
+  `.harness/run/events/harness.hook.jsonl`: whether a teammate spawn reaches the hook, and
+  with what marker, the docs do not say; the exemption narrows to that marker once read.
+- **The measurement** (owed; interactive, so run by a person): the same epic under `/design`
+  + one `dispatch.sh analyst` audit, and under `/design-debate`; the lead session's growth
+  (`session-cost.sh`) before and after each, wall-clock, rounds, the analyst's final verdict
+  and blocking count, the `DECISION:` lines raised. One run per arm: direction, not size.
+
+- **mechanical** — re-stamp `harness.version`, when convenient:
+  `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`. Nothing to set.

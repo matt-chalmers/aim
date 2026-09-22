@@ -52,6 +52,20 @@ suite, would exist with no agents involved — so it belongs with your applicati
 
 The test: **does it ship, or does it run the agents that build what ships?**
 
+**Agent teams.** Claude Code's agent teams (a lead session spawning teammates with their own
+contexts, a shared task list, messaging) do not replace the dispatch boundary, and the
+question was put in 2026-09-22 against the docs. Teammates do not spawn in `-p` or SDK
+sessions (the campaign, the wavelab and CI are all unattended); a teammate inherits the
+lead's effort, so `worker` at high and `strategic` at max cannot coexist; no per-teammate
+cost ceiling, cost record, sandbox or permission mode at spawn is documented (prompts go to
+the lead for a person to answer); and a teammate loads its definition's tools and model but
+not its skills — its doctrine. The one property teams have that the Agent tool lacked, the
+reason `guard-agent-tool.sh` exists, is that a teammate's output reaches the lead only by
+message. That fits interactive judgement stages where a person is present and the value is
+discussion — `/design-debate` is that experiment, with doctrine handed over by file — and
+nothing else. Re-evaluate when the docs say: teammates in `-p`/SDK; per-teammate effort;
+per-teammate budget and cost record; permission mode or sandbox at spawn; `skills` loaded.
+
 ## Subsystems
 
 | directory | owns |

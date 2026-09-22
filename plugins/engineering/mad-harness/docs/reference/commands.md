@@ -12,6 +12,7 @@ loader installs; they are the whole user-facing surface.
 | `/campaign-auto` | Iterate the open epic queue unattended — design, plan, swarm, verify, document and push each epic, self-approv |
 | `/campaign` | Work the open epic queue one epic per invocation — design, plan, swarm, verify, document and push it, asking y |
 | `/decision` | Find the outstanding owner decision that unblocks the most work, verify its premise still holds, and resolve i |
+| `/design-debate` | Design the technical approach for a change as a debate — an architect and an analyst, run as agent-teams teamm |
 | `/design` | Design the technical approach for a change before any tasks are cut or code is written |
 | `/grind` | Autonomously work through unblocked tasks with rigorous testing, fidelity checks, live docs, and a commit + pu |
 | `/halt` | Stop a running swarm or campaign cleanly — pause the tasks in flight, or release them back to the queue, and l |
