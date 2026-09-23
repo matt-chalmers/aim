@@ -11,6 +11,25 @@
 # (`model_tier:`), so an agent definition stays authoritative for its own defaults
 # and there is no second source of truth to drift.
 #
+# A TIER OFF ANTHROPIC DECLARES ITS PRICE. `cost_usd` on every dispatch record comes from
+# the SDK, which prices from Claude Code's own table — the vendor's accounting on Anthropic
+# and correct, a fiction anywhere else (measured 2026-09-23: a flat $5.00 per Mtok of input
+# for DeepSeek, against its published $0.66 off-peak / $1.32 peak). So such a tier carries:
+#
+#   price:
+#     input_per_mtok: 1.32          # required
+#     output_per_mtok: 3.96         # required
+#     cache_read_per_mtok: 0.044    # optional; defaults to the input rate
+#     cache_write_per_mtok: 1.32    # optional; defaults to the input rate, never free
+#     off_peak_multiplier: 0.5      # optional
+#     peak_utc: ["01:00-04:00", "06:00-10:00"]   # optional; outside these, off-peak
+#     peak_weekdays_only: true      # optional, default true
+#
+# and every event says `cost_source: priced (...)` or `sdk`, so no series mixes the two.
+# THE CEILING IS NOT FIXED BY THIS: `--max-budget-usd` is enforced by the CLI against its
+# own estimate, so on a provider it over-prices, the ceiling bites that much sooner than
+# the number says. Bound such a tier with `task_budget_tokens`, which means what it says.
+#
 # NAME CONCRETE MODEL IDS, NEVER ALIASES. An alias resolves differently per
 # dispatch path, silently. Measured, and it invalidated a whole parity experiment:
 # with `model: opus`, the Agent tool resolved `claude-opus-5[1m]` while the CLI's

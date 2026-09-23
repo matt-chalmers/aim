@@ -15,6 +15,10 @@ import pytest
 from models import resolve as mod
 from models.project import Project, ProjectError
 
+#: A tier off Anthropic must declare its published rates — the CLI cannot price a
+#: third-party endpoint (measured: $5.00/Mtok for DeepSeek). See models/pricing.py.
+PRICE = {"input_per_mtok": 1.32, "output_per_mtok": 3.96, "cache_read_per_mtok": 0.044}
+
 PLUGIN = {
     "default_tier": "strong",
     "ladder": ["worker", "strong", "strategic"],
@@ -51,7 +55,7 @@ def merged(raw):
 
 def test_a_project_redefining_a_tiers_provider_and_model_changes_what_resolve_returns(agents):
     cfg = merged({"providers": {"openrouter": {"env": {"ANTHROPIC_BASE_URL": "https://openrouter.ai/api", "ANTHROPIC_AUTH_TOKEN": "${OPENROUTER_API_KEY}"}}},
-                  "tiers": {"worker": {"provider": "openrouter", "model": "qwen/qwen3-coder-plus"}}})
+                  "tiers": {"worker": {"provider": "openrouter", "model": "qwen/qwen3-coder-plus", "price": PRICE}}})
     r = mod.resolve("grunt", config=cfg, agents_dir=agents, project_tiers={})
     assert (r.provider, r.model) == ("openrouter", "qwen/qwen3-coder-plus")
     assert r.effort == "high" and r.max_budget_usd == 3.0, "the keys the project did not name are the plugin's"
@@ -65,7 +69,7 @@ def test_patching_only_the_budget_inherits_provider_model_and_effort(agents):
 
 
 def test_a_brand_new_tier_is_selectable_through_agent_tiers_and_keeps_declaration_order(agents):
-    raw = {"tiers": {"candidate": {"provider": "deepseek", "model": "deepseek-v4", "effort": "high", "max_budget_usd": 1.0}},
+    raw = {"tiers": {"candidate": {"provider": "deepseek", "model": "deepseek-v4", "effort": "high", "max_budget_usd": 1.0, "price": PRICE}},
            "ladder": ["worker", "candidate", "strong", "strategic"]}
     cfg = merged(raw)
     assert list(cfg["tiers"]) == ["worker", "strong", "strategic", "candidate"], "new tiers append; redefined ones keep their place"
@@ -89,7 +93,7 @@ def test_a_project_default_tier_moves_an_undeclared_agent_and_the_reason_still_r
 def test_a_project_ladder_replaces_the_plugins_outright_and_escalation_walks_it(agents):
     from models.escalate import next_tier
 
-    raw = {"tiers": {"candidate": {"provider": "deepseek", "model": "deepseek-v4", "effort": "high", "max_budget_usd": 1.0}},
+    raw = {"tiers": {"candidate": {"provider": "deepseek", "model": "deepseek-v4", "effort": "high", "max_budget_usd": 1.0, "price": PRICE}},
            "ladder": ["candidate", "worker", "strong", "strategic"]}
     cfg = merged(raw)
     assert cfg["ladder"] == ["candidate", "worker", "strong", "strategic"], "replaced, never interleaved"
@@ -143,7 +147,7 @@ def test_the_merged_config_is_what_is_validated():
     """A tier the project adds with a provider nobody defined fails the merged check,
     naming the tier and the provider — before the merge it would have looked fine."""
     with pytest.raises(mod.ConfigError, match="tier 'candidate' names provider 'nowhere'"):
-        merged({"tiers": {"candidate": {"provider": "nowhere", "model": "m", "effort": "high", "max_budget_usd": 1.0}}})
+        merged({"tiers": {"candidate": {"provider": "nowhere", "model": "m", "effort": "high", "max_budget_usd": 1.0, "price": PRICE}}})
     with pytest.raises(mod.ConfigError, match="default_tier 'ghost'"):
         merged({"default_tier": "ghost"})
 
@@ -184,7 +188,7 @@ def test_the_merged_config_refuses_a_model_in_a_provider_env_a_templated_model_a
     [
         ({"ladder": ["worker", "ghost", "strong", "strategic"]}, "ladder names tier\(s\) that do not exist: ghost"),
         ({"ladder": ["worker", "worker", "strong", "strategic"]}, "ladder names tier\(s\) more than once: worker"),
-        ({"tiers": {"candidate": {"provider": "deepseek", "model": "m", "effort": "high", "max_budget_usd": 1.0}}}, "defined but not on the ladder: candidate"),
+        ({"tiers": {"candidate": {"provider": "deepseek", "model": "m", "effort": "high", "max_budget_usd": 1.0, "price": PRICE}}}, "defined but not on the ladder: candidate"),
         ({"ladder": ["worker", "strong"]}, "not on the ladder"),
     ],
 )
@@ -280,7 +284,7 @@ def _check(monkeypatch, raw, model_raw=None):
 
 def test_check_project_config_prints_each_redefinition_beside_what_the_plugin_ships_and_names_strategic(monkeypatch):
     rc, out, _ = _check(monkeypatch, {"providers": {"openrouter": {"env": {"ANTHROPIC_BASE_URL": "https://openrouter.ai/api", "ANTHROPIC_AUTH_TOKEN": "${OPENROUTER_API_KEY}"}}},
-                                      "tiers": {"worker": {"provider": "openrouter", "model": "qwen/qwen3-coder-plus"},
+                                      "tiers": {"worker": {"provider": "openrouter", "model": "qwen/qwen3-coder-plus", "price": PRICE},
                                                 "strategic": {"provider": "anthropic", "model": "claude-opus-5"}}})
     assert rc == 0, out
     lines = [ln for ln in out.splitlines() if ln.startswith("models:")]
@@ -296,3 +300,50 @@ def test_check_project_config_is_silent_without_a_redefinition_and_prints_routin
     assert rc == 0
     assert "routing: default_tier=strong  ladder=[worker, strategic, strong]  (plugin default_tier, project ladder)" in out
     assert "not last on the project's ladder" in out + err, "allowed, and said out loud"
+
+
+# --- what a dispatch actually cost, where the CLI cannot know --------------------------------
+
+
+def test_pricing_bills_each_token_class_at_its_own_rate_and_halves_off_peak():
+    """Measured (2026-09-23): the CLI reported a flat $5.00/Mtok of input for DeepSeek —
+    35,335 tokens → $0.17675 — against a published $0.66 off-peak / $1.32 peak. A cost
+    series full of that is a fiction, so a tier off Anthropic declares its rates."""
+    import datetime as dt
+
+    from models import pricing
+
+    price = {"input_per_mtok": 1.32, "output_per_mtok": 3.96, "cache_read_per_mtok": 0.044,
+             "off_peak_multiplier": 0.5, "peak_utc": ["01:00-04:00", "06:00-10:00"]}
+    usage = {"input_tokens": 1_000_000, "output_tokens": 1_000_000, "cache_read_tokens": 1_000_000}
+    peak = dt.datetime(2026, 9, 23, 7, 0, tzinfo=dt.timezone.utc)      # Wednesday, in a peak window
+    off = dt.datetime(2026, 9, 23, 12, 0, tzinfo=dt.timezone.utc)      # Wednesday, outside one
+    weekend = dt.datetime(2026, 9, 26, 7, 0, tzinfo=dt.timezone.utc)   # Saturday, in the window's hours
+    usd, how = pricing.cost(price, usage, peak)
+    assert usd == round(1.32 + 3.96 + 0.044, 6) and "peak" in how and "off-peak" not in how
+    assert pricing.cost(price, usage, off)[0] == round((1.32 + 3.96 + 0.044) / 2, 6)
+    assert pricing.cost(price, usage, weekend)[0] == round((1.32 + 3.96 + 0.044) / 2, 6), "weekends are off-peak"
+    # A cache write with no declared rate is billed at the input rate — never silently free.
+    assert pricing.cost(price, {"cache_creation_tokens": 1_000_000}, peak)[0] == 1.32
+    # No windows declared: always the full rate, never a silent discount.
+    assert pricing.cost({"input_per_mtok": 2.0, "output_per_mtok": 4.0}, {"input_tokens": 1_000_000}, off)[0] == 2.0
+
+
+def test_the_event_says_which_number_it_is_and_an_anthropic_tier_still_uses_the_sdks(monkeypatch):
+    from models.dispatch import dispatch
+
+    monkeypatch.setattr("models.dispatch.require_sandbox", lambda: None)
+    payload = {"subtype": "success", "is_error": False, "result": "ok", "total_cost_usd": 4.2, "num_turns": 1,
+               "duration_ms": 1000, "session_id": "s",
+               "usage": {"input_tokens": 1_000_000, "output_tokens": 0}, "permission_denials": []}
+
+    t = dispatch("analyst-survey", "x", runner=lambda r, p, **kw: payload).telemetry(task="T-1")
+    assert t["cost_source"] == "sdk" and t["cost_usd"] == 4.2, "Anthropic: the vendor's own accounting"
+
+    monkeypatch.setattr(mod, "load_config", _patched({"tiers": {"worker": {"provider": "deepseek", "model": "deepseek-v4-pro",
+                                                                          "price": {"input_per_mtok": 1.32, "output_per_mtok": 3.96,
+                                                                                    "off_peak_multiplier": 0.5, "peak_utc": ["01:00-04:00"]}}}}))
+    t = dispatch("analyst-survey", "x", runner=lambda r, p, **kw: payload).telemetry(task="T-1")
+    assert t["cost_source"].startswith("priced ("), t["cost_source"]
+    assert t["cost_usd"] in (1.32, 0.66), f"the tier's own rate, not the SDK's $4.20: {t['cost_usd']}"
+    assert "Mtok" in t["cost_source"], "the record says at what rate"

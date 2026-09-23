@@ -41,6 +41,9 @@ CONFIG = {
             "model": "big",
             "effort": "max",
             "max_budget_usd": 8.0,
+            # A tier off Anthropic declares its published rates: the CLI cannot price a
+            # third-party endpoint, and `_validate` refuses a tier that leaves it guessing.
+            "price": {"input_per_mtok": 1.0, "output_per_mtok": 2.0},
         },
     },
     "providers": {
@@ -146,6 +149,40 @@ def test_structurally_broken_config_is_refused(tmp_path, mutate, match):
     path.write_text(yaml.safe_dump(broken))
     with pytest.raises(ConfigError, match=match):
         load_config(path)
+
+
+def test_a_tier_off_anthropic_must_declare_its_price(tmp_path):
+    """Measured: the CLI priced DeepSeek at a flat $5.00/Mtok of input against a published
+    $0.66-1.32, and that number reaches `cost_usd` in every record, `make models-cost` and
+    every A/B report. A tier that leaves the CLI guessing is refused by name."""
+    import copy
+
+    broken = copy.deepcopy(CONFIG)
+    del broken["tiers"]["strategic"]["price"]
+    path = tmp_path / "tiers.yaml"
+    path.write_text(yaml.safe_dump(broken))
+    with pytest.raises(ConfigError, match=r"tier 'strategic' is on provider 'cheapo' and declares no `price`"):
+        load_config(path)
+
+    bad = copy.deepcopy(CONFIG)
+    bad["tiers"]["strategic"]["price"] = {"input_per_mtok": 1.0}
+    path.write_text(yaml.safe_dump(bad))
+    with pytest.raises(ConfigError, match="missing 'output_per_mtok'"):
+        load_config(path)
+
+    typo = copy.deepcopy(CONFIG)
+    typo["tiers"]["strategic"]["price"]["input_per_mtoken"] = 1.0
+    path.write_text(yaml.safe_dump(typo))
+    with pytest.raises(ConfigError, match="unknown price key"):
+        load_config(path)
+
+    # An Anthropic tier needs none: the SDK's figure is the vendor's own accounting.
+    fine = copy.deepcopy(CONFIG)
+    # The fixture's model names are aliases, which _validate also refuses; make them concrete.
+    fine["tiers"]["strong"]["model"] = "claude-opus-5"
+    fine["tiers"]["worker"]["model"] = "claude-sonnet-5"
+    path.write_text(yaml.safe_dump(fine))
+    assert load_config(path)["tiers"]["worker"].get("price") is None
 
 
 # --- secrets ------------------------------------------------------------------

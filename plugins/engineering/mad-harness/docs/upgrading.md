@@ -1485,3 +1485,31 @@ Two config notes: the per-agent override block is renamed, and four blocks are n
 
 - **mechanical** — re-stamp `harness.version`, when convenient:
   `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`. Nothing to set.
+
+### 0.10.32
+
+**A tier off Anthropic declares its price, and every record says which number it is.** One
+config note: `price` in a tier, required off Anthropic.
+
+- **What was wrong.** Routing the `worker` tier at DeepSeek V4 Pro exposed that `cost_usd`
+  on every dispatch record is the SDK's `total_cost_usd` — Claude Code pricing from its own
+  table. On Anthropic that is the vendor's accounting and right. Against a third-party
+  endpoint it is a fiction, and a plausible-looking one: measured three times, a flat
+  **$5.00 per Mtok of input** for DeepSeek (35,335 tok → $0.17675) against its published
+  $0.66 off-peak / $1.32 peak. That number flows into `make models-cost`, `ab-report.sh`
+  and the `tier_source` split as if real.
+- **`price` on the tier** — `input_per_mtok` and `output_per_mtok` required,
+  `cache_read_per_mtok` / `cache_write_per_mtok` optional (defaulting to the input rate,
+  never free), and `off_peak_multiplier` with `peak_utc` windows, because DeepSeek charges
+  half outside 01:00–04:00 and 06:00–10:00 UTC on weekdays and assuming either way is a 2×
+  error. `_validate` refuses a tier off Anthropic that declares none, by name.
+- **`cost_source` on every event** — `sdk` or `priced (window: rates)`. `make models-cost`
+  never shares a row between the two and `ab-report.sh` flags an arm that mixes them, as it
+  flags mixed code.
+- **The ceiling is NOT fixed by this, and knowing so matters**: `--max-budget-usd` is
+  enforced by the CLI against its own estimate, so on a provider it over-prices 4–8×, a
+  tier's ceiling bites 4–8× sooner than the number says — a worker killed mid-task that
+  looks like the model failing. Bound such a tier with `task_budget_tokens`.
+
+- **mechanical** — nothing, unless you route a tier off Anthropic; then declare its `price`
+  or the config check fails with the reason.

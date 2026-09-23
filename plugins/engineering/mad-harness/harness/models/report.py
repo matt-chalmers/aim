@@ -39,12 +39,15 @@ def summarise(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     groups: dict[tuple[str, str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for e in events:
         # A project's redefined `worker` is not the plugin's; the two never share a row.
+        # A computed cost and the SDK's estimate are different measurements; a row that
+        # mixed them would average a price against a guess.
         groups[
-            (e.get("agent", "?"), e.get("tier", "?"), e.get("provider", "?"), e.get("tier_source") or "plugin")
+            (e.get("agent", "?"), e.get("tier", "?"), e.get("provider", "?"), e.get("tier_source") or "plugin",
+             "priced" if str(e.get("cost_source") or "sdk").startswith("priced") else "sdk")
         ].append(e)
 
     rows = []
-    for (agent, tier, provider, source), es in groups.items():
+    for (agent, tier, provider, source, costing), es in groups.items():
         costs = [float(e.get("cost_usd") or 0) for e in es]
         turns = [int(e.get("turns") or 0) for e in es]
         fails = sum(1 for e in es if not e.get("ok"))
@@ -61,6 +64,7 @@ def summarise(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "tier": tier,
                 "provider": provider,
                 "tier_source": source,
+                "cost_source": costing,
                 "n": len(es),
                 "total_usd": sum(costs),
                 "mean_usd": sum(costs) / len(es),
@@ -107,14 +111,14 @@ def main() -> int:
 
     rows = summarise(events)
     print(
-        f"{'agent':<22}{'tier':<11}{'provider':<11}{'src':<9}{'n':>4}"
+        f"{'agent':<22}{'tier':<11}{'provider':<11}{'src':<9}{'$src':<8}{'n':>4}"
         f"{'total $':>10}{'mean $':>9}{'turns':>7}{'fail%':>7}{'esc':>5}"
         f"{'kills':>7}{'cache%':>8}{'write%':>8}{'results%':>10}{'large':>7}{'breaks':>8}"
     )
     pct = lambda v: "—" if v is None else str(v)  # noqa: E731
     for r in rows:
         print(
-            f"{r['agent']:<22}{r['tier']:<11}{r['provider']:<11}{r['tier_source']:<9}{r['n']:>4}"
+            f"{r['agent']:<22}{r['tier']:<11}{r['provider']:<11}{r['tier_source']:<9}{r['cost_source']:<8}{r['n']:>4}"
             f"{r['total_usd']:>10.3f}{r['mean_usd']:>9.4f}"
             f"{r['mean_turns']:>7.1f}{r['fail_pct']:>7}{r['escalations']:>5}"
             f"{r['budget_kills']:>7}{pct(r['cache_hit_pct']):>8}{pct(r['cache_write_pct']):>8}"

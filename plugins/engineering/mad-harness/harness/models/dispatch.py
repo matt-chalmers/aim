@@ -329,6 +329,18 @@ class Outcome:
         5-minute TTL, 2x at 1-hour), so this is where TTL and prefix choices show up."""
         return round(100 * self.cache_creation_tokens / self.prompt_tokens, 1) if self.prompt_tokens else None
 
+    def priced_cost(self) -> tuple[float, str]:
+        """(dollars, how) — the tier's own rates where it declares them, else the SDK's."""
+        if not self.resolved.price:
+            return round(self.cost_usd, 6), "sdk"
+        from . import pricing
+
+        return pricing.cost(
+            self.resolved.price,
+            {"input_tokens": self.input_tokens, "output_tokens": self.output_tokens,
+             "cache_read_tokens": self.cache_read_tokens, "cache_creation_tokens": self.cache_creation_tokens},
+        )
+
     def telemetry(
         self,
         task: str | None = None,
@@ -345,7 +357,11 @@ class Outcome:
             "terminal": self.terminal,
             "experiment": _levers.experiment(),
             "levers": _levers.snapshot(),
-            "cost_usd": round(self.cost_usd, 6),
+            "cost_usd": self.priced_cost()[0],
+            #: `sdk` — Claude Code's own figure, the vendor's accounting on Anthropic; or
+            #: `priced (...)` — computed from this dispatch's tokens at the tier's declared
+            #: rates, because the CLI cannot price a third-party endpoint (models/pricing.py).
+            "cost_source": self.priced_cost()[1],
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "cache_read_tokens": self.cache_read_tokens,

@@ -227,6 +227,9 @@ class Resolved:
     #: project's harness.yaml redefined it. In every dispatch record, so a cost series
     #: never silently mixes a project's `worker` with the plugin's.
     tier_source: str = "plugin"
+    #: The tier's published rates, where it is not on Anthropic — see models/pricing.py.
+    #: Empty means the SDK's own cost figure is the record, which is right for Anthropic.
+    price: dict[str, Any] = field(default_factory=dict)
     #: `default` for a read-only agent; `acceptEdits` for one that writes. See
     #: :func:`permission_for`.
     permission_mode: str = "default"
@@ -437,6 +440,28 @@ def _validate(config: dict[str, Any], where: str = "tiers.yaml") -> dict[str, An
             f"the policy-forced tier {POLICY_FORCED_TIER!r} is not defined; "
             "high-risk work would have nowhere to escalate to"
         )
+    # A TIER OFF ANTHROPIC DECLARES ITS PRICE — checked after every tier's structure, so a
+    # missing `model` is reported as that rather than as a missing price. The SDK's
+    # `total_cost_usd` is the vendor's own accounting on Anthropic and right; against a
+    # third-party endpoint it is the CLI's table applied to a model it does not know —
+    # measured at a flat $5.00/Mtok of input for DeepSeek, 4-8x its published rate.
+    # Recording that as `cost_usd` puts a fiction in every cost series, so this refuses it.
+    for name, tier in tiers.items():
+        if tier["provider"] != "anthropic" and not tier.get("price"):
+            raise ConfigError(
+                f"tier {name!r} is on provider {tier['provider']!r} and declares no `price`. "
+                f"The CLI would price its tokens from its own table (measured: $5.00/Mtok for "
+                f"DeepSeek, against $0.66-1.32 published), and that number reaches every cost "
+                f"record. Declare the provider's published rates — see models/pricing.py."
+            )
+        if tier.get("price"):
+            from .pricing import validate as _validate_price
+
+            try:
+                _validate_price(tier["price"], f"tier {name!r}")
+            except ValueError as exc:
+                raise ConfigError(str(exc)) from exc
+
     # THE TIER OWNS THE MODEL, and names it concretely. A provider env naming a model
     # (`ANTHROPIC_MODEL`) would be a second source of truth; a `${...}` model is one; and a
     # bare alias (`opus`) resolved to different generations on different dispatch paths
@@ -1173,6 +1198,7 @@ def resolve(
         tier=tier,
         reason=reason,
         tier_source="project" if tier in provenance(config)["tiers"] else "plugin",
+        price=dict(spec.get("price") or {}),
         provider=spec["provider"],
         model=spec["model"],
         effort=spec["effort"],

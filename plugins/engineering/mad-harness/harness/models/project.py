@@ -372,13 +372,20 @@ class Project:
             for name, patch in tiers.items():
                 if not isinstance(patch, dict):
                     raise ProjectError(f"tiers.{name}: must be a map; a tier is patched per key, never replaced by a scalar")
-                unknown = set(patch) - {"provider", "model", "effort", "max_budget_usd", "task_budget_tokens"}
+                unknown = set(patch) - {"provider", "model", "effort", "max_budget_usd", "task_budget_tokens", "price"}
                 if unknown:
                     raise ProjectError(f"tiers.{name}: unknown key(s) {', '.join(sorted(unknown))}")
                 # MODEL AND PROVIDER MOVE TOGETHER. A project pointing a tier at `qwen/...`
                 # while the provider silently stays `anthropic` dispatches to Anthropic
                 # with an unknown id and reads as a provider outage. Restating
                 # `provider: anthropic` is fine, and is the point.
+                if "price" in patch:
+                    from .pricing import validate as _validate_price
+
+                    try:
+                        _validate_price(patch["price"], f"tiers.{name}")
+                    except ValueError as exc:
+                        raise ProjectError(str(exc)) from exc
                 if "model" in patch and "provider" not in patch:
                     raise ProjectError(f"tiers.{name}: sets `model` without `provider` — the two move together; name the provider (restating `anthropic` is fine)")
             out["tiers"] = {str(k): dict(v) for k, v in tiers.items()}
