@@ -303,9 +303,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("epic")
     p.add_argument("--write", dest="dest", default=None, help="write to this path")
     p.add_argument(
+        # THE PATH IS THE POINT. `--check` was a bare flag and read `--write`'s dest, so the
+        # invocation the generated banner tells every reader to run — `tk.sh render <epic>
+        # --check` — passed dest=None into `render.check` and died with a TypeError. Found
+        # by a verifier-spec lens in a lab wave, 2026-09-23. The path now travels with the
+        # flag, and `--check` with no path is a usage error that names it.
         "--check",
-        action="store_true",
-        help="fail if the file disagrees with the tracker; it is generated",
+        nargs="?",
+        const=True,
+        default=None,
+        metavar="DEST",
+        help="fail if DEST disagrees with the tracker; it is generated",
     )
 
     # `--actor` and `--holder` DEFAULT FROM THE ENVIRONMENT, because a worker already has
@@ -678,7 +686,11 @@ def main(argv: list[str] | None = None) -> int:
             from . import render as rendermod
 
             if args.check:
-                why = rendermod.check(store, args.epic, args.dest)
+                dest = args.check if isinstance(args.check, str) else args.dest
+                if not dest:
+                    print(f"USAGE: tk.sh render {args.epic} --check <path>", file=sys.stderr)
+                    return 3
+                why = rendermod.check(store, args.epic, dest)
                 if why:
                     print(f"DRIFT: {why}", file=sys.stderr)
                     return 1

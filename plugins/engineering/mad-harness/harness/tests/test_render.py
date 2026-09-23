@@ -161,3 +161,41 @@ def test_an_unknown_epic_is_an_error_not_an_unplanned_view(epic):
     s, _, _ = epic
     with pytest.raises(TrackerError, match="no such epic"):
         render_epic(s, "t-nope")
+
+
+def test_check_carries_its_own_path_and_says_so_when_it_has_none(tmp_path, monkeypatch, capsys):
+    """MEASURED (a lab wave, 2026-09-23): a verifier-spec lens ran the invocation the
+    generated banner names — `tk.sh render <epic> --check` — and got a TypeError, because
+    `--check` was a bare flag reading `--write`'s destination, which is None when nobody
+    asked to write. The drift gate the banner promises could not be run at all."""
+    import tracker
+    from tracker import cli
+
+    s = MdTaskStore(root=tmp_path / "tasks")
+    e = s.create("ingest retry budget", type="epic")
+    s.create("derive the anchor", parent=e)
+    monkeypatch.setattr(tracker, "task_store", lambda *a, **k: s)
+    monkeypatch.setattr("models.resolve.REPO", tmp_path)
+
+    dest = tmp_path / "tasks.md"
+    assert cli.main(["render", e, "--write", str(dest)]) == 0
+
+    # The path travels with the flag, and drift is still a failure.
+    assert cli.main(["render", e, "--check", str(dest)]) == 0
+    dest.write_text(dest.read_text() + "\nhand-edited\n")
+    assert cli.main(["render", e, "--check", str(dest)]) == 1
+    assert "DRIFT" in capsys.readouterr().err
+
+    # No path anywhere: a named usage error, not a traceback.
+    assert cli.main(["render", e, "--check"]) == 3
+    assert "USAGE" in capsys.readouterr().err
+
+    # The older spelling still works, so nothing that already passed --write breaks.
+    dest.write_text(render_epic(s, e))
+    assert cli.main(["render", e, "--check", "--write", str(dest)]) == 0
+
+
+def test_the_banner_names_an_invocation_that_runs():
+    """The banner is read by every person who opens a generated epic doc; it named a
+    command that crashed. Whatever it names must carry a destination."""
+    assert "--check <this file>" in BANNER and "render <epic>" in BANNER
