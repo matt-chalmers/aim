@@ -115,6 +115,14 @@ tk dep "$C" "$A"
 tk dep "$C" "$B"
 for T in ${EXTRA[@]+"${EXTRA[@]}"}; do tk dep "$C" "$T"; done
 
+# THE OPERATOR'S POCKET. This lab runs on the operator's Claude plan, so an Anthropic
+# dispatch here consumes a subscription allowance rather than metered dollars; a cost
+# comparison that summed it with a metered provider's spend would state a number neither
+# pocket paid. Declared per repo because only the operator knows which they are on.
+if ! grep -q "^providers:" "$REPO/harness.yaml"; then
+  printf '\nproviders:\n  anthropic:\n    billing: subscription\n' >> "$REPO/harness.yaml"
+fi
+
 # ACCEPTANCE IN THE FIELD, NOT ONLY IN THE TEXT. The queue triages an epic READY only
 # when its tasks carry acceptance criteria in the record's own field; with them in the
 # description alone the lab epic read PARTIAL for every run and never exercised the READY
