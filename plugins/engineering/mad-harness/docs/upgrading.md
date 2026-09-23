@@ -1600,11 +1600,22 @@ config note: `price` in a tier, required off Anthropic.
   ceiling. The kill has the same shape the CLI's produces, so everything that routes a
   budget kill keeps working. `ceiling_source` on every event says who checked it:
   `harness`, `cli` (Anthropic, where the SDK's figure is right), or `none`.
-- **`none` is the case that must never pass silently.** A priced tier's CLI ceiling is
-  deliberately loosened (`resolve.CLI_BACKSTOP_FACTOR`, 25x) so it cannot pre-empt the
-  meter — so if the provider streams no usage, nothing is enforcing anything. That is
-  recorded, and `dispatch.sh` says so on stderr. Bound such a tier with
-  `task_budget_tokens`.
+- **The CLI is given no ceiling at all for a priced tier.** It checks that flag against
+  its own price table, which for a model it does not know is a fiction — so its kill lands
+  at a real-dollar figure nobody can state, and a threshold in an unknown currency is not
+  a bound. This shipped a loosened "backstop" first (10x, then 25x); at 10x it was close
+  enough to race the meter it was meant to back up, and the fix was not a bigger number.
+  One enforcer, in known units.
+- **What the backstop was really for is now caught twice, in terms the harness can state.**
+  `probe-compat.sh` gained a **streamed token accounting** probe: the ceiling is enforced
+  from the usage on each message as it ARRIVES, which is a different payload from the
+  final one the existing probe read — a provider can report exact totals at the end and
+  nothing on the way. It is **advisory, not fatal**: losing the ceiling is not a reason to
+  refuse a provider whose cost records are exact, so it prints `WARN` and names
+  `task_budget_tokens` as what stands in. And at runtime, a priced dispatch that has run
+  three turns without a single usage payload is **stopped** —
+  `terminal: unenforceable_ceiling`, which is not `budget` because nothing was exceeded:
+  it is a configuration fault to fix, not a task to split.
 - **Three things measuring it against a live endpoint corrected**, none of which the unit
   tests could have found:
   - **One API response arrives as several messages** — a thinking block, then a tool-use
@@ -1628,16 +1639,9 @@ config note: `price` in a tier, required off Anthropic.
   "$0.01 spent against a $0.01 ceiling" at two decimals. Both now print the number the
   ceiling was actually checked against.
 
-- **The backstop multiple is not its margin.** It is denominated in the CLI's own inflated
-  currency, so it has to clear the over-pricing ratio before it buys any headroom.
-  Measured twice against DeepSeek off-peak: the CLI reported $0.1600 against $0.015494 of
-  real cost (10.3x) and $0.1105 against $0.011348 (9.7x) — the 4-8x in the 0.10.32 note was
-  at peak rates, where the real price doubles. At 10x a $3.00 ceiling would have put the
-  CLI's kill at ~$3.00 of real spend, the same number the meter aims at, and the meter
-  fires ~12% late — so the CLI would have won and the ceiling would quietly have been its
-  estimate again. 25x puts it at ~2.5x the real ceiling. It is deliberately not sized to
-  the `none` case: a backstop in an unknown currency cannot be sized to anything, which is
-  why that case is reported rather than papered over.
+- **How far off the CLI's figure is, measured**: twice against DeepSeek off-peak, it
+  reported $0.1600 against $0.015494 of real cost (10.3x) and $0.1105 against $0.011348
+  (9.7x). The 4-8x in the 0.10.32 note was at peak rates, where the real price doubles.
 
 - **mechanical** — nothing. Re-stamp `harness.version` when convenient:
   `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`.

@@ -478,31 +478,66 @@ def test_a_priced_dispatch_is_stopped_by_the_harness_at_its_real_ceiling(monkeyp
     assert out.telemetry(task="T-1")["ceiling_source"] == "harness"
 
 
-def test_an_anthropic_tier_keeps_the_clis_ceiling_and_a_priced_one_loosens_it():
-    """The CLI's ceiling stays the enforcer where its price table is the vendor's own
-    accounting. On a priced tier it would fire first and pre-empt the meter, so it is
-    raised to a backstop — not a conversion, just past anything the CLI could charge."""
-    from models.resolve import CLI_BACKSTOP_FACTOR, resolve
+def test_the_cli_enforces_an_anthropic_ceiling_and_is_given_none_for_a_priced_tier():
+    """ONE ENFORCER, IN KNOWN UNITS. The CLI checks `max_budget_usd` against its own price
+    table, which for a model it does not know is a fiction — measured twice against
+    DeepSeek off-peak at 10.3x and 9.7x the real cost. Its kill therefore lands at a
+    real-dollar figure nobody can state, which is not a bound. This was passed a loosened
+    multiple for a while (10x, then 25x); at 10x it was close enough to race the meter it
+    was meant to back up, and the fix for that was never a bigger number — it was noticing
+    that a threshold in an unknown currency is not a safety property."""
+    from models.resolve import resolve
 
+    # Anthropic: the SDK's figure is the vendor's own accounting, so the CLI enforces.
     assert resolve("analyst-survey").sdk_options(cwd=".").max_budget_usd == 3.0
     r = resolve("analyst-survey")
     object.__setattr__(r, "price", {"input_per_mtok": 1.0, "output_per_mtok": 1.0})
-    assert r.sdk_options(cwd=".").max_budget_usd == 3.0 * CLI_BACKSTOP_FACTOR
+    assert r.sdk_options(cwd=".").max_budget_usd is None, "a priced tier is metered here, not there"
 
-    # THE MULTIPLE IS NOT THE MARGIN. The backstop is denominated in the CLI's own inflated
-    # currency, so it must clear the OVER-PRICING RATIO before it buys any headroom at all.
-    # Measured twice against DeepSeek off-peak (2026-09-23): $0.1600 reported against
-    # $0.015494 real (10.3x) and $0.1105 against $0.011348 (9.7x). At the 10.0 this shipped
-    # with, a $3 ceiling put the CLI's kill at ~$3 of real spend — the same number the meter
-    # aims at, and the meter fires ~12% late because a streamed usage carries no output
-    # count, so the CLI would have won and the ceiling would silently be its estimate again.
-    observed_over_pricing = 0.1600 / 0.015494
-    assert observed_over_pricing > 10, "the ratio this must clear, from the measurement"
-    real_terms_margin = CLI_BACKSTOP_FACTOR / observed_over_pricing
-    assert real_terms_margin >= 2, (
-        f"the backstop fires at {real_terms_margin:.1f}x the real ceiling; below ~2x it "
-        f"races the meter instead of backing it up"
-    )
+
+def test_a_priced_tier_that_streams_no_usage_is_stopped_rather_than_run_uncapped(monkeypatch):
+    """What the CLI backstop was really for. A priced tier is handed no CLI ceiling, so the
+    meter is the only enforcer — and a meter with nothing to add up enforces nothing.
+    `probe-compat.sh` certifies streamed token accounting before a provider is routed; this
+    is the same failure appearing mid-flight, and stopping beats an uncapped dispatch that
+    looks capped."""
+    from claude_agent_sdk import AssistantMessage, TextBlock
+
+    from models import dispatch as D
+    from models.resolve import UNMETERED_TURNS_ALLOWED, resolve
+
+    class _Mute:
+        """A provider that answers but reports no usage at all."""
+
+        def __init__(self):
+            self._n = iter(range(20))
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            n = next(self._n)
+            return AssistantMessage(content=[TextBlock(text="working")], model="m",
+                                    usage=None, message_id=f"m{n}")
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(mod, "load_config", _patched({"tiers": {"worker": {
+        "provider": "deepseek", "model": "deepseek-v4-pro", "max_budget_usd": 3.0,
+        "price": {"input_per_mtok": 1.0, "output_per_mtok": 1.0}}}}))
+    monkeypatch.setattr("claude_agent_sdk.query", lambda prompt, options: _Mute())
+    monkeypatch.setattr(D, "broker", lambda *a, **k: None)
+
+    payload = D._run_sdk(resolve("analyst-survey"), "p", cwd=".", env={}, timeout=30)
+    assert payload["subtype"] == "error_unenforceable_ceiling"
+    assert payload["num_turns"] == UNMETERED_TURNS_ALLOWED, "stopped as soon as it was sure"
+    assert "nothing was checking its $3.00 ceiling" in payload["result"]
+
+    out = D.dispatch("analyst-survey", "x", runner=lambda *a, **k: payload)
+    assert out.terminal == "unenforceable_ceiling" and not out.budget_exhausted, \
+        "nothing was exceeded — this is a configuration fault, not a task to split"
+    assert out.ceiling_source == "none"
 
 
 def test_a_priced_tier_whose_provider_reports_no_usage_records_an_unenforced_ceiling(monkeypatch, capsys, tmp_path):

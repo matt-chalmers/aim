@@ -85,6 +85,7 @@ from .project import ProjectError
 from .resolve import (
     HARNESS,
     REPO,
+    UNMETERED_TURNS_ALLOWED,
     ConfigError,
     Resolved,
     agent_frontmatter,
@@ -298,6 +299,11 @@ class Outcome:
         sub = str(self.raw.get("subtype") or "")
         if sub == "error_max_budget_usd":
             return "budget"
+        if sub == "error_unenforceable_ceiling":
+            # NOT `budget`: nothing was exceeded. The dispatch was stopped because its
+            # ceiling had no enforcer, which is a configuration fault to fix, not a task
+            # to split or a tier to escalate.
+            return "unenforceable_ceiling"
         if sub == "error_max_turns":
             return "max_turns"
         if self.raw.get("is_error"):
@@ -655,6 +661,39 @@ def _run_sdk(
                             transcript.append(f"[tool] {block.name} {arg}")
                     if meter is not None:
                         meter.add(message.usage, getattr(message, "message_id", None))
+                        # NOTHING IS CHECKING THE CEILING. A priced tier is handed no CLI
+                        # ceiling, because the CLI would check it against its own table for
+                        # a model it does not know — so the meter is the only enforcer, and
+                        # a meter with no usage to add up enforces nothing. `probe-compat`
+                        # certifies streamed token accounting before a provider is routed;
+                        # this is the case where it stops being true mid-flight. Stopping
+                        # is the conservative answer: the alternative is an uncapped
+                        # dispatch that looks capped.
+                        if progress["turns"] >= UNMETERED_TURNS_ALLOWED and not meter.turns_metered:
+                            killed = {
+                                "subtype": "error_unenforceable_ceiling",
+                                "is_error": True,
+                                "result": (
+                                    f"the harness stopped this dispatch: {progress['turns']} turn(s) "
+                                    f"carried no usage, so nothing was checking its "
+                                    f"${r.max_budget_usd:.2f} ceiling. Tier {r.tier!r} is on "
+                                    f"{r.provider}, which is priced by this harness rather than by "
+                                    f"the CLI — run probe-compat.sh {r.provider} and bound the tier "
+                                    f"with task_budget_tokens."
+                                ),
+                                "total_cost_usd": 0.0,
+                                "usage": {},
+                                "model_usage": {},
+                                "num_turns": progress["turns"],
+                                "duration_ms": int((time.monotonic() - began) * 1000),
+                                "session_id": getattr(message, "session_id", "") or "",
+                                "permission_denials": [],
+                                "terminal_reason": "unenforceable_ceiling",
+                                "transcript": transcript,
+                                "ceiling_enforced_by": "none",
+                                "metered_turns": 0,
+                            }
+                            break
                         spent = meter.over()
                         if spent is not None:
                             usd, how = spent

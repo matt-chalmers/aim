@@ -32,6 +32,12 @@ class Probe:
     why: str
     ok: bool | None  # None = unproven
     detail: str
+    #: A FATAL probe gates the provider; an advisory one names a capability the harness
+    #: can work without, and says what stands in for it. Every probe was fatal until the
+    #: streamed-usage one, which reports a provider whose per-dispatch CEILING cannot be
+    #: enforced — a real limitation, but not a reason to refuse a provider whose cost
+    #: records are exact and whose work is bounded by `task_budget_tokens`.
+    fatal: bool = True
 
 
 def _run(
@@ -41,6 +47,7 @@ def _run(
     cwd: Path,
     tools: list[str] | None = None,
     timeout: int = 180,
+    stream: bool = False,
 ) -> dict:
     import os
 
@@ -61,7 +68,11 @@ def _run(
         "--max-budget-usd",
         "0.50",
         "--output-format",
-        "json",
+        # STREAMED, when the question is about the stream. `json` returns only the final
+        # result, whose usage is complete — and the per-dispatch ceiling is enforced from
+        # the usage on each message as it ARRIVES, which is a different payload and can be
+        # empty while the final one is right.
+        "stream-json" if stream else "json",
         # THE SCRATCH DIRECTORY IS THE PROBE'S OWN, and the tool probes must be able to use
         # it. Without a mode, a headless run has no one to approve `Write`, so the
         # multi-turn probe ended "every method of creating step1.txt requires a permission
@@ -71,6 +82,8 @@ def _run(
         "--permission-mode",
         "acceptEdits",
     ]
+    if stream:
+        cmd.append("--verbose")  # `-p --output-format stream-json` requires it
     # `--tools=<value>`, ATTACHED, ONE COMMA-SEPARATED VALUE. The flag is declared
     # `--tools <tools...>`: variadic, so a SEPARATE argument makes it consume everything
     # after it, including the prompt, which the CLI then reports as "Input must be provided
@@ -87,6 +100,19 @@ def _run(
     proc = subprocess.run(
         cmd, cwd=str(cwd), env=env, capture_output=True, text=True, timeout=timeout
     )
+    streamed: list[dict] = []
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not (line.startswith("{") and line.endswith("}")):
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if obj.get("type") == "assistant":
+            usage = (obj.get("message") or {}).get("usage")
+            if usage is not None:
+                streamed.append(usage)
     for line in reversed(proc.stdout.splitlines()):
         line = line.strip()
         if line.startswith("{") and line.endswith("}"):
@@ -95,7 +121,7 @@ def _run(
             except json.JSONDecodeError:
                 continue
             if obj.get("type") == "result":
-                return obj
+                return {**obj, "_streamed_usage": streamed}
     return {
         "_unparseable": True,
         "_stderr": proc.stderr[-500:],
@@ -163,21 +189,54 @@ def probe(provider: str) -> list[Probe]:
             )
         )
 
-        # 3. Token accounting. Without it the cost series is fiction and
-        #    --max-budget-usd cannot enforce anything.
+        # 3. Token accounting, in the FINAL result. Without it the cost series is
+        #    fiction. The ceiling is probe 4's business: it is enforced from a different
+        #    payload, and these two must not claim the same thing.
         usage = r.get("usage") or {}
         counted = (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
         probes.append(
             Probe(
                 "token accounting",
-                "the budget ceiling and cost telemetry need it",
+                "every cost record and every A/B series is computed from it",
                 counted > 0,
                 f"input={usage.get('input_tokens')} output={usage.get('output_tokens')} "
                 f"cost_usd={r.get('total_cost_usd')}",
             )
         )
 
-        # 4. Single tool call. A worker that cannot read a file cannot work.
+        # 4. Streamed token accounting. ADVISORY: the per-dispatch ceiling is enforced
+        #    from the usage on each message AS IT ARRIVES (models/pricing.py::Meter), which
+        #    is a different payload from the final one probe 3 read — a provider can report
+        #    exact totals at the end and nothing at all on the way. Measured on DeepSeek:
+        #    every streamed message carries the prompt counts and `output_tokens: 0`, so
+        #    the prompt classes are what the ceiling can be enforced from.
+        #    Not fatal, because the harness works without it — the cost record stays exact
+        #    and `task_budget_tokens` still paces the agent. What is lost is the CEILING,
+        #    and an operator who is not told that believes in one they do not have.
+        rs = _run(env, model, "Reply with exactly: PONG", work, tools=[], stream=True)
+        streamed = rs.get("_streamed_usage") or []
+        prompt_tokens = sum(
+            (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0)
+            for u in streamed
+        )
+        probes.append(
+            Probe(
+                "streamed token accounting",
+                "the per-dispatch ceiling is enforced from it, turn by turn",
+                prompt_tokens > 0,
+                (
+                    f"{len(streamed)} message(s) carried usage, {prompt_tokens:,} prompt tokens"
+                    if prompt_tokens
+                    else f"{len(streamed)} message(s), no prompt tokens in any of them — "
+                    f"`max_budget_usd` CANNOT be enforced for a tier on this provider "
+                    f"(every dispatch will record `ceiling_source: none`). Bound such a "
+                    f"tier with `task_budget_tokens`, which needs no cooperation."
+                ),
+                fatal=False,
+            )
+        )
+
+        # 5. Single tool call. A worker that cannot read a file cannot work.
         r2 = _run(
             env,
             model,
@@ -196,7 +255,7 @@ def probe(provider: str) -> list[Probe]:
             )
         )
 
-        # 5. Multi-turn tool loop. THE probe that matters: this is where
+        # 6. Multi-turn tool loop. THE probe that matters: this is where
         #    structurally-similar APIs most often diverge, and the failure is
         #    silent — it looks like a lazy worker, not a broken provider.
         r3 = _run(
@@ -244,11 +303,19 @@ def main(argv: list[str] | None = None) -> int:
     results = probe(provider)
     for p in results:
         mark = {True: "PASS", False: "FAIL", None: "UNPROVEN"}[p.ok]
+        if p.ok is not True and not p.fatal:
+            mark = "WARN"
         print(f"  [{mark:8s}] {p.name}")
         print(f"             why: {p.why}")
         print(f"             {p.detail}")
 
-    failed = [p for p in results if p.ok is not True]
+    advisory = [p for p in results if p.ok is not True and not p.fatal]
+    for p in advisory:
+        print(
+            f"\nWARN — {provider} does not provide: {p.name}. {p.detail}",
+            file=sys.stderr,
+        )
+    failed = [p for p in results if p.ok is not True and p.fatal]
     if failed:
         print(
             f"\nFAIL — {len(failed)} of {len(results)} probes did not pass. "
@@ -258,7 +325,11 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    print(f"\nOK — {provider} passed all {len(results)} probes.")
+    print(
+        f"\nOK — {provider} passed all {len(results) - len(advisory)} required probes"
+        + (f", with {len(advisory)} advisory warning(s) above" if advisory else "")
+        + "."
+    )
     return 0
 
 

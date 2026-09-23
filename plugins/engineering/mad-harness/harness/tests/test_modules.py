@@ -972,3 +972,44 @@ def test_mutate_loads_the_worktrees_swarm_env_itself(tmp_path):
     script.write_text(head + 'echo "PROBE=${PROBE_FROM_SWARM_ENV:-unset}"\n')
     out = subprocess.run(["bash", str(script)], cwd=str(wt), capture_output=True, text=True, timeout=60)
     assert "PROBE=loaded" in out.stdout, out.stdout + out.stderr
+
+
+def test_the_probe_reads_the_streamed_usage_and_warns_without_refusing_the_provider(monkeypatch, tmp_path, capsys):
+    """A per-dispatch ceiling is enforced from the usage on each message AS IT ARRIVES,
+    which is a different payload from the final one: a provider can report exact totals at
+    the end and nothing on the way. That costs the CEILING, not the cost record and not
+    the work — so it is reported, loudly, and does not refuse the provider. An operator who
+    is not told believes in a ceiling they do not have."""
+    import subprocess
+
+    from models import probe_compat
+
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+        lines = [
+            '{"type":"assistant","message":{"usage":{"input_tokens":35334,"cache_read_input_tokens":0,"output_tokens":0}}}',
+            '{"type":"assistant","message":{"usage":{"input_tokens":35334,"cache_read_input_tokens":0,"output_tokens":0}}}',
+            '{"type":"result","result":"PONG","usage":{"input_tokens":35334,"output_tokens":3}}',
+        ]
+        return subprocess.CompletedProcess(cmd, 0, "\n".join(lines), "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    out = probe_compat._run({}, "m", "p", tmp_path, tools=[], stream=True)
+    assert "stream-json" in seen["cmd"] and "--verbose" in seen["cmd"], "-p stream-json needs --verbose"
+    assert len(out["_streamed_usage"]) == 2, "every assistant message's usage, repeats included"
+    assert out["result"] == "PONG", "the final result is still what is returned"
+
+    # A provider that streams nothing: reported as WARN, and the run is still a pass.
+    quiet = probe_compat.Probe("streamed token accounting", "why", False, "none of them", fatal=False)
+    fatal = probe_compat.Probe("multi-turn tool loop", "why", False, "broken")
+    monkeypatch.setattr(probe_compat, "probe", lambda p: [quiet])
+    monkeypatch.setattr(probe_compat, "load_config", lambda: {"providers": {"deepseek": {}}, "tiers": {}})
+    assert probe_compat.main(["deepseek"]) == 0, "an advisory miss never gates the provider"
+    o, e = capsys.readouterr()
+    assert "[WARN" in o and "WARN — deepseek does not provide: streamed token accounting" in e
+    assert "0 required probes" not in o or "advisory" in o
+
+    monkeypatch.setattr(probe_compat, "probe", lambda p: [quiet, fatal])
+    assert probe_compat.main(["deepseek"]) == 1, "a fatal probe still refuses it"

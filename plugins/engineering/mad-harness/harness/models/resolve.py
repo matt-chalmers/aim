@@ -196,28 +196,22 @@ AGENTS_DIR = _prompts_dir("agents")
 
 #: The tier that high-risk work is forced to, regardless of the agent's default.
 POLICY_FORCED_TIER = "strategic"
-#: HOW MUCH LOOSER THE CLI'S OWN CEILING IS SET on a tier the harness prices itself.
-#: `--max-budget-usd` is checked by the CLI against its own table, so passing the real
-#: ceiling to a provider it over-prices would kill the dispatch at a fraction of it,
-#: BEFORE `pricing.Meter` reached the number the operator set. The CLI's ceiling stays as a
-#: backstop for the case the meter cannot act on — a provider that streams no usage —
-#: raised far enough that it can only fire afterwards.
+#: WHO ENFORCES `max_budget_usd` ON A PRICED TIER: the harness, and nothing else.
 #:
-#: THE MULTIPLE IS NOT THE MARGIN, because the backstop is denominated in the CLI's own
-#: inflated currency. Measured twice against DeepSeek (2026-09-23): the CLI's figure was
-#: 10.3x the real cost ($0.1600 vs $0.015494) and 9.7x ($0.1105 vs $0.011348) — off-peak,
-#: where the real rate halves; the 4-8x in the 0.10.32 note was at peak. So this started at
-#: 10.0, which put the CLI's kill at ~$3 of real spend for a $3 ceiling — the same number
-#: the meter was aiming at, and since the meter under-counts by the output share (~12%) the
-#: CLI would have won the race and the bug would have come back quietly.
+#: The CLI checks that flag against its own price table. For a model it does not know that
+#: table is a fiction — measured twice against DeepSeek off-peak, it reported 10.3x and
+#: 9.7x the real cost — so its kill lands at a real-dollar figure NOBODY CAN STATE. This
+#: passed it a loosened multiple for a while (10x, then 25x) as a "backstop", which was the
+#: same mistake in a smaller font: a threshold in an unknown currency is not a bound, and
+#: at 10x it was close enough to race the meter it was meant to back up.
 #:
-#: 25x puts the backstop at ~2.5x the real ceiling against a 10x-over-pricing provider:
-#: comfortably after the meter, and still a bound. It is deliberately NOT sized to the
-#: `none` case — a provider that streams no usage is reported as unenforced and bounded by
-#: `task_budget_tokens`, because a backstop in an unknown currency cannot be sized to
-#: anything. Not a conversion factor: nothing here claims to know the CLI's rates, only
-#: that this is past them.
-CLI_BACKSTOP_FACTOR = 25.0
+#: So a priced tier hands the CLI no ceiling at all, and the one enforcer is the one that
+#: knows the rates. What the backstop was really for — a provider that streams no usage —
+#: is now caught twice in terms the harness can state: `probe-compat.sh` certifies streamed
+#: token accounting before a provider is routed at all, and `dispatch.py` stops a dispatch
+#: that has run `UNMETERED_TURNS_ALLOWED` turns without a single usage payload rather than
+#: continue under a ceiling nothing is checking.
+UNMETERED_TURNS_ALLOWED = 3
 #: Model words that resolve differently per dispatch path; a tier must name a concrete id.
 MODEL_ALIASES = frozenset({"opus", "sonnet", "haiku", "fable", "inherit", "default"})
 #: The reason recorded when a project's `agent_tiers:` block moved the agent. Telemetry
@@ -341,10 +335,11 @@ class Resolved:
             model=self.model,
             effort=self.effort,
             # THE HARNESS METERS A PRICED TIER ITSELF (models/pricing.py::Meter, applied in
-            # dispatch.py's stream), because the CLI would enforce this number against its
-            # own price table for a model it does not know. What it gets here is the
-            # backstop, not the ceiling.
-            max_budget_usd=self.max_budget_usd * CLI_BACKSTOP_FACTOR if self.price else self.max_budget_usd,
+            # dispatch.py's stream), so the CLI is given NO ceiling for one: it would be
+            # checking this number against its own table for a model it does not know, and
+            # a kill at an unstatable real-dollar figure is not a bound. See
+            # UNMETERED_TURNS_ALLOWED for what replaced the backstop.
+            max_budget_usd=None if self.price else self.max_budget_usd,
             system_prompt=system_prompt,
             skills=skills,
             task_budget={"total": self.task_budget_tokens} if self.task_budget_tokens else None,
