@@ -139,17 +139,27 @@ def summarise(by_arm: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, An
             "timeouts": sum(1 for r in rows if r.get("terminal") == "timeout"),
         }
         per_run: dict[str, float] = defaultdict(float)
+        # PER POCKET, PER RUN. `cost_per_run` sums every dispatch in a run, which is the
+        # right number only while a run spends from ONE pocket. A series that puts the
+        # workers on a metered provider and leaves the lenses on the subscription spends
+        # from two, and their sum is a figure neither pocket paid — so it is computed per
+        # pocket and the summed headline is withheld when there is more than one.
+        pocket_per_run: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         writers_per_run: dict[str, float] = defaultdict(float)
         minutes_per_run: dict[str, float] = defaultdict(float)
         dispatches_per_run: dict[str, int] = defaultdict(int)
         for r in rows:
             per_run[r["_run"]] += float(r.get("cost_usd") or 0)
+            pocket_per_run[str(r.get("billing") or "metered")][r["_run"]] += float(r.get("cost_usd") or 0)
             if r.get("agent") != ORCHESTRATOR:  # the container of the others, not one of them
                 minutes_per_run[r["_run"]] += float(r.get("duration_ms") or 0) / 60000
                 dispatches_per_run[r["_run"]] += 1
             if r.get("agent") in WRITERS:
                 writers_per_run[r["_run"]] += float(r.get("cost_usd") or 0)
         s["cost_per_run"] = _quartiles(list(per_run.values()))
+        s["cost_per_run_by_pocket"] = {
+            k: _quartiles([v.get(run, 0.0) for run in per_run]) for k, v in sorted(pocket_per_run.items())
+        }
         # THE TIME, NOT ONLY THE MONEY. Summed dispatch durations per run: exact for a
         # sequence (§3 is one), an upper bound where dispatches overlapped (the lenses).
         s["minutes_per_run"] = _quartiles(list(minutes_per_run.values()))
@@ -223,7 +233,13 @@ def main(argv: list[str] | None = None) -> int:
         code += f", tiers {'/'.join(a['tier_sources'])}" + ("  ← MIXED TIER SOURCES (plugin and project); not one sample" if len(a["tier_sources"]) > 1 else "")
         print(f"\n[{arm}]  {a['n_runs']} run(s), {a['n_dispatches']} dispatch(es), {a['kills']} budget kill(s), {a['not_ok']} not-ok, code {code}")
         floor = f"   — a FLOOR: {a['timeouts']} dispatch(es) killed at timeout, cost unknown" if a.get("timeouts") else ""
-        print(f"  cost / run        ${med:.2f}   (IQR ${q1:.2f}–${q3:.2f}){'   — writers AND lenses' if a.get('judged') else ''}{floor}")
+        judged = "   — writers AND lenses" if a.get("judged") else ""
+        if len(a["cost_per_run_by_pocket"]) > 1:
+            # Two pockets: one number for the two would be a figure neither paid.
+            for pocket, (pq1, pmed, pq3) in a["cost_per_run_by_pocket"].items():
+                print(f"  cost / run        ${pmed:.2f}   (IQR ${pq1:.2f}–${pq3:.2f})   {pocket}{judged}{floor}")
+        else:
+            print(f"  cost / run        ${med:.2f}   (IQR ${q1:.2f}–${q3:.2f}){judged}{floor}")
         if a.get("judged") and a.get("writer_cost_per_run"):
             wq1, wmed, wq3 = a["writer_cost_per_run"]
             print(f"  writers / run     ${wmed:.2f}   (IQR ${wq1:.2f}–${wq3:.2f})")
@@ -253,7 +269,22 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  {label:<18}{fmt(v[1]):>12}   (IQR {fmt(v[0])}–{fmt(v[2])})")
     if off and on:
         print("\ndelta, on vs off (medians; a delta whose IQRs overlap is noise until more runs say otherwise):")
-        print(f"  {'cost / run':<18}{verdict(off['cost_per_run'], on['cost_per_run'], True)}")
+        pockets = sorted(set(off["cost_per_run_by_pocket"]) | set(on["cost_per_run_by_pocket"]))
+        if len(pockets) == 1:
+            print(f"  {'cost / run':<18}{verdict(off['cost_per_run'], on['cost_per_run'], True)}")
+        else:
+            # The arms do not spend from the same pockets, so there is no one percentage.
+            # Each pocket's delta is stated on its own, and a pocket only one arm uses is
+            # named as new spend rather than compared against a zero that was never paid.
+            for pocket in pockets:
+                o, n = off["cost_per_run_by_pocket"].get(pocket), on["cost_per_run_by_pocket"].get(pocket)
+                label = f"cost / run [{pocket[:4]}]"
+                if o and n:
+                    print(f"  {label:<18}{verdict(o, n, True)}")
+                elif n:
+                    print(f"  {label:<18}${n[1]:.2f} on the ON arm only — new spend in this pocket, not a delta")
+                else:
+                    print(f"  {label:<18}${o[1]:.2f} on the OFF arm only — spend this arm does not make, not a delta")
         print(f"  {'agent minutes/run':<18}{verdict(off['minutes_per_run'], on['minutes_per_run'], True)}")
         print(f"  {'dispatches / run':<18}{verdict(off['dispatches_per_run'], on['dispatches_per_run'], True)}")
         if off.get("orch_turns") and on.get("orch_turns"):

@@ -76,3 +76,43 @@ def test_lens_verdicts_are_read_per_arm_and_reported_as_first_pass_rates(tmp_pat
     out = capsys.readouterr().out
     assert "writers / run     $1.00" in out and "writers AND lenses" in out
     assert "L2 first-pass     0% → 100%" in out
+
+
+def test_two_pockets_are_never_one_cost_per_run_and_never_one_delta(tmp_path, capsys):
+    """MEASURED (the worker_provider series, 2026-09-23): the off arm spent $6.59 a run,
+    all of it subscription allowance; the on arm moved the workers to a metered provider
+    and spent $0.15 metered plus $5.12 subscription. The headline summed those to $5.27
+    and called the difference '-20%, spreads separate' — a percentage between $6.59 and a
+    figure no pocket paid. The subscription pocket in fact fell 22% and $0.15 of invoiced
+    spend appeared, which is a different sentence and the true one."""
+    _events(tmp_path, "worker_provider", "off", 1, [
+        {"_run": "1", "cost_usd": 1.5, "billing": "subscription", "ok": True, "agent": "fullstack-engineer"},
+        {"_run": "1", "cost_usd": 5.0, "billing": "subscription", "ok": True, "agent": "verifier"},
+    ])
+    _events(tmp_path, "worker_provider", "on", 1, [
+        {"_run": "1", "cost_usd": 0.15, "billing": "metered", "ok": True, "agent": "fullstack-engineer"},
+        {"_run": "1", "cost_usd": 5.0, "billing": "subscription", "ok": True, "agent": "verifier"},
+    ])
+    assert ab_report.main(["worker_provider", "--root", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+
+    # The arm's own line is split, and the sum ($5.15) is stated nowhere.
+    assert "$0.15   (IQR $0.15–$0.15)   metered" in out
+    assert "$5.00   (IQR $5.00–$5.00)   subscription" in out
+    assert "$5.15" not in out, "the two pockets must never be added into one cost / run"
+
+    # The delta is per pocket, and the pocket only one arm uses is new spend, not a percent.
+    assert "cost / run [subs]" in out and "-23% median" in out
+    assert "cost / run [mete] $0.15 on the ON arm only — new spend in this pocket, not a delta" in out
+    assert "\n  cost / run        -" not in out, "no single cross-pocket percentage"
+
+
+def test_one_pocket_still_reports_one_cost_per_run(tmp_path, capsys):
+    """The split must not leak into the ordinary case: a series inside one pocket reads
+    exactly as it did before."""
+    _events(tmp_path, "cache_ttl", "off", 1, [{"_run": "1", "cost_usd": 2.0, "billing": "subscription", "ok": True}])
+    _events(tmp_path, "cache_ttl", "on", 1, [{"_run": "1", "cost_usd": 1.0, "billing": "subscription", "ok": True}])
+    assert ab_report.main(["cache_ttl", "--root", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "cost / run        $2.00" in out and "subscription   —" not in out
+    assert "cost / run        -50% median" in out and "cost / run [" not in out
