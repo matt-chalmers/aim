@@ -381,3 +381,201 @@ def test_a_providers_billing_is_validated_and_defaults_to_metered():
         _project({"providers": {"deepseek": {"billing": "free"}}}).model_config()
     ok = _project({"providers": {"anthropic": {"billing": "subscription"}}}).model_config()
     assert ok["providers"]["anthropic"]["billing"] == "subscription"
+
+
+# --- the ceiling, enforced against the same number the record shows --------------------------
+
+
+def test_the_meter_adds_usage_as_it_streams_and_fires_only_once_past_the_ceiling():
+    """`--max-budget-usd` is checked by the CLI against its own table. Measured on
+    DeepSeek, that table priced a $3.00 ceiling to bite at roughly $0.40 of real spend —
+    a worker cut off a fifth of the way into its task, looking like the model failing."""
+    from models import pricing
+
+    price = {"input_per_mtok": 1.0, "output_per_mtok": 1.0}
+    m = pricing.Meter(price, ceiling=1.0)
+    assert m.over() is None, "nothing streamed yet is not over budget"
+    m.add({"input_tokens": 400_000, "output_tokens": 0})
+    assert m.over() is None and m.spent()[0] == 0.4
+    m.add({"input_tokens": 400_000, "output_tokens": 0})
+    assert m.over() is None, "$0.80 is under a $1.00 ceiling"
+    m.add({"input_tokens": 300_000, "output_tokens": 0})
+    usd, how = m.over()
+    assert usd == 1.1 and "Mtok" in how, "the turn that crossed it reports the real total"
+    assert m.turns_metered == 3
+
+
+def test_the_meter_reads_both_usage_spellings_and_counts_nothing_it_was_not_given():
+    """The API reports cache counts as `cache_read_input_tokens`, the SDK's result message
+    without the `input`. A provider that reports no usage at all must read as UNENFORCED,
+    never as free — that is the whole failure this path exists to end."""
+    from models import pricing
+
+    price = {"input_per_mtok": 1.0, "output_per_mtok": 1.0, "cache_read_per_mtok": 0.1}
+    m = pricing.Meter(price, ceiling=10.0)
+    m.add({"cache_read_input_tokens": 1_000_000})
+    m.add({"cache_read_tokens": 1_000_000})
+    assert m.totals["cache_read_tokens"] == 2_000_000 and m.spent()[0] == 0.2
+
+    blind = pricing.Meter(price, ceiling=0.000001)
+    blind.add(None)
+    blind.add({})
+    assert blind.turns_metered == 0 and blind.over() is None, "no usage is not zero usage"
+
+
+def test_a_priced_dispatch_is_stopped_by_the_harness_at_its_real_ceiling(monkeypatch):
+    """The real seam: the stream is read, the usage is added up at the tier's own rates,
+    and the dispatch is cut off — in the same shape the CLI's own kill produces, so every
+    caller that routes a budget kill keeps working without knowing who stopped it."""
+    from claude_agent_sdk import AssistantMessage, TextBlock
+
+    from models import dispatch as D
+    from models.resolve import resolve
+
+    closed: list[str] = []
+
+    class _Stream:
+        """An async generator the loop can abandon — `aclose` is what tears the CLI down."""
+
+        def __init__(self):
+            self._turns = iter(range(10))
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            next(self._turns)
+            return AssistantMessage(
+                content=[TextBlock(text="reading")], model="deepseek-v4-pro",
+                usage={"input_tokens": 1_000_000}, session_id="s-9",
+            )
+
+        async def aclose(self):
+            closed.append("closed")
+
+    monkeypatch.setattr(mod, "load_config", _patched({"tiers": {"worker": {
+        "provider": "deepseek", "model": "deepseek-v4-pro", "max_budget_usd": 3.0,
+        "price": {"input_per_mtok": 1.0, "output_per_mtok": 1.0}}}}))
+    monkeypatch.setattr("claude_agent_sdk.query", lambda prompt, options: _Stream())
+    monkeypatch.setattr(D, "broker", lambda *a, **k: None)
+    monkeypatch.setattr(D, "require_sandbox", lambda: None)
+    monkeypatch.setattr(D, "record", lambda *a, **k: True)
+
+    r = resolve("analyst-survey")
+    assert r.max_budget_usd == 3.0
+    payload = D._run_sdk(r, "prompt", cwd=".", env={}, timeout=30)
+
+    assert payload["subtype"] == "error_max_budget_usd" and payload["is_error"]
+    assert payload["num_turns"] == 3, "stopped on the turn that crossed $3.00, not after ten"
+    assert payload["usage"]["input_tokens"] == 3_000_000
+    assert payload["ceiling_enforced_by"] == "harness"
+    assert "$3.0000 of real spend passed its $3.00 ceiling" in payload["result"]
+    assert closed == ["closed"], "the stream is closed — abandoning it would keep spending"
+
+    out = D.dispatch("analyst-survey", "x", runner=lambda *a, **k: payload)
+    assert out.terminal == "budget" and out.budget_exhausted
+    assert out.priced_cost()[0] == 3.0, "the ceiling and the record are the same number"
+    assert out.telemetry(task="T-1")["ceiling_source"] == "harness"
+
+
+def test_an_anthropic_tier_keeps_the_clis_ceiling_and_a_priced_one_loosens_it():
+    """The CLI's ceiling stays the enforcer where its price table is the vendor's own
+    accounting. On a priced tier it would fire first and pre-empt the meter, so it is
+    raised to a backstop — not a conversion, just past anything the CLI could charge."""
+    from models.resolve import CLI_BACKSTOP_FACTOR, resolve
+
+    assert resolve("analyst-survey").sdk_options(cwd=".").max_budget_usd == 3.0
+    r = resolve("analyst-survey")
+    object.__setattr__(r, "price", {"input_per_mtok": 1.0, "output_per_mtok": 1.0})
+    assert r.sdk_options(cwd=".").max_budget_usd == 3.0 * CLI_BACKSTOP_FACTOR
+    assert CLI_BACKSTOP_FACTOR >= 8, "the CLI over-priced DeepSeek 4-8x; the backstop must clear that"
+
+
+def test_a_priced_tier_whose_provider_reports_no_usage_records_an_unenforced_ceiling(monkeypatch, capsys, tmp_path):
+    """The case that must never pass silently: the CLI's ceiling was deliberately loosened
+    for this tier, and nothing took its place."""
+    from models import dispatch as D
+
+    monkeypatch.setattr(mod, "load_config", _patched({"tiers": {"worker": {
+        "provider": "deepseek", "model": "deepseek-v4-pro",
+        "price": {"input_per_mtok": 1.0, "output_per_mtok": 1.0}}}}))
+    monkeypatch.setattr(D, "require_sandbox", lambda: None)
+    monkeypatch.setattr(D, "record", lambda *a, **k: True)
+    monkeypatch.setattr(D, "RESULT_DIR", tmp_path / "out")
+    payload = {"subtype": "success", "is_error": False, "result": "ok", "total_cost_usd": 0.0,
+               "num_turns": 4, "duration_ms": 10, "session_id": "s", "usage": {}, "permission_denials": [],
+               "metered_turns": 0, "ceiling_enforced_by": "none"}
+
+    out = D.dispatch("analyst-survey", "x", runner=lambda *a, **k: payload)
+    assert out.ceiling_source == "none"
+    assert out.telemetry(task="T-1")["ceiling_source"] == "none"
+
+    pf = tmp_path / "p.txt"
+    pf.write_text("do the thing")
+    monkeypatch.setattr(D, "_run_sdk", lambda *a, **k: payload)
+    D.main(["analyst-survey", "--prompt-file", str(pf), "--task", "T-1"])
+    assert "CEILING NOT ENFORCED" in capsys.readouterr().err
+
+
+def test_one_api_response_is_metered_and_counted_once_however_many_blocks_it_arrives_in():
+    """MEASURED on a live DeepSeek stream (2026-09-23): each response arrives as one
+    `AssistantMessage` per content block — a thinking block, then a tool-use block — every
+    one carrying the SAME usage and the same `message_id`. Ten messages for what the result
+    message counted as five turns. Summing them as they arrive doubles both the cost and
+    the turn count, so the ceiling fires at half the spend it names."""
+    from models import pricing
+
+    price = {"input_per_mtok": 1.32, "output_per_mtok": 3.96, "cache_read_per_mtok": 0.044}
+    m = pricing.Meter(price, ceiling=99.0)
+    # The exact stream that was measured: (message_id, input, cache_read), each twice.
+    for mid, fresh, read in (("a", 12769, 0), ("b", 197, 12928), ("c", 160, 13184),
+                             ("d", 104, 13440), ("e", 148, 13568)):
+        for _ in range(2):
+            m.add({"input_tokens": fresh, "cache_read_input_tokens": read, "output_tokens": 0}, mid)
+    assert m.totals["input_tokens"] == 13378, "the result message's own input total"
+    assert m.totals["cache_read_tokens"] == 53120, "the result message's own cache-read total"
+    assert m.turns_metered == 5, "five API responses, not ten messages"
+    # Prompt tokens only — the streamed usage reports output as 0 and the real 682 arrives
+    # in a result message a killed dispatch never gets. Named in the derivation, not padded.
+    assert "prompt only" in m.spent()[1]
+
+
+def test_a_metered_kill_reports_the_cache_it_actually_read():
+    """The meter records canonical key names, the SDK's result message the `_input_` ones.
+    Reading only the SDK's spelling reported a metered kill as 0% cache hit on a worker
+    that had read 53,120 tokens from cache — a lie about the one number the cost analysis
+    had to reconstruct by hand."""
+    from models import dispatch as D
+
+    payload = {"subtype": "error_max_budget_usd", "is_error": True, "result": "stopped",
+               "total_cost_usd": 0.0, "num_turns": 5, "duration_ms": 10, "session_id": "s",
+               "usage": {"input_tokens": 13378, "cache_read_tokens": 53120, "output_tokens": 0},
+               "permission_denials": [], "ceiling_enforced_by": "harness", "metered_turns": 5}
+    out = D.dispatch("analyst-survey", "x", runner=lambda *a, **k: payload)
+    assert out.cache_read_tokens == 53120 and out.prompt_tokens == 66498
+    assert out.cache_hit_pct == 79.9
+
+
+def test_prompt_only_labels_a_kill_and_never_a_dispatch_that_finished(monkeypatch):
+    """Caught by running it for real (2026-09-23): a metered dispatch that COMPLETED was
+    labelled `priced (prompt only, …)` although its $0.015494 included 1,844 output tokens
+    at $1.98/Mtok. Metering is how the ceiling was watched; it says nothing about whether
+    the final usage was complete."""
+    from models import dispatch as D
+
+    monkeypatch.setattr(mod, "load_config", _patched({"tiers": {"worker": {
+        "provider": "deepseek", "model": "deepseek-v4-pro",
+        "price": {"input_per_mtok": 0.66, "output_per_mtok": 1.98, "cache_read_per_mtok": 0.022}}}}))
+    full = {"subtype": "success", "is_error": False, "result": "done", "total_cost_usd": 0.16,
+            "num_turns": 7, "duration_ms": 10, "session_id": "s", "permission_denials": [],
+            "usage": {"input_tokens": 15524, "output_tokens": 1844, "cache_read_input_tokens": 72576},
+            "ceiling_enforced_by": "harness", "metered_turns": 7}
+    out = D.dispatch("analyst-survey", "x", runner=lambda *a, **k: full)
+    usd, how = out.priced_cost()
+    assert usd == 0.015494, "input + output + cache read, at the tier's own rates"
+    assert "prompt only" not in how and out.ceiling_source == "harness"
+
+    killed = {**full, "subtype": "error_max_budget_usd", "is_error": True,
+              "usage": {"input_tokens": 15524, "cache_read_tokens": 72576, "output_tokens": 0}}
+    out = D.dispatch("analyst-survey", "x", runner=lambda *a, **k: killed)
+    assert "prompt only" in out.priced_cost()[1], "a kill never saw its output count"

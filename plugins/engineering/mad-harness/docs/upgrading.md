@@ -1583,3 +1583,50 @@ config note: `price` in a tier, required off Anthropic.
 - **mechanical** — nothing, unless you route a worker tier off Anthropic; then 0.10.32's
   `price` block applies. Re-stamp `harness.version` when convenient:
   `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`.
+
+### 0.10.34
+
+**`max_budget_usd` is enforced against what the dispatch actually costs.** No config change.
+
+- **What was wrong.** `--max-budget-usd` is checked by the CLI against its own price table.
+  On Anthropic that is the vendor's accounting and right. On a tier routed elsewhere the
+  CLI is pricing a model it does not know — measured at a flat $5.00/Mtok of input for
+  DeepSeek — so a $3.00 ceiling bit at roughly $0.40 of real spend: a worker cut off a
+  fifth of the way into its task, looking for all the world like the model failing. 0.10.32
+  named this and did not fix it.
+- **The harness meters a priced tier itself.** `dispatch.sh` already streams the agent's
+  messages, and each one carries its own `usage` — so the real cost is added up as it
+  arrives, at the tier's declared rates, and the dispatch is stopped when IT passes the
+  ceiling. The kill has the same shape the CLI's produces, so everything that routes a
+  budget kill keeps working. `ceiling_source` on every event says who checked it:
+  `harness`, `cli` (Anthropic, where the SDK's figure is right), or `none`.
+- **`none` is the case that must never pass silently.** A priced tier's CLI ceiling is
+  deliberately loosened (`resolve.CLI_BACKSTOP_FACTOR`, 10x) so it cannot pre-empt the
+  meter — so if the provider streams no usage, nothing is enforcing anything. That is
+  recorded, and `dispatch.sh` says so on stderr. Bound such a tier with
+  `task_budget_tokens`.
+- **Three things measuring it against a live endpoint corrected**, none of which the unit
+  tests could have found:
+  - **One API response arrives as several messages** — a thinking block, then a tool-use
+    block — each carrying the *same* usage and the same `message_id`. Ten messages for what
+    the result message counted as five turns. Summing them as they arrive doubles the cost
+    and the turn count, so the ceiling fires at half the spend it names. Deduplicated on
+    `message_id` the totals are exact: 13,378 input and 53,120 cache-read, against the
+    result message's own 13,378 and 53,120.
+  - **A streamed usage reports `output_tokens: 0`** — the real figure (682) only arrives in
+    the result message, which a killed dispatch never gets. So the meter prices prompt
+    tokens only and says so, and the ceiling is reached a little late, never early: on the
+    measured sample the output was 11.9% of the cost. The alternative was to estimate
+    output from the text, which is exactly the kind of plausible number this module exists
+    to keep out of the record. A dispatch that COMPLETES is still priced in full.
+  - **The two spellings of the cache counts.** The SDK's result says
+    `cache_read_input_tokens`, the meter records `cache_read_tokens`; reading only the
+    first reported a metered kill as 0% cache hit on a worker that had read 53,120 tokens
+    from cache.
+- **Also corrected**: the one-line dispatch summary printed the SDK's `$0.0000` next to
+  `terminal=budget` for a dispatch that had just spent $0.009, and the kill message printed
+  "$0.01 spent against a $0.01 ceiling" at two decimals. Both now print the number the
+  ceiling was actually checked against.
+
+- **mechanical** — nothing. Re-stamp `harness.version` when convenient:
+  `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`.

@@ -129,9 +129,21 @@ kept at `.harness/run/out/<stack>-<key>.log`. `results%` is how you know.
 
 ## Ceilings
 
-`max_budget_usd` is a circuit breaker, not a guarantee: the CLI checks it between calls,
-so a single large call can overshoot (measured 22×). It stops a runaway loop; it does not
-bound one call. A budget kill keeps the transcript the run produced, records the spend
-that caused it, and exits 3 from `dispatch.sh` — the swarm routes it rather than reading a
+`max_budget_usd` is a circuit breaker, not a guarantee: it is checked between calls, so a
+single large call can overshoot (measured 22×). It stops a runaway loop; it does not bound
+one call. A budget kill keeps the transcript the run produced, records the spend that
+caused it, and exits 3 from `dispatch.sh` — the swarm routes it rather than reading a
 stack trace. `task_budget_tokens` is the budget the model is *told*, which is why it
 paces; the two are different levers, and the second is the one that moved the number.
+
+**Who checks it** is on every event as `ceiling_source`. On Anthropic, `cli` — the CLI's
+own figure is the vendor's accounting. On a tier that declares a `price`, `harness`: the
+CLI would be applying its own table to a model it does not know (measured: a $3.00 ceiling
+biting at ~$0.40 of real DeepSeek spend), so the dispatcher adds up each streamed message's
+usage at the tier's rates and stops the dispatch itself, and the CLI's ceiling is loosened
+10× underneath so it cannot fire first. Two measured properties of that stream shape it:
+one API response arrives as several messages carrying the same usage, so they are
+deduplicated on `message_id`; and a streamed usage reports no output tokens, so the meter
+prices prompt tokens only and the ceiling is reached slightly late, never early (11.9% of
+cost on the measured sample). `none` means the tier is priced and the provider streamed no
+usage — nothing enforced it, which `dispatch.sh` says out loud.

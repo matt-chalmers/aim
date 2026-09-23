@@ -66,6 +66,7 @@ PATH (`tk.sh note <id> --file`, `peek.sh <path>:START-END`) and pays for it nowh
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
@@ -76,6 +77,7 @@ from pathlib import Path
 from typing import Any
 
 from . import levers as _levers
+from . import pricing
 from . import transcript as _transcript
 from .broker import broker, resolved_requests
 from .context import render_card, render_invariants
@@ -329,12 +331,32 @@ class Outcome:
         5-minute TTL, 2x at 1-hour), so this is where TTL and prefix choices show up."""
         return round(100 * self.cache_creation_tokens / self.prompt_tokens, 1) if self.prompt_tokens else None
 
+    @property
+    def ceiling_source(self) -> str:
+        """WHO CHECKED `max_budget_usd` on this dispatch — `harness`, `cli`, or `none`.
+
+        `cli` is right on Anthropic, where the SDK's figure is the vendor's own accounting.
+        On a priced tier the harness meters the stream itself, and `none` is the case that
+        must never pass silently: the tier declares a price, so the CLI's ceiling was
+        deliberately loosened, but no message carried usage and nothing enforced the real
+        number. A ceiling that looks enforced and is not is worse than one that is absent.
+        """
+        if not self.resolved.price:
+            return "cli"
+        if self.raw.get("ceiling_enforced_by") == "harness" or self.raw.get("metered_turns"):
+            return "harness"
+        return "none"
+
     def priced_cost(self) -> tuple[float, str]:
         """(dollars, how) — the tier's own rates where it declares them, else the SDK's."""
         if not self.resolved.price:
             return round(self.cost_usd, 6), "sdk"
-        from . import pricing
-
+        if self.budget_exhausted and self.raw.get("ceiling_enforced_by") == "harness":
+            # ONLY WHEN THE HARNESS STOPPED IT. Then there is no result message and no
+            # output count, so the figure is the prompt tokens the meter saw and says so.
+            # A metered dispatch that RAN TO COMPLETION has the result message's usage,
+            # output included, and is priced in full like any other.
+            return pricing.Meter(self.resolved.price, 0.0, totals=dict(self.raw.get("usage") or {})).spent()
         return pricing.cost(
             self.resolved.price,
             {"input_tokens": self.input_tokens, "output_tokens": self.output_tokens,
@@ -362,6 +384,8 @@ class Outcome:
             #: `priced (...)` — computed from this dispatch's tokens at the tier's declared
             #: rates, because the CLI cannot price a third-party endpoint (models/pricing.py).
             "cost_source": self.priced_cost()[1],
+            #: Which enforcer actually checked the ceiling — see `ceiling_source`.
+            "ceiling_source": self.ceiling_source,
             #: `metered` or `subscription` — see Resolved.billing. Both are real money;
             #: report.py and ab_report.py total them apart and never sum them.
             "billing": self.resolved.billing,
@@ -599,16 +623,72 @@ def _run_sdk(
         # killed by the budget ceiling left output files holding only a traceback — no
         # turns, no tool calls, nothing to say how far they got or why it cost that much.
         transcript: list[str] = []
+        # THE CEILING IS OURS TO ENFORCE ON A PRICED TIER. `--max-budget-usd` is checked by
+        # the CLI against its own price table, which does not know this model — so on
+        # DeepSeek a $3.00 ceiling bit at roughly $0.40 of real spend, a worker cut off a
+        # fifth of the way in and looking like the model failing. Each message carries its
+        # own usage; summed at the tier's declared rates, that is the same number the
+        # record will show, which is what makes the ceiling mean what it says.
+        meter = pricing.Meter(r.price, r.max_budget_usd) if r.price else None
+        seen_ids: set[str] = set()
+        killed: dict[str, Any] | None = None
+        began = time.monotonic()
+        stream = query(prompt=prompt, options=options)
         try:
-            async for message in query(prompt=prompt, options=options):
+            async for message in stream:
                 if isinstance(message, AssistantMessage):
-                    progress["turns"] += 1
+                    # ONE RESPONSE ARRIVES AS SEVERAL MESSAGES — a thinking block, then a
+                    # tool-use block, each a separate `AssistantMessage` carrying the same
+                    # `message_id` and the same usage. Measured on a live stream: 10
+                    # messages for what the result message counted as 5 turns. Counting
+                    # them raw doubled the turns in every killed-dispatch record.
+                    mid = getattr(message, "message_id", None)
+                    if mid is None or mid not in seen_ids:
+                        progress["turns"] += 1
+                        if mid is not None:
+                            seen_ids.add(mid)
                     for block in message.content:
                         if isinstance(block, TextBlock) and block.text.strip():
                             transcript.append(block.text.strip())
                         elif isinstance(block, ToolUseBlock):
                             arg = json.dumps(block.input)[:160]
                             transcript.append(f"[tool] {block.name} {arg}")
+                    if meter is not None:
+                        meter.add(message.usage, getattr(message, "message_id", None))
+                        spent = meter.over()
+                        if spent is not None:
+                            usd, how = spent
+                            # The SAME shape the CLI's own kill produces, so every caller
+                            # that routes a budget kill — the swarm, escalate, the lens
+                            # gate — keeps working without knowing who stopped it.
+                            killed = {
+                                "subtype": "error_max_budget_usd",
+                                "is_error": True,
+                                "result": (
+                                    f"the harness stopped this dispatch: ${usd:.4f} of real spend "
+                                    f"passed its ${r.max_budget_usd:.2f} ceiling after "
+                                    f"{progress['turns']} turn(s) — {how}"
+                                ),
+                                # The SDK never sent a result message, so it never reported
+                                # a cost. Absent, not zero: `Outcome.priced_cost` computes
+                                # this dispatch's number from the tokens below.
+                                "total_cost_usd": 0.0,
+                                # PROMPT TOKENS ONLY. A streamed usage reports
+                                # `output_tokens: 0` (measured); the real figure arrives in
+                                # the result message, which a killed dispatch never gets.
+                                # Recorded as what it is rather than padded with a guess.
+                                "usage": dict(meter.totals),
+                                "model_usage": {},
+                                "num_turns": progress["turns"],
+                                "duration_ms": int((time.monotonic() - began) * 1000),
+                                "session_id": getattr(message, "session_id", "") or "",
+                                "permission_denials": [],
+                                "terminal_reason": "max_budget_usd",
+                                "transcript": transcript,
+                                "ceiling_enforced_by": "harness",
+                                "metered_turns": meter.turns_metered,
+                            }
+                            break
                 elif isinstance(message, ResultMessage):
                     last = {
                         "subtype": message.subtype,
@@ -645,11 +725,28 @@ def _run_sdk(
                 "errors": list(exc.errors or []),
                 "transcript": transcript,
             }
+        finally:
+            # STOPPING READING IS NOT STOPPING THE AGENT. Closing the generator is what
+            # tears the CLI subprocess down; without it a dispatch the meter cut off would
+            # keep spending until it finished on its own.
+            aclose = getattr(stream, "aclose", None)
+            if aclose is not None:
+                with contextlib.suppress(Exception):
+                    await aclose()
+        if killed is not None:
+            return killed
         if not last:
             raise DispatchError(
                 "the SDK returned no result message — the agent produced nothing at all. "
                 "That is a dispatch failure, not an empty answer."
             )
+        # HOW MANY TURNS THE METER COULD ACTUALLY SEE. Zero on a priced tier means the
+        # provider reported no usage and the ceiling was never enforced by anything that
+        # understood its price — recorded, because a ceiling that silently does not apply
+        # is the failure this whole path exists to end.
+        if meter is not None:
+            last["metered_turns"] = meter.turns_metered
+            last["ceiling_enforced_by"] = "harness" if meter.turns_metered else "none"
         return last
 
     # A KILLED DISPATCH STILL LEAVES A RECORD. The cost is the SDK's, in the result
@@ -740,8 +837,12 @@ def dispatch(
         cost_usd=float(payload.get("total_cost_usd") or 0.0),
         input_tokens=int(usage.get("input_tokens") or 0),
         output_tokens=int(usage.get("output_tokens") or 0),
-        cache_read_tokens=int(usage.get("cache_read_input_tokens") or 0),
-        cache_creation_tokens=int(usage.get("cache_creation_input_tokens") or 0),
+        # BOTH SPELLINGS. The SDK's result message says `cache_read_input_tokens`; the
+        # harness's own meter records the canonical `cache_read_tokens` when IT stopped the
+        # dispatch. Reading only the first reported a metered kill as 0% cache hit on a
+        # worker that had in fact read 53,120 tokens from cache.
+        cache_read_tokens=int(usage.get("cache_read_input_tokens") or usage.get("cache_read_tokens") or 0),
+        cache_creation_tokens=int(usage.get("cache_creation_input_tokens") or usage.get("cache_creation_tokens") or 0),
         turns=int(payload.get("num_turns") or 0),
         duration_ms=int(payload.get("duration_ms") or elapsed_ms),
         session_id=payload.get("session_id") or "",
@@ -1012,11 +1113,27 @@ def main(argv: list[str] | None = None) -> int:
         print(body)
         if kept is not None:
             print(f"full: {kept}")
+    if outcome.ceiling_source == "none":
+        print(
+            f"\n-- CEILING NOT ENFORCED: tier {outcome.resolved.tier!r} declares a price, so the "
+            f"CLI's own ceiling was loosened to let the harness meter the real spend — but no "
+            f"message carried usage, so nothing checked the ${outcome.resolved.max_budget_usd:.2f} "
+            f"ceiling. Bound this tier with `task_budget_tokens` until the provider reports usage.",
+            file=sys.stderr,
+        )
     if outcome.budget_exhausted:
         ceiling = outcome.resolved.max_budget_usd
+        # THE SPEND, FROM WHICHEVER NUMBER THE CEILING WAS CHECKED AGAINST. On a priced
+        # tier the SDK sent no result message, so `cost_usd` is absent and printing it
+        # would report a $0.00 kill.
+        spent_usd = outcome.priced_cost()[0]
+        # A CEILING BELOW A DOLLAR NEEDS MORE THAN CENTS. At two decimals a $0.0090 kill
+        # against a $0.008 ceiling printed "$0.01 spent against a $0.01 ceiling", which
+        # says nothing about why it stopped.
+        money = (lambda x: f"${x:.4f}") if max(spent_usd, ceiling or 0) < 1 else (lambda x: f"${x:.2f}")
         print(
-            f"\n-- BUDGET EXHAUSTED: ${outcome.cost_usd:.2f} spent"
-            + (f" against a ${ceiling:.2f} ceiling" if ceiling else "")
+            f"\n-- BUDGET EXHAUSTED: {money(spent_usd)} spent"
+            + (f" against a {money(ceiling)} ceiling" if ceiling else "")
             + f" after {outcome.turns} turn(s). This is not BLOCKED — the worker was cut off. "
             f"Check `resume-point.sh <task>` for uncommitted work, then escalate the tier or "
             f"split the task; do not re-dispatch as-is.",
@@ -1025,7 +1142,10 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"\n-- {outcome.resolved.provider}/{outcome.resolved.model} "
         f"tier={outcome.resolved.tier} terminal={outcome.terminal} turns={outcome.turns} "
-        f"${outcome.cost_usd:.4f} {outcome.duration_ms}ms",
+        # THE NUMBER THIS DISPATCH COST, not the SDK's field — which is absent on a tier
+        # the harness prices itself, and printed $0.0000 beside `terminal=budget` for a
+        # dispatch that had just spent $0.009.
+        f"${outcome.priced_cost()[0]:.4f} {outcome.duration_ms}ms",
         file=sys.stderr,
     )
     if outcome.prompt_tokens:

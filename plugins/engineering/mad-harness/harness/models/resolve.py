@@ -196,6 +196,15 @@ AGENTS_DIR = _prompts_dir("agents")
 
 #: The tier that high-risk work is forced to, regardless of the agent's default.
 POLICY_FORCED_TIER = "strategic"
+#: HOW MUCH LOOSER THE CLI'S OWN CEILING IS SET on a tier the harness prices itself.
+#: `--max-budget-usd` is checked by the CLI against its own table, which over-priced
+#: DeepSeek 4-8x (measured 2026-09-23) — so passing the real ceiling there would kill the
+#: dispatch at a fraction of it, BEFORE `pricing.Meter` had reached the number the operator
+#: set. The CLI's ceiling is kept as a backstop for the case the meter cannot act on (a
+#: provider that streams no usage), raised far enough that it can only fire afterwards.
+#: Not a conversion factor: nothing here claims to know the CLI's rates, only that this is
+#: past them.
+CLI_BACKSTOP_FACTOR = 10.0
 #: Model words that resolve differently per dispatch path; a tier must name a concrete id.
 MODEL_ALIASES = frozenset({"opus", "sonnet", "haiku", "fable", "inherit", "default"})
 #: The reason recorded when a project's `agent_tiers:` block moved the agent. Telemetry
@@ -318,7 +327,11 @@ class Resolved:
         return ClaudeAgentOptions(
             model=self.model,
             effort=self.effort,
-            max_budget_usd=self.max_budget_usd,
+            # THE HARNESS METERS A PRICED TIER ITSELF (models/pricing.py::Meter, applied in
+            # dispatch.py's stream), because the CLI would enforce this number against its
+            # own price table for a model it does not know. What it gets here is the
+            # backstop, not the ceiling.
+            max_budget_usd=self.max_budget_usd * CLI_BACKSTOP_FACTOR if self.price else self.max_budget_usd,
             system_prompt=system_prompt,
             skills=skills,
             task_budget={"total": self.task_budget_tokens} if self.task_budget_tokens else None,

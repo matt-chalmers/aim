@@ -1,6 +1,6 @@
 {
   "name": "mad-harness",
-  "version": "0.10.33",
+  "version": "0.10.34",
   "description": "A multi-agent development harness: model tiering and dispatch, parallel worker worktrees, decorrelated verification lenses, a pluggable task tracker (beads or markdown), and the doctrine those agents run on. Project-specific facts live in a single harness.yaml in the consuming repository.",
   "author": {
     "name": "Matt Chalmers"
