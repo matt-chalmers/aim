@@ -34,9 +34,11 @@ NONE = "NONE"
 #: — a heading, which this matched emphasis for but not `#` — and each was recorded as "no
 #: `VERDICT:` line", ~$0.60 of judgement discarded apiece and the task blocked on lenses
 #: that had in fact passed it. A heading, a blockquote and emphasis are formatting; the
-#: verdict is the word after them.
+#: verdict is the word after them. Re-reading every lens answer that lab kept (25 of them)
+#: found one more spelling of the same class — an inline code span, `VERDICT: PASS` — so
+#: backticks are formatting here too.
 VERDICT = re.compile(
-    r"^[ \t]*(?:[#>]+[ \t]*)*\**[ \t]*VERDICT\**[ \t]*[:—-]?[ \t]*\**[ \t]*(?P<status>PASS|FAIL)\b\**(?P<qual>[^\n]*)",
+    r"^[ \t]*(?:[#>]+[ \t]*)*[`*]*[ \t]*VERDICT[`*]*[ \t]*[:—-]?[ \t]*[`*]*[ \t]*(?P<status>PASS|FAIL)\b[`*]*(?P<qual>[^\n]*)",
     re.IGNORECASE | re.MULTILINE,
 )
 #: Findings are tagged `blocking` or `filed` (`verification-gate`); counted, not judged.
@@ -68,7 +70,7 @@ def parse(text: str) -> Verdict:
     if not m:
         return Verdict(NONE)
     status = m.group("status").upper()
-    qual = m.group("qual").strip().strip("*").strip()
+    qual = m.group("qual").strip().strip("*`").strip()
     return Verdict(
         status=status,
         qualifier=qual,
@@ -88,7 +90,7 @@ def return_status(text: str) -> str:
         if not line.strip():
             continue
         for tok in line.split("·"):
-            word = tok.strip().strip("*").upper()
+            word = tok.strip().strip("*`").upper()
             if word in RETURN_STATUSES:
                 return word
         return NONE

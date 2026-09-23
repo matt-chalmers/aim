@@ -62,7 +62,8 @@ def test_a_heading_or_a_blockquote_is_formatting_not_a_different_verdict():
     — a heading — and each was read as NONE, which the gate treats as never-a-pass: ~$0.60
     of judgement discarded apiece and the task blocked by lenses that had passed it."""
     for text in ("## VERDICT: PASS", "# VERDICT: PASS", "### **VERDICT:** PASS",
-                 "> VERDICT: PASS", "> ## VERDICT — PASS", "**VERDICT:** PASS", "VERDICT: PASS"):
+                 "> VERDICT: PASS", "> ## VERDICT — PASS", "**VERDICT:** PASS", "VERDICT: PASS",
+                 "`VERDICT: PASS`", "`VERDICT:` PASS", "## `VERDICT: PASS`"):
         v = mod.parse(text)
         assert v.status == mod.PASS, text
     assert mod.parse("## VERDICT: FAIL — the tests are decorative").status == mod.FAIL
@@ -71,4 +72,6 @@ def test_a_heading_or_a_blockquote_is_formatting_not_a_different_verdict():
     assert mod.parse("The ## VERDICT: PASS was mentioned mid-sentence").status == mod.NONE, \
         "prose that quotes the word is not a verdict — the line must begin with it"
     assert mod.parse("## VERDICT: MAYBE").status == mod.NONE
+    assert mod.parse("`VERDICT: PASS` (no security surface)").qualifier == "(no security surface)"
+    assert mod.parse("`VERDICT: PASS`").qualifier == "", "a closing backtick is formatting, not a qualifier"
     assert mod.parse("I would pass this").status == mod.NONE
