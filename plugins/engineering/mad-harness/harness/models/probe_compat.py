@@ -44,7 +44,14 @@ def _run(
 ) -> dict:
     import os
 
-    env = dict(os.environ)
+    # A NESTED SESSION'S OWN VARIABLES ARE NOT THE PROBE'S. `CLAUDECODE`, the messaging
+    # socket and the session ids are set in every Claude Code session, and an operator runs
+    # this probe from one; inherited, the child refuses to start ("another auth source is
+    # set and takes precedence") and the probe reports the PROVIDER as unreachable — which
+    # is the one conclusion it must never reach wrongly. Same reasoning as
+    # `dispatch.STRIPPED_FROM_CHILDREN`, for the same class of defect.
+    env = {k: v for k, v in os.environ.items() if not (k == "CLAUDECODE" or k.startswith("CLAUDE_CODE_"))}
+    env.pop("VIRTUAL_ENV", None)
     env.update(env_overlay)
     cmd = [
         "claude",
@@ -55,9 +62,27 @@ def _run(
         "0.50",
         "--output-format",
         "json",
+        # THE SCRATCH DIRECTORY IS THE PROBE'S OWN, and the tool probes must be able to use
+        # it. Without a mode, a headless run has no one to approve `Write`, so the
+        # multi-turn probe ended "every method of creating step1.txt requires a permission
+        # approval that hasn't been granted" — reported as the PROVIDER failing a tool loop
+        # it had in fact driven for nine turns. `acceptEdits` is the narrowest mode that
+        # lets a file be written; the directory is a fresh mkdtemp thrown away after.
+        "--permission-mode",
+        "acceptEdits",
     ]
+    # `--tools=<value>`, ATTACHED, ONE COMMA-SEPARATED VALUE. The flag is declared
+    # `--tools <tools...>`: variadic, so a SEPARATE argument makes it consume everything
+    # after it, including the prompt, which the CLI then reports as "Input must be provided
+    # either through stdin or as a prompt argument" — and the probe blamed the PROVIDER,
+    # the one conclusion it must never reach wrongly. Spelled as separate words
+    # (`"--tools", "Read", "Bash"`) it ate the prompt as a third tool; joined but detached
+    # (`"--tools", "Read,Bash"`) it ate the prompt as a second. Only the attached form
+    # binds exactly one value. Measured against DeepSeek, which read a file and answered
+    # in two turns by hand while the probe was calling it unreachable — so its two tool
+    # probes, "the probe that matters" included, had never once run against any provider.
     if tools is not None:
-        cmd += ["--tools", *tools]
+        cmd.append(f"--tools={','.join(tools)}")
     cmd.append(prompt)
     proc = subprocess.run(
         cmd, cwd=str(cwd), env=env, capture_output=True, text=True, timeout=timeout

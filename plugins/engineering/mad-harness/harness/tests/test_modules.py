@@ -901,3 +901,47 @@ def test_the_retrieval_index_names_every_documentation_page():
         if rel == Path("README.md"):
             continue
         assert f"docs/{rel}" in index, f"{rel} is absent from llms.txt"
+
+
+def test_the_credential_file_is_gitignored_and_its_template_is_not():
+    """`.env.example` says "NEVER commit harness/.env" and `resolve.py` loads that file
+    automatically — a rule with no mechanism until 2026-09-23, when a provider key was
+    about to be written into a repository whose .gitignore had no rule for it. The
+    template stays tracked; the credential cannot be."""
+    import subprocess
+
+    from models.resolve import HARNESS
+
+    def ignored(path):
+        return subprocess.run(["git", "check-ignore", "-q", str(path)], cwd=str(HARNESS), capture_output=True).returncode == 0
+
+    assert ignored(HARNESS / ".env"), "harness/.env is not ignored — a provider key would be committable"
+    assert not ignored(HARNESS / ".env.example"), "the template must stay tracked"
+    assert (HARNESS / ".env.example").is_file()
+
+
+def test_the_probe_passes_tools_as_one_comma_separated_value(monkeypatch, tmp_path):
+    """`--tools <tools...>` is variadic and takes "Bash,Edit,Read" (or "" for none). Spelled
+    as separate words it swallowed the prompt as another tool name, the CLI exited "Input
+    must be provided", and the probe blamed the PROVIDER — which is why its tool-call and
+    multi-turn probes had never once run. Measured against DeepSeek, answering by hand at
+    the same moment."""
+    import subprocess
+
+    from models import probe_compat
+
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, '{"type":"result","result":"PONG","usage":{}}', "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    for tools, expected in (([], "--tools="), (["Read"], "--tools=Read"), (["Read", "Write", "Bash"], "--tools=Read,Write,Bash")):
+        probe_compat._run({}, "m", "the prompt", tmp_path, tools=tools)
+        cmd = seen["cmd"]
+        assert cmd[-1] == "the prompt", f"the prompt must stay the last argument (tools={tools!r})"
+        assert expected in cmd, f"attached, one comma-separated value (tools={tools!r})"
+        assert "--tools" not in cmd, "detached spelling makes the variadic flag eat the prompt"
+    probe_compat._run({}, "m", "the prompt", tmp_path, tools=None)
+    assert not [a for a in seen["cmd"] if a.startswith("--tools")], "None means the CLI's default tool set"
