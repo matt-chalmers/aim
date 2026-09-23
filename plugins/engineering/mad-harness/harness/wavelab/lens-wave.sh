@@ -41,7 +41,24 @@ mkdir -p "$SCRATCH"
 
 tk() { "$HARNESS/tracker/tk.sh" "$@"; }
 
-# No ids given: judge every closed task. The lens is for work that has landed.
+# No ids given: the tasks THIS WAVE LANDED, from its manifest — `merged` where the wave got
+# that far, else `dispatched`. It used to be "every closed task", which silently judged
+# NOTHING from 0.10.28 on: that release stopped a worker closing its own task (the
+# orchestrator closes it after the lenses pass), so by the time this ran there were no
+# closed tasks and every `--lenses` series measured cost with no quality counterweight —
+# the one thing the flag exists to provide. Closed tasks remain the fallback for a repo
+# with no manifest.
+if [ "${#TASKS[@]}" -eq 0 ]; then
+  MANIFEST=$(ls -t "$REPO"/.harness/run/waves/*.json 2>/dev/null | grep -v '\.lock$' | head -1 || true)
+  if [ -n "$MANIFEST" ]; then
+    mapfile -t TASKS < <(python3 -c '
+import json, sys
+m = json.load(open(sys.argv[1]))
+ids = [x["task"] for x in (m.get("merged") or []) if x.get("task")]
+print("\n".join(ids or sorted(m.get("dispatched") or {})))' "$MANIFEST")
+    [ "${#TASKS[@]}" -gt 0 ] && echo "judging this wave: $(basename "$MANIFEST") — ${TASKS[*]}"
+  fi
+fi
 if [ "${#TASKS[@]}" -eq 0 ]; then
   mapfile -t TASKS < <(tk list --json | python3 -c '
 import json, sys
@@ -49,7 +66,7 @@ for t in json.load(sys.stdin):
     if t["type"] != "epic" and t["status"] == "closed":
         print(t["id"])')
 fi
-[ "${#TASKS[@]}" -gt 0 ] || { echo "nothing closed to judge"; exit 0; }
+[ "${#TASKS[@]}" -gt 0 ] || { echo "nothing landed or closed to judge"; exit 0; }
 
 echo "== verification lenses: $NAME =="
 VERDICTS="$SCRATCH/verdicts.txt"; : > "$VERDICTS"
