@@ -945,3 +945,30 @@ def test_the_probe_passes_tools_as_one_comma_separated_value(monkeypatch, tmp_pa
         assert "--tools" not in cmd, "detached spelling makes the variadic flag eat the prompt"
     probe_compat._run({}, "m", "the prompt", tmp_path, tools=None)
     assert not [a for a in seen["cmd"] if a.startswith("--tools")], "None means the CLI's default tool set"
+
+
+def test_mutate_loads_the_worktrees_swarm_env_itself(tmp_path):
+    """The isolation check demands the per-worker variables and used to say "Source
+    .swarm-env first" — the one thing a worker cannot legally do (`source x && y` is a
+    compound command; `VAR=x cmd` begins with an assignment; both match no permission rule
+    and are denied). Measured in a lab wave: a worker followed test-doctrine to mutate.sh,
+    was denied both spellings, and its dispatch was marked not-ok for work the harness had
+    made unreachable. `run.sh` loads the file for the worker; so must this."""
+    import subprocess
+
+    from models.resolve import HARNESS
+
+    text = (HARNESS / "verify" / "mutate.sh").read_text()
+    assert '. "$PWD/.swarm-env"' in text and "set -a" in text, "the script sources it itself"
+    told = [ln for ln in text.splitlines() if "Source .swarm-env first" in ln and not ln.lstrip().startswith("#")]
+    assert not told, f"never instruct a worker to do the denied thing: {told}"
+
+    # It really loads it: a worktree whose file sets a variable, read back by the script.
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    (wt / ".swarm-env").write_text("export PROBE_FROM_SWARM_ENV=loaded\n")
+    script = wt / "probe.sh"
+    head = text.split("TASK=")[0]
+    script.write_text(head + 'echo "PROBE=${PROBE_FROM_SWARM_ENV:-unset}"\n')
+    out = subprocess.run(["bash", str(script)], cwd=str(wt), capture_output=True, text=True, timeout=60)
+    assert "PROBE=loaded" in out.stdout, out.stdout + out.stderr

@@ -42,6 +42,22 @@ set -euo pipefail
 # the project. Exported here so every subshell inherits it.
 export MAD_HARNESS_CALLER_PWD="${MAD_HARNESS_CALLER_PWD:-$PWD}"
 
+# THE WORKER'S OWN RESOURCES, LOADED HERE — as `run.sh` does, and for the same reason. The
+# isolation check below demands whatever the stacks declare (a per-worker database, a build
+# directory) and used to tell the worker "Source .swarm-env first", which is the ONE thing a
+# worker cannot legally do: `source .swarm-env && …` is a compound command and matches no
+# permission rule, and `VAR=x mutate.sh …` begins with an assignment rather than the runner,
+# so it matches none either. Measured (a lab wave, 2026-09-23): a worker followed
+# test-doctrine to `mutate.sh`, was denied both spellings in turn, and its dispatch was
+# marked not-ok for work the harness had made unreachable. A script may source its own
+# worktree's file; an agent may not type it.
+if [ -f "$PWD/.swarm-env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$PWD/.swarm-env"
+  set +a
+fi
+
 TASK="${1:?usage: harness/verify/mutate.sh <task-id> <commit-ish> <mutations-file> [test-ids...]}"
 REF="${2:?missing <commit-ish>}"
 MUTFILE="${3:?missing <mutations-file>}"
@@ -223,8 +239,10 @@ from models.project import load
 print(' '.join(sorted(load().worker_env(1))))")"
   for _v in $_iso; do
     if [ -z "${!_v:-}" ]; then
-      echo "FATAL: $_v is unset. Source .swarm-env first — a mutation run that shares" >&2
-      echo "       another worker's resources produces plausible wrong counts." >&2
+      echo "FATAL: $_v is unset, and this worktree has no .swarm-env to take it from" >&2
+      echo "       (this script loads one when it is there). A mutation run that shares" >&2
+      echo "       another worker's resources produces plausible wrong counts. Re-run the" >&2
+      echo "       worktree init, or run this from the worktree root where it was written." >&2
       exit 3
     fi
   done
