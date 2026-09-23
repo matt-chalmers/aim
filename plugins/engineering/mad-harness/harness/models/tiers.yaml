@@ -26,6 +26,13 @@
 #     peak_weekdays_only: true      # optional, default true
 #
 # and every event says `cost_source: priced (...)` or `sdk`, so no series mixes the two.
+#
+# WHICH POCKET, on the PROVIDER block: `billing: subscription` where the work is drawn from
+# a plan's allowance, `metered` (the default) where it is billed per token. Both are real
+# money — a subscription-dollar consumed is one no longer available, and the work stops
+# when the allowance does — so `make models-cost` and `ab-report.sh` total them APART and
+# never sum them. The plugin declares nothing: an Anthropic key is metered and a Max plan
+# is not, and only the operator knows which they are on.
 # THE CEILING IS NOT FIXED BY THIS: `--max-budget-usd` is enforced by the CLI against its
 # own estimate, so on a provider it over-prices, the ceiling bites that much sooner than
 # the number says. Bound such a tier with `task_budget_tokens`, which means what it says.

@@ -362,6 +362,9 @@ class Outcome:
             #: `priced (...)` — computed from this dispatch's tokens at the tier's declared
             #: rates, because the CLI cannot price a third-party endpoint (models/pricing.py).
             "cost_source": self.priced_cost()[1],
+            #: `metered` or `subscription` — see Resolved.billing. Both are real money;
+            #: report.py and ab_report.py total them apart and never sum them.
+            "billing": self.resolved.billing,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "cache_read_tokens": self.cache_read_tokens,

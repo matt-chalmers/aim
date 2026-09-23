@@ -12,6 +12,7 @@
 #            preload          off = today's writers                            on = + evidence-gathering
 #            lean_catalog     off = the CLI's full Skill catalog                on = plugin + project skills only
 #            release          off = the plugin at --pin-off (default 0.10.18)  on = the plugin at HEAD
+#            worker_provider  off = the shipped worker tier                    on = --worker-tier's provider/model
 #            plan_tiers       off = §3 at declared tiers                       on = the READY sanity-check and the audit at strong
 #
 # TWO CODES, NOT TWO ENVIRONMENTS. Every lever above is one environment variable read by
@@ -48,7 +49,7 @@ LEVER="${1:?usage: ab.sh <lever> [--runs N] [--fanout N] [--root DIR] [--backend
 shift
 RUNS=5; FANOUT=2; ROOT="${WAVELAB_AB_ROOT:-$HOME/harness-wavelab-ab}"; BACKEND=beads; WAVE1_ONLY=0; ARMS="off,on"; LENSES=0
 # 0.10.18: the last release before the prose-to-code series (0.10.19 is 332a274).
-PIN_OFF="e2fa8d5d1226"; ORCHESTRATED=0; PLAN_ONLY=0
+PIN_OFF="e2fa8d5d1226"; ORCHESTRATED=0; PLAN_ONLY=0; WORKER_TIER=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --runs) RUNS="${2:?}"; shift ;;
@@ -59,13 +60,29 @@ while [ $# -gt 0 ]; do
     --lenses) LENSES=1 ;;
     --arms) ARMS="${2:?}"; shift ;;
     --pin-off) PIN_OFF="${2:?}"; shift ;;
+    --worker-tier) WORKER_TIER="${2:?--worker-tier needs a yaml fragment}"; shift ;;
     --orchestrated) ORCHESTRATED=1 ;;
     --plan-only) ORCHESTRATED=1; PLAN_ONLY=1 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
 done
-case "$LEVER" in cache_ttl|static_prefix|stagger|task_budget|preload|lean_catalog|release|plan_tiers) ;; *) echo "unknown lever: $LEVER" >&2; exit 2 ;; esac
+case "$LEVER" in cache_ttl|static_prefix|stagger|task_budget|preload|lean_catalog|release|plan_tiers|worker_provider) ;; *) echo "unknown lever: $LEVER" >&2; exit 2 ;; esac
+
+# THE ARM IS A TIER REDEFINITION IN THE LAB REPO'S OWN harness.yaml — the project-owned
+# model config (0.10.30), not an environment variable, because that is how a consuming
+# project would really do it. The `on` arm's block is given as one argument so the rig
+# never hard-codes a provider, a model or a price:
+#
+#   ab.sh worker_provider --lenses --worker-tier 'provider: deepseek
+#     model: deepseek-v4-pro
+#     price: {input_per_mtok: 1.32, output_per_mtok: 3.96, cache_read_per_mtok: 0.044,
+#             off_peak_multiplier: 0.5, peak_utc: ["01:00-04:00", "06:00-10:00"]}'
+#
+# A tier off Anthropic MUST carry its price or the config check refuses it: the CLI prices
+# a third-party endpoint from its own table (measured: $5.00/Mtok for DeepSeek against
+# $0.66-1.32 published), and every event then says `cost_source: priced (...)` so the two
+# arms are compared on real money rather than on one real number and one estimate.
 
 # The environment each arm dispatches under. Everything else is inherited unchanged, and
 # every arm clears the levers it does not set, so a stray export cannot leak into an arm.
@@ -111,6 +128,13 @@ if [ "$LEVER" = "release" ]; then
   FROZEN_OFF="$(freeze "$PIN_OFF")"; SHA_OFF="$(git -C "$AIM" rev-parse --short=12 "$PIN_OFF")"
   echo "== release: off = $SHA_OFF ($(git -C "$AIM" show "$SHA_OFF:plugins/engineering/mad-harness/.claude-plugin/plugin.json" | python3 -c 'import json,sys;print(json.load(sys.stdin)["version"])'))   on = $SHA (HEAD)"
 fi
+# CREDENTIALS FOLLOW THE FROZEN CODE. `harness/.env` is gitignored, so a worktree of the
+# plugin has none and `provider_env` would report every variable missing — the arm would
+# run with no provider auth and read as the provider failing. Copied, never committed.
+for d in "$FROZEN" "$FROZEN_OFF"; do
+  live="$AIM/plugins/engineering/mad-harness/harness/.env"
+  [ -f "$live" ] && cp "$live" "$d/plugins/engineering/mad-harness/harness/.env"
+done
 for d in "$FROZEN" "$FROZEN_OFF"; do
   [ -x "$d/plugins/engineering/mad-harness/harness/wavelab/reset.sh" ] || { echo "frozen tree has no wavelab under $d" >&2; exit 3; }
 done
@@ -134,6 +158,16 @@ for ARM in "${ARM_LIST[@]}"; do
     rm -rf "$RUN_ROOT"
     "$FLAB/reset.sh" --root "$RUN_ROOT" --only "$BACKEND" --fanout "$FANOUT" --cap "$FANOUT" || {
       echo "!! reset failed for $LEVER:$ARM:$RUN — stopping this lever" >&2; exit 4; }
+    # The `on` arm's worker tier, written into the lab repo as a project would write it.
+    if [ "$LEVER" = "worker_provider" ] && [ "$ARM" = "on" ]; then
+      [ -n "$WORKER_TIER" ] || { echo "!! worker_provider needs --worker-tier '<yaml>'" >&2; exit 2; }
+      { echo; echo "tiers:"; echo "  worker:"; printf '%s\n' "$WORKER_TIER" | sed 's/^/    /'; } >> "$RUN_ROOT/$BACKEND/harness.yaml"
+      ( cd "$RUN_ROOT/$BACKEND" && "$FHARNESS/checks/check-project-config.sh" >/dev/null ) || {
+        echo "!! the arm's tier is not a valid config:" >&2
+        ( cd "$RUN_ROOT/$BACKEND" && "$FHARNESS/checks/check-project-config.sh" ) >&2; exit 4; }
+      ( cd "$RUN_ROOT/$BACKEND" && git -c user.email=wavelab@example.com -c user.name=wavelab commit -qam "wavelab: the arm's worker tier" )
+      echo "-- arm tier: $(cd "$RUN_ROOT/$BACKEND" && "$FHARNESS/checks/check-project-config.sh" | grep '^models:' | head -1)"
+    fi
     # The label every dispatch event in this run carries.
     arm_envs "$ARM"
     ENVS+=("MAD_HARNESS_EXPERIMENT=$LEVER:$ARM:$RUN")

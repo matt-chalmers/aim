@@ -396,9 +396,11 @@ class Project:
             for name, block in providers.items():
                 if not isinstance(block, dict):
                     raise ProjectError(f"providers.{name}: must be a map")
-                unknown = set(block) - {"env"}
+                unknown = set(block) - {"env", "billing"}
                 if unknown:
                     raise ProjectError(f"providers.{name}: unknown key(s) {', '.join(sorted(unknown))}")
+                if "billing" in block and block["billing"] not in ("metered", "subscription"):
+                    raise ProjectError(f"providers.{name}.billing: must be 'metered' or 'subscription', got {block['billing']!r}")
                 if "env" in block and not isinstance(block["env"], dict):
                     raise ProjectError(f"providers.{name}.env: must be a map of variable -> value")
                 # NO LITERAL CREDENTIAL IN A COMMITTED FILE. harness.yaml is tracked;

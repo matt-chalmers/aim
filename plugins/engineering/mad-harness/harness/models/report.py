@@ -43,11 +43,12 @@ def summarise(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         # mixed them would average a price against a guess.
         groups[
             (e.get("agent", "?"), e.get("tier", "?"), e.get("provider", "?"), e.get("tier_source") or "plugin",
-             "priced" if str(e.get("cost_source") or "sdk").startswith("priced") else "sdk")
+             "priced" if str(e.get("cost_source") or "sdk").startswith("priced") else "sdk",
+             str(e.get("billing") or "metered"))
         ].append(e)
 
     rows = []
-    for (agent, tier, provider, source, costing), es in groups.items():
+    for (agent, tier, provider, source, costing, billing), es in groups.items():
         costs = [float(e.get("cost_usd") or 0) for e in es]
         turns = [int(e.get("turns") or 0) for e in es]
         fails = sum(1 for e in es if not e.get("ok"))
@@ -65,6 +66,7 @@ def summarise(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "provider": provider,
                 "tier_source": source,
                 "cost_source": costing,
+                "billing": billing,
                 "n": len(es),
                 "total_usd": sum(costs),
                 "mean_usd": sum(costs) / len(es),
@@ -110,6 +112,12 @@ def main() -> int:
         return 0
 
     rows = summarise(events)
+    # TWO POCKETS, NEVER ONE SUM. A subscription-dollar consumed is real — the allowance it
+    # came out of is finite and the work stops when it is gone — but it is not a metered
+    # dollar, and a single total would state a number neither pocket paid.
+    pockets: dict[str, float] = defaultdict(float)
+    for r in rows:
+        pockets[r["billing"]] += r["total_usd"]
     print(
         f"{'agent':<22}{'tier':<11}{'provider':<11}{'src':<9}{'$src':<8}{'n':>4}"
         f"{'total $':>10}{'mean $':>9}{'turns':>7}{'fail%':>7}{'esc':>5}"
@@ -138,6 +146,11 @@ def main() -> int:
         "breaks = requests that re-wrote a prefix the previous request had cached — a TTL "
         "expiry over a long test run, or something above the history changing."
     )
+    if pockets:
+        print("\n" + "  ·  ".join(
+            f"{'subscription consumed' if k == 'subscription' else 'metered spend'}: ${v:.2f}"
+            for k, v in sorted(pockets.items())
+        ) + ("   (two pockets, deliberately not summed)" if len(pockets) > 1 else ""))
     print(
         "A tier is worth keeping when its fail% and escalations stay low. "
         "A cheap tier that escalates re-pays the whole fixed base, so it is a "

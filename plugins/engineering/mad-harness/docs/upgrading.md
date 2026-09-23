@@ -1511,5 +1511,16 @@ config note: `price` in a tier, required off Anthropic.
   tier's ceiling bites 4–8× sooner than the number says — a worker killed mid-task that
   looks like the model failing. Bound such a tier with `task_budget_tokens`.
 
-- **mechanical** — nothing, unless you route a tier off Anthropic; then declare its `price`
-  or the config check fails with the reason.
+- **`billing` on the provider — which pocket, because both are real.** `subscription`
+  where the work draws on a plan's allowance, `metered` (default) where it is billed per
+  token. The SDK's figure for an Anthropic dispatch on a Max plan is not "free": it is the
+  dollar amount of allowance consumed, and the allowance is finite — the work stops when
+  it is gone. But it is not a metered dollar either, so `make models-cost` and
+  `ab-report.sh` print the two totals APART and never sum them; a sum would state a number
+  neither pocket paid. The plugin declares nothing: an API key is metered and a plan is
+  not, and only the operator knows which they are on.
+
+- **mechanical** — nothing, unless you route a tier off Anthropic (declare its `price`, or
+  the config check fails with the reason) or you are on a plan rather than an API key
+  (`providers: {anthropic: {billing: subscription}}`, so the two pockets are reported
+  apart).

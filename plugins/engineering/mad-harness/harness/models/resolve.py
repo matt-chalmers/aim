@@ -230,6 +230,12 @@ class Resolved:
     #: The tier's published rates, where it is not on Anthropic — see models/pricing.py.
     #: Empty means the SDK's own cost figure is the record, which is right for Anthropic.
     price: dict[str, Any] = field(default_factory=dict)
+    #: WHICH POCKET THIS DISPATCH SPENDS FROM: `metered` (billed per token, the default and
+    #: the conservative reading) or `subscription` (drawn from a plan's allowance). Both are
+    #: real money — a subscription-dollar consumed is one that is no longer available, and
+    #: when the allowance runs out the work stops — but they are not the same dollar and a
+    #: report that summed them would say a run cost what neither pocket paid.
+    billing: str = "metered"
     #: `default` for a read-only agent; `acceptEdits` for one that writes. See
     #: :func:`permission_for`.
     permission_mode: str = "default"
@@ -418,6 +424,10 @@ def _validate(config: dict[str, Any], where: str = "tiers.yaml") -> dict[str, An
         raise ConfigError(f"{where} defines no tiers")
 
     providers = config.get("providers") or {}
+    for name, block in providers.items():
+        billing = (block or {}).get("billing")
+        if billing is not None and billing not in ("metered", "subscription"):
+            raise ConfigError(f"provider {name!r}: billing must be 'metered' or 'subscription', got {billing!r}")
     default_tier = config.get("default_tier")
     if default_tier not in tiers:
         raise ConfigError(
@@ -1186,6 +1196,7 @@ def resolve(
             tier, reason = declared, "agent default"
 
     spec = tiers[tier]
+    providers = config.get("providers") or {}
     env, missing = provider_env(spec["provider"], config, environ)
     mode, grants = permission_for(agent, agents_dir)
     orchestrator = is_orchestrator(agent, agents_dir)
@@ -1199,6 +1210,7 @@ def resolve(
         reason=reason,
         tier_source="project" if tier in provenance(config)["tiers"] else "plugin",
         price=dict(spec.get("price") or {}),
+        billing=str((providers.get(spec["provider"]) or {}).get("billing") or "metered"),
         provider=spec["provider"],
         model=spec["model"],
         effort=spec["effort"],

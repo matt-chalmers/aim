@@ -101,6 +101,13 @@ def pass_rates(rows: list[tuple[str, str, str]]) -> dict[str, tuple[int, int, in
     return {k: (v[0], v[1], v[2]) for k, v in by.items()}
 
 
+def _pockets(rows: list[dict[str, Any]]) -> dict[str, float]:
+    out: dict[str, float] = defaultdict(float)
+    for r in rows:
+        out[str(r.get("billing") or "metered")] += float(r.get("cost_usd") or 0)
+    return dict(out)
+
+
 def _quartiles(xs: list[float]) -> tuple[float, float, float]:
     xs = sorted(xs)
     if len(xs) == 1:
@@ -123,6 +130,8 @@ def summarise(by_arm: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, An
             #: `sdk` is Claude Code's estimate, `priced` is computed from the tier's own
             #: rates (models/pricing.py). Comparing one against the other is not a series.
             "cost_sources": sorted({("priced" if str(r.get("cost_source") or "sdk").startswith("priced") else "sdk") for r in rows}),
+            #: Dollars by pocket. Both are real; a sum of the two is a number neither paid.
+            "by_pocket": {k: round(v, 4) for k, v in sorted(_pockets(rows).items())},
             "kills": sum(1 for r in rows if r.get("terminal") == "budget"),
             "not_ok": sum(1 for r in rows if not r.get("ok")),
             # A dispatch the timeout killed has turns but no cost (None): the arm's cost
@@ -218,6 +227,11 @@ def main(argv: list[str] | None = None) -> int:
         if a.get("judged") and a.get("writer_cost_per_run"):
             wq1, wmed, wq3 = a["writer_cost_per_run"]
             print(f"  writers / run     ${wmed:.2f}   (IQR ${wq1:.2f}–${wq3:.2f})")
+        if a["by_pocket"]:
+            runs = max(1, a["n_runs"])
+            print("  by pocket / run    " + "  ·  ".join(
+                f"{'subscription' if k == 'subscription' else 'metered'} ${v / runs:.2f}" for k, v in a["by_pocket"].items()
+            ) + ("   (not summed: different pockets)" if len(a["by_pocket"]) > 1 else ""))
         mq1, mmed, mq3 = a["minutes_per_run"]
         dq1, dmed, dq3 = a["dispatches_per_run"]
         print(f"  agent minutes/run {mmed:.1f}   (IQR {mq1:.1f}–{mq3:.1f}; summed, exact for a sequence)   {dmed:.0f} dispatch(es) / run (IQR {dq1:.0f}–{dq3:.0f})")

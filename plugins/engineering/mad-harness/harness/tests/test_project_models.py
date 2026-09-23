@@ -347,3 +347,37 @@ def test_the_event_says_which_number_it_is_and_an_anthropic_tier_still_uses_the_
     assert t["cost_source"].startswith("priced ("), t["cost_source"]
     assert t["cost_usd"] in (1.32, 0.66), f"the tier's own rate, not the SDK's $4.20: {t['cost_usd']}"
     assert "Mtok" in t["cost_source"], "the record says at what rate"
+
+
+def test_billing_says_which_pocket_and_the_reports_never_sum_them():
+    """A subscription-dollar consumed is real — the allowance is finite and the work stops
+    when it is gone — but it is not a metered dollar. Summing them states a number neither
+    pocket paid, so both reports total them apart."""
+    from models.ab_report import summarise as ab_summarise
+    from models.report import summarise as cost_summarise
+
+    events = [
+        {"agent": "verifier", "tier": "strong", "provider": "anthropic", "billing": "subscription",
+         "cost_source": "sdk", "cost_usd": 2.0, "turns": 5, "ok": True},
+        {"agent": "fullstack-engineer", "tier": "worker", "provider": "deepseek", "billing": "metered",
+         "cost_source": "priced (peak: …)", "cost_usd": 0.5, "turns": 5, "ok": True},
+    ]
+    rows = {r["agent"]: r for r in cost_summarise(events)}
+    assert rows["verifier"]["billing"] == "subscription" and rows["verifier"]["cost_source"] == "sdk"
+    assert rows["fullstack-engineer"]["billing"] == "metered" and rows["fullstack-engineer"]["cost_source"] == "priced"
+
+    arm = ab_summarise({"on": [{**e, "_run": "1", "_sha": "abc"} for e in events]})["on"]
+    assert arm["by_pocket"] == {"metered": 0.5, "subscription": 2.0}
+    assert arm["cost_sources"] == ["priced", "sdk"], "a mixed arm is flagged, not averaged"
+
+
+def test_a_providers_billing_is_validated_and_defaults_to_metered():
+    import re
+
+    from models.resolve import resolve
+
+    assert resolve("verifier").billing == "metered", "the conservative default: real money"
+    with pytest.raises(ProjectError, match=re.escape("providers.deepseek.billing: must be 'metered' or 'subscription'")):
+        _project({"providers": {"deepseek": {"billing": "free"}}}).model_config()
+    ok = _project({"providers": {"anthropic": {"billing": "subscription"}}}).model_config()
+    assert ok["providers"]["anthropic"]["billing"] == "subscription"
