@@ -63,44 +63,14 @@ def test_the_guard_can_fail_and_the_hook_is_registered(monkeypatch, capsys):
     assert proc.returncode == 0 and '"deny"' in proc.stdout
 
 
-# --- the one exemption: agent teams, for /design-debate ---------------------------------------
-
-
-def test_architect_and_analyst_pass_only_as_debate_teammates_and_nothing_else_does(monkeypatch):
-    """A teammate's output reaches the lead by message, never as a result in its context —
-    the measured reason for the deny does not apply. The other reasons do, and are accepted
-    only for the interactive experiment: both environment variables, those two agents."""
+def test_agent_teams_are_not_an_exemption(monkeypatch):
+    """0.10.31 built a /design-debate that ran architect and analyst as teammates, measured
+    it (~$33 against /design's ~$14, no measurable difference, zero dispatch events for $21
+    of it) and removed it. No environment makes a plugin agent pass this hook."""
     name = plugin_name()
-    monkeypatch.delenv("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", raising=False)
-    monkeypatch.delenv("MAD_HARNESS_TEAMS_DEBATE", raising=False)
-    assert mod.decision(_call(subagent_type=f"{name}:architect")) is not None, "no teams: denied"
     monkeypatch.setenv("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "1")
-    assert mod.decision(_call(subagent_type=f"{name}:architect")) is not None, "teams on but not the experiment: denied"
     monkeypatch.setenv("MAD_HARNESS_TEAMS_DEBATE", "1")
-    # A TEAMMATE spawn carries a name (observed: {"subagent_type": "mad-harness:architect",
-    # "name": "arch-hello"}); a subagent call does not, and its result would land in the
-    # caller's context — refused whatever the environment says.
-    assert mod.decision(_call(subagent_type=f"{name}:architect")) is not None, "no name: a subagent, denied"
-    assert mod.decision(_call(subagent_type=f"{name}:architect", name="arch")) is None
-    assert mod.decision(_call(subagent_type="analyst", name="aud")) is None
-    for other in ("planner", "verifier", "fullstack-engineer", "analyst-survey", "campaign-orchestrator"):
-        v = mod.decision(_call(subagent_type=f"{name}:{other}", name="x"))
-        assert v is not None and "design-debate" in v["hookSpecificOutput"]["permissionDecisionReason"], other
-    monkeypatch.delenv("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS")
-    assert mod.decision(_call(subagent_type=f"{name}:analyst", name="aud")) is not None, "the experiment flag alone is not enough"
-
-
-def test_the_trace_is_written_only_when_asked_and_never_breaks_the_call(tmp_path, monkeypatch):
-    path = tmp_path / "events" / "harness.hook.jsonl"
-    payload = _call(subagent_type="Explore", prompt="x")
-    mod.trace(payload, environ={}, path=path)
-    assert not path.exists(), "silent unless asked"
-    mod.trace(payload, environ={"MAD_HARNESS_HOOK_TRACE": "1"}, path=path)
-    row = json.loads(path.read_text().splitlines()[0])
-    assert row["tool_name"] == "Agent" and row["tool_input"]["subagent_type"] == "Explore" and "tool_input" in row["keys"]
-    mod.trace(payload, environ={"MAD_HARNESS_HOOK_TRACE": "1"}, path=tmp_path)  # a directory: unwritable as a file
-    monkeypatch.setenv("MAD_HARNESS_HOOK_TRACE", "1")
-    monkeypatch.setattr(mod, "TRACE", tmp_path / "t" / "trace.jsonl")
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(_call(subagent_type="Explore"))))
-    assert mod.main() == 0
-    assert (tmp_path / "t" / "trace.jsonl").is_file()
+    for agent in ("architect", "analyst", "planner", "verifier"):
+        for payload in (_call(subagent_type=f"{name}:{agent}"), _call(subagent_type=f"{name}:{agent}", name="a-teammate")):
+            v = mod.decision(payload)
+            assert v is not None and v["hookSpecificOutput"]["permissionDecision"] == "deny", agent

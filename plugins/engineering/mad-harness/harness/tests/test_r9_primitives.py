@@ -536,25 +536,3 @@ def test_the_harness_own_stack_declares_none():
 
     st = yaml.safe_load((Path(HARNESS) / "stacks" / "python-uv-selftest.yaml").read_text())
     assert st["bootstrap"]["strategy"] == "none"
-
-
-# --- doctrine by file, for a teammate that loads none of it itself ----------------------------
-
-
-def test_the_doctrine_file_is_exactly_what_the_dispatcher_injects_and_refuses_a_stranger(tmp_path):
-    from models import doctrine_file as mod
-    from models.resolve import ConfigError, doctrine
-
-    out = mod.write("architect", out_dir=tmp_path)
-    assert out == tmp_path / "architect.md"
-    text = out.read_text()
-    assert text.endswith(doctrine("architect")), "nothing rephrased"
-    assert text.startswith("# Doctrine for `architect`") and "read all of it before anything else" in text
-    with pytest.raises(ConfigError, match="'nobody' is not one of this plugin's agents"):
-        mod.write("nobody", out_dir=tmp_path)
-
-
-def test_the_doctrine_wrapper_is_executable_and_runs_the_module():
-    sh = Path(HARNESS) / "swarm" / "doctrine.sh"
-    assert sh.exists() and os.access(sh, os.X_OK)
-    assert "python -m models.doctrine_file" in sh.read_text()

@@ -1438,62 +1438,50 @@ Two config notes: the per-agent override block is renamed, and four blocks are n
 
 ### 0.10.31
 
-**Agent teams, assessed; `/design-debate`, the one experiment.** No config change; two
-environment variables for the experiment only.
+**Agent teams: assessed, tried, measured, and not adopted.** No config change.
 
-- **The assessment.** Would agent teams change the harness? No — see
-  `docs/concepts/architecture.md`: teammates do not spawn unattended, inherit the lead's
-  effort, carry no documented ceiling, cost record, sandbox or permission mode at spawn,
-  and do not load their definition's skills. The boundary stays. Teams fit interactive
-  judgement stages where the value is discussion.
-- **`/design-debate <id>`** — `/design` with §2 replaced: an architect and an analyst
-  spawned as teammates from the plugin's definitions argue the design, up to three rounds,
-  until the analyst passes it; the lead records both and stages as `/design` does. Needs
-  `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` and `MAD_HARNESS_TEAMS_DEBATE=1`; without both it
-  says so and runs `/design`. The guard hook admits exactly `architect` and `analyst`
-  under exactly those two variables and refuses everything else as before.
-- **`doctrine.sh <agent>`** writes the agent's doctrine to a file — a teammate loads its
-  definition's tools and model, not its skills — and the spawn prompt says read it first.
-- **Observed, with `MAD_HARNESS_HOOK_TRACE=1`** (the guard appends every payload it sees
-  to `.harness/run/events/harness.hook.jsonl`), from a driven lead session in the wavelab:
-  a teammate spawn reaches the guard as the `Agent` tool with `subagent_type:
-  "mad-harness:architect"` and a **`name`** field a subagent call does not carry — that is
-  the marker the exemption now requires, so a plain subagent call for `architect` is still
-  refused whatever the environment says. The teammate ran `claude-opus-5`, not the
-  definition's `claude-opus-5[1m]`, at the lead's effort. Its closing text was **not**
-  delivered to the lead — the idle notification carried only `idleReason: available` — so
-  a teammate's result reaches the lead only by an explicit `SendMessage`; the command says
-  so.
-- **The measurement, run.** Interactive is not the same as manual: `wavelab/drive-interactive.py`
-  drives a real `claude` session in a pty and answers the TUI's dialogs, so both arms ran in
-  the lab against the same seeded epic, with the plugin loaded from the checkout
-  (`--plugin-dir`) and the installed copy disabled. One run per arm — direction, not size.
+- **The assessment.** Would Claude Code's agent teams change the harness? No — recorded in
+  `docs/concepts/architecture.md` with the checklist for revisiting. Teammates do not spawn
+  in `-p` or SDK sessions (the campaign, the wavelab and CI are all unattended); a teammate
+  inherits the lead's effort, so tiers with different effort cannot coexist; no per-teammate
+  ceiling, cost record, sandbox or permission mode at spawn is documented (prompts go to the
+  lead for a person to answer); a teammate loads its definition's tools and model but not
+  its skills. The one property teams have that the Agent tool lacked is that a teammate's
+  output reaches the lead only by message — the measured reason `guard-agent-tool.sh`
+  exists. That pointed at one possible use: an interactive design debate.
+- **So it was built and measured**, rather than argued about: `/design-debate`, an architect
+  and an analyst spawned as teammates who argue a design until the analyst passes it. Both
+  arms ran against the same seeded lab epic.
 
-  | | A: `/design` + one audit | B: `/design-debate` |
+  | | `/design` + one analyst audit | `/design-debate` |
   |---|---|---|
   | lead session | 30 requests, 8 min, ~$12.45 | 19 requests, 10 min, ~$12.01 |
-  | agents | architect 3 turns $0.46 · analyst 14 turns $0.93 — **recorded, capped, sandboxed** | architect ~$10.00 · analyst ~$11.03 — **no event, no ceiling, no sandbox** |
+  | agents | $1.39 — two **recorded, capped, sandboxed** dispatches | ~$21.02 — **no event, no ceiling, no sandbox** |
   | **total** | **~$13.84** | **~$33.03 (2.4×)** |
   | design | 2,102 words | 1,772 words, 2 rounds |
-  | audit | `VERDICT: PASS`, 0 blocking, 3 filed | round 1 **FAIL, 1 blocking** → fixed → round 2 PASS, 4 filed |
+  | audit | `VERDICT: PASS`, 0 blocking, 3 filed | round 1 FAIL (1 blocking) → fixed → round 2 PASS, 4 filed |
 
-  (Lead and teammate costs are estimated from their transcripts at list rates; the two
-  dispatch figures are the SDK's own accounting, from the events. Not the same method.)
+  (Lead and teammate figures are estimated from their transcripts at list rates; the two
+  dispatch figures are the SDK's own accounting. Not the same method.)
 
-  **What the debate bought**: the round-1 FAIL was a real defect — the design's fold-in
-  routing named a *kind* of destination rather than a path, in a repository declaring no
-  `paths.architecture`, so the epic's durable output would have been routed into the staged
-  folder that `archive-epic.sh` deletes. The architect fixed it and the analyst re-audited.
-  Arm A's single audit of its (different) design passed it with three filed findings: a
-  post-hoc audit files what a dialogue would have fixed.
-
-  **What it cost**: 2.4×, and the teammates are invisible to the harness — arm B wrote
-  **zero** `harness.dispatch` events, so `make models-cost` and every A/B series see none of
-  it. That is the accounting gap the assessment predicted, measured.
-
-  **Recommendation**: keep `/design-debate` for a design that is worth $20 to get right —
-  a schema, a contract others depend on, an epic whose blast radius is wide — and keep
-  `/design` as the default. Revisit when a teammate carries a ceiling and a cost record.
+  The debate's blocking finding was real but was a defect **its own architect introduced**
+  — the fold-in routing named a kind of destination rather than a path — and `/design`'s
+  architect had named a concrete path and never had it. Both arms ended with a design that
+  passed its audit. One run each: the difference between two drafts is variance, not a
+  property of the method. The cost difference is not: a teammate carried ~45k tokens per
+  request against a dispatched agent's ~18k (a full session — CLAUDE.md, the skills listing,
+  the backend's SessionStart hook — where the boundary gives a lean catalog and doctrine in
+  a cached system prefix) and took ~2.5× the requests. And arm B wrote **zero**
+  `harness.dispatch` events, so `make models-cost` and every A/B series were blind to $21 of
+  it — the accounting gap the assessment predicted, measured.
+- **Removed on that evidence.** `/design-debate`, the guard's exemption and `doctrine.sh`
+  are gone; `guard-agent-tool.sh` refuses every one of this plugin's agents again, without
+  exception, and a test pins that no environment changes it. `/design` is unchanged and
+  remains the way to design.
+- **Kept: `wavelab/drive-interactive.py`**, which is not teammate-specific — it drives a
+  real `claude` session in a pty and answers the TUI's dialogs, and is the only way to
+  exercise an interactive command (`/design`, `/requirements`, `/decision`) in the lab at
+  all. It is what made the two arms above comparable.
 
 - **mechanical** — re-stamp `harness.version`, when convenient:
   `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`. Nothing to set.

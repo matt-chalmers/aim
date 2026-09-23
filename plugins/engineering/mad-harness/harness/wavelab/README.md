@@ -94,7 +94,7 @@ Read the session transcript under `~/.claude/projects/<slug>/` — and its `suba
 directory, which is where a teammate's cost lives, since the harness records none for them
 — plus `checks/session-cost.sh` on the lead. Never read the screen log: it is a terminal's
 redraw. Answering a dialog is a decision a person would have made, so this belongs in the
-lab and nowhere near a real repository. It measured the 0.10.31 `/design-debate` arms.
+lab and nowhere near a real repository. It measured the 0.10.31 agent-teams arms (`docs/upgrading.md`).
 
 ## A/B-ing a cost lever
 

@@ -61,10 +61,12 @@ cost ceiling, cost record, sandbox or permission mode at spawn is documented (pr
 the lead for a person to answer); and a teammate loads its definition's tools and model but
 not its skills — its doctrine. The one property teams have that the Agent tool lacked, the
 reason `guard-agent-tool.sh` exists, is that a teammate's output reaches the lead only by
-message. That fits interactive judgement stages where a person is present and the value is
-discussion — `/design-debate` is that experiment, with doctrine handed over by file — and
-nothing else. Re-evaluate when the docs say: teammates in `-p`/SDK; per-teammate effort;
-per-teammate budget and cost record; permission mode or sandbox at spawn; `skills` loaded.
+message. That suggested one possible use — an interactive design debate — so one was built and
+measured against `/design` on the same lab epic: ~$33 against ~$14, no measurable difference
+in the design that resulted, and zero cost records for $21 of it. It was removed; the
+numbers are in [upgrading](../upgrading.md) § 0.10.31. Re-evaluate when the docs say:
+teammates in `-p`/SDK; per-teammate effort; per-teammate budget and cost record; permission
+mode or sandbox at spawn; `skills` loaded.
 
 ## Subsystems
 
