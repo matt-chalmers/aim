@@ -1524,3 +1524,62 @@ config note: `price` in a tier, required off Anthropic.
   the config check fails with the reason) or you are on a plan rather than an API key
   (`providers: {anthropic: {billing: subscription}}`, so the two pockets are reported
   apart).
+
+### 0.10.33
+
+**A worker tier off Anthropic, measured.** No config change.
+
+- **The series.** `worker_provider`, 2 runs per arm on the seeded lab epic (wave 1, two
+  tasks, fan-out 2), both arms judged by the four lenses. The `off` arm is the plugin's
+  worker tier, `anthropic/claude-sonnet-5`. The `on` arm redefines that one tier in the
+  lab project's `harness.yaml` as `deepseek/deepseek-v4-pro`, effort high, ceiling $3,
+  priced from its published rates. **Every other agent is unchanged**: the planner and the
+  four lenses stay on Anthropic in both arms, so this measures a worker swap, not a system
+  swap.
+
+  | per run, median (IQR) | Sonnet workers | DeepSeek workers |
+  |---|---|---|
+  | workers | **$1.56** ($1.29–$1.83) subscription | **$0.15** ($0.12–$0.18) metered |
+  | subscription pocket | $6.59 ($6.26–$6.92) | $5.12 ($5.09–$5.15) — **−22%, spreads separate** |
+  | metered pocket | — | $0.15 — new spend, not a delta |
+  | agent minutes | 25.5 (24.6–26.3) | 29.2 (26.7–31.6) — **+14%, spreads separate** |
+  | turns / dispatch | 14 (12–18) | 16 (12–21) — spreads overlap, not a finding |
+  | wave gate | GREEN 2/2 runs | GREEN 2/2 runs |
+  | first-pass L1 · L3 · L4 | 4/4 · 4/4 · 4/4 | 4/4 · 4/4 · 4/4 |
+  | first-pass L2 (test quality) | 1/4 | 0/4 |
+
+  **The workers are ~10× cheaper and the wave still lands.** What that buys at the wave
+  level is smaller than it looks: the workers were 24% of the run, so moving them saves 22%
+  of the subscription pocket and adds $0.15 of invoiced spend. The rest is the lenses, which
+  are Opus in both arms — on this shape of work, **judging costs more than doing**.
+
+- **Quality: the same verdict, and the same complaint.** L1, L3 and L4 passed everything in
+  both arms. L2 failed 7 of 8 tasks across the series — 3 of 4 with Sonnet, 4 of 4 with
+  DeepSeek — and every one of those failures names the same two things: a character class
+  the tests do not pin (`value.strip()` narrowed to `value.strip(" ")` survives every test),
+  and no mutation evidence. At n = 2 per arm the L2 difference (1/4 vs 0/4) is one task and
+  is not a finding; what the series does show is that the gate catches the same defect in
+  both arms, which is the property that makes a cheaper worker safe to consider at all.
+- **An artefact, named.** The series ran on a tree frozen before `mutate.sh` learned to load
+  the worktree's environment itself, so mutation testing was unreachable from a worker's
+  sandbox in **both** arms — part of every "no mutation evidence" finding is the rig, not
+  the worker. Every L2 FAIL also carried at least one blocking finding that was not about
+  mutation, so no failure turns on the artefact alone.
+- **The ceiling still does not bite correctly off Anthropic** (0.10.32): `--max-budget-usd`
+  is the CLI's own estimate. The DeepSeek workers ran at $0.03–$0.13 against a $3 ceiling,
+  so it never came near — but a longer task would be killed early, and `task_budget_tokens`
+  is what bounds it.
+
+- **Three defects the run surfaced, each fixed with a test.** `VERDICT: PASS` inside an
+  inline code span read as no verdict — the fifth spelling of the bug 6175a37 fixed, found
+  by re-reading all 25 lens answers the series kept rather than one more time by hand.
+  `tk.sh render <epic> --check` crashed: the flag read `--write`'s destination, which is
+  `None` when nobody asked to write, so the drift gate the generated banner names could
+  never be run — the path now travels with the flag. And `ab-report.sh` printed a
+  `cost / run` headline that **summed the two pockets** and computed its delta from it, the
+  one thing 0.10.32 said a report must never do; cost per run is now per pocket, and a
+  pocket only one arm spends from is reported as new spend rather than a percentage.
+
+- **mechanical** — nothing, unless you route a worker tier off Anthropic; then 0.10.32's
+  `price` block applies. Re-stamp `harness.version` when convenient:
+  `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`.
