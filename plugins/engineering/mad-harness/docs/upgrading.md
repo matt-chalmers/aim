@@ -1601,7 +1601,7 @@ config note: `price` in a tier, required off Anthropic.
   budget kill keeps working. `ceiling_source` on every event says who checked it:
   `harness`, `cli` (Anthropic, where the SDK's figure is right), or `none`.
 - **`none` is the case that must never pass silently.** A priced tier's CLI ceiling is
-  deliberately loosened (`resolve.CLI_BACKSTOP_FACTOR`, 10x) so it cannot pre-empt the
+  deliberately loosened (`resolve.CLI_BACKSTOP_FACTOR`, 25x) so it cannot pre-empt the
   meter — so if the provider streams no usage, nothing is enforcing anything. That is
   recorded, and `dispatch.sh` says so on stderr. Bound such a tier with
   `task_budget_tokens`.
@@ -1627,6 +1627,17 @@ config note: `price` in a tier, required off Anthropic.
   `terminal=budget` for a dispatch that had just spent $0.009, and the kill message printed
   "$0.01 spent against a $0.01 ceiling" at two decimals. Both now print the number the
   ceiling was actually checked against.
+
+- **The backstop multiple is not its margin.** It is denominated in the CLI's own inflated
+  currency, so it has to clear the over-pricing ratio before it buys any headroom.
+  Measured twice against DeepSeek off-peak: the CLI reported $0.1600 against $0.015494 of
+  real cost (10.3x) and $0.1105 against $0.011348 (9.7x) — the 4-8x in the 0.10.32 note was
+  at peak rates, where the real price doubles. At 10x a $3.00 ceiling would have put the
+  CLI's kill at ~$3.00 of real spend, the same number the meter aims at, and the meter
+  fires ~12% late — so the CLI would have won and the ceiling would quietly have been its
+  estimate again. 25x puts it at ~2.5x the real ceiling. It is deliberately not sized to
+  the `none` case: a backstop in an unknown currency cannot be sized to anything, which is
+  why that case is reported rather than papered over.
 
 - **mechanical** — nothing. Re-stamp `harness.version` when convenient:
   `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`.

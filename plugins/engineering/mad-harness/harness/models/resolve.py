@@ -197,14 +197,27 @@ AGENTS_DIR = _prompts_dir("agents")
 #: The tier that high-risk work is forced to, regardless of the agent's default.
 POLICY_FORCED_TIER = "strategic"
 #: HOW MUCH LOOSER THE CLI'S OWN CEILING IS SET on a tier the harness prices itself.
-#: `--max-budget-usd` is checked by the CLI against its own table, which over-priced
-#: DeepSeek 4-8x (measured 2026-09-23) — so passing the real ceiling there would kill the
-#: dispatch at a fraction of it, BEFORE `pricing.Meter` had reached the number the operator
-#: set. The CLI's ceiling is kept as a backstop for the case the meter cannot act on (a
-#: provider that streams no usage), raised far enough that it can only fire afterwards.
-#: Not a conversion factor: nothing here claims to know the CLI's rates, only that this is
-#: past them.
-CLI_BACKSTOP_FACTOR = 10.0
+#: `--max-budget-usd` is checked by the CLI against its own table, so passing the real
+#: ceiling to a provider it over-prices would kill the dispatch at a fraction of it,
+#: BEFORE `pricing.Meter` reached the number the operator set. The CLI's ceiling stays as a
+#: backstop for the case the meter cannot act on — a provider that streams no usage —
+#: raised far enough that it can only fire afterwards.
+#:
+#: THE MULTIPLE IS NOT THE MARGIN, because the backstop is denominated in the CLI's own
+#: inflated currency. Measured twice against DeepSeek (2026-09-23): the CLI's figure was
+#: 10.3x the real cost ($0.1600 vs $0.015494) and 9.7x ($0.1105 vs $0.011348) — off-peak,
+#: where the real rate halves; the 4-8x in the 0.10.32 note was at peak. So this started at
+#: 10.0, which put the CLI's kill at ~$3 of real spend for a $3 ceiling — the same number
+#: the meter was aiming at, and since the meter under-counts by the output share (~12%) the
+#: CLI would have won the race and the bug would have come back quietly.
+#:
+#: 25x puts the backstop at ~2.5x the real ceiling against a 10x-over-pricing provider:
+#: comfortably after the meter, and still a bound. It is deliberately NOT sized to the
+#: `none` case — a provider that streams no usage is reported as unenforced and bounded by
+#: `task_budget_tokens`, because a backstop in an unknown currency cannot be sized to
+#: anything. Not a conversion factor: nothing here claims to know the CLI's rates, only
+#: that this is past them.
+CLI_BACKSTOP_FACTOR = 25.0
 #: Model words that resolve differently per dispatch path; a tier must name a concrete id.
 MODEL_ALIASES = frozenset({"opus", "sonnet", "haiku", "fable", "inherit", "default"})
 #: The reason recorded when a project's `agent_tiers:` block moved the agent. Telemetry

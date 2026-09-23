@@ -141,7 +141,8 @@ own figure is the vendor's accounting. On a tier that declares a `price`, `harne
 CLI would be applying its own table to a model it does not know (measured: a $3.00 ceiling
 biting at ~$0.40 of real DeepSeek spend), so the dispatcher adds up each streamed message's
 usage at the tier's rates and stops the dispatch itself, and the CLI's ceiling is loosened
-10× underneath so it cannot fire first. Two measured properties of that stream shape it:
+25× underneath so it cannot fire first — a multiple, not a margin, because it is denominated
+in the CLI's own inflated figure (measured 9.7–10.3× the real cost off-peak). Two measured properties of that stream shape it:
 one API response arrives as several messages carrying the same usage, so they are
 deduplicated on `message_id`; and a streamed usage reports no output tokens, so the meter
 prices prompt tokens only and the ceiling is reached slightly late, never early (11.9% of

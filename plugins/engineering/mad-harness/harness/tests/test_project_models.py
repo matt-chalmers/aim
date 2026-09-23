@@ -488,7 +488,21 @@ def test_an_anthropic_tier_keeps_the_clis_ceiling_and_a_priced_one_loosens_it():
     r = resolve("analyst-survey")
     object.__setattr__(r, "price", {"input_per_mtok": 1.0, "output_per_mtok": 1.0})
     assert r.sdk_options(cwd=".").max_budget_usd == 3.0 * CLI_BACKSTOP_FACTOR
-    assert CLI_BACKSTOP_FACTOR >= 8, "the CLI over-priced DeepSeek 4-8x; the backstop must clear that"
+
+    # THE MULTIPLE IS NOT THE MARGIN. The backstop is denominated in the CLI's own inflated
+    # currency, so it must clear the OVER-PRICING RATIO before it buys any headroom at all.
+    # Measured twice against DeepSeek off-peak (2026-09-23): $0.1600 reported against
+    # $0.015494 real (10.3x) and $0.1105 against $0.011348 (9.7x). At the 10.0 this shipped
+    # with, a $3 ceiling put the CLI's kill at ~$3 of real spend — the same number the meter
+    # aims at, and the meter fires ~12% late because a streamed usage carries no output
+    # count, so the CLI would have won and the ceiling would silently be its estimate again.
+    observed_over_pricing = 0.1600 / 0.015494
+    assert observed_over_pricing > 10, "the ratio this must clear, from the measurement"
+    real_terms_margin = CLI_BACKSTOP_FACTOR / observed_over_pricing
+    assert real_terms_margin >= 2, (
+        f"the backstop fires at {real_terms_margin:.1f}x the real ceiling; below ~2x it "
+        f"races the meter instead of backing it up"
+    )
 
 
 def test_a_priced_tier_whose_provider_reports_no_usage_records_an_unenforced_ceiling(monkeypatch, capsys, tmp_path):
