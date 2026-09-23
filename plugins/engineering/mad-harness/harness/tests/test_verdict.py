@@ -55,3 +55,20 @@ def test_escalate_reads_through_this_parser():
     from models import escalate
 
     assert escalate.return_status is mod.return_status
+
+
+def test_a_heading_or_a_blockquote_is_formatting_not_a_different_verdict():
+    """Measured (a lab wave, 2026-09-23): three lenses in one run opened `## VERDICT: PASS`
+    — a heading — and each was read as NONE, which the gate treats as never-a-pass: ~$0.60
+    of judgement discarded apiece and the task blocked by lenses that had passed it."""
+    for text in ("## VERDICT: PASS", "# VERDICT: PASS", "### **VERDICT:** PASS",
+                 "> VERDICT: PASS", "> ## VERDICT — PASS", "**VERDICT:** PASS", "VERDICT: PASS"):
+        v = mod.parse(text)
+        assert v.status == mod.PASS, text
+    assert mod.parse("## VERDICT: FAIL — the tests are decorative").status == mod.FAIL
+    assert mod.parse("## VERDICT: PASS").status == mod.PASS
+    # Still not a verdict: the word inside prose, or a status the contract does not define.
+    assert mod.parse("The ## VERDICT: PASS was mentioned mid-sentence").status == mod.NONE, \
+        "prose that quotes the word is not a verdict — the line must begin with it"
+    assert mod.parse("## VERDICT: MAYBE").status == mod.NONE
+    assert mod.parse("I would pass this").status == mod.NONE

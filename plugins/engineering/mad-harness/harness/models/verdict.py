@@ -25,10 +25,18 @@ PASS = "PASS"
 FAIL = "FAIL"
 NONE = "NONE"
 
-#: `VERDICT: PASS` / `**VERDICT:** FAIL` / `verdict — PASS (no security surface)`. The first
-#: such line wins; the qualifier is whatever follows on the line.
+#: `VERDICT: PASS` / `**VERDICT:** FAIL` / `## VERDICT: PASS` / `> verdict — PASS (…)`.
+#: The first such line wins; the qualifier is whatever follows on the line.
+#:
+#: MARKDOWN AROUND THE WORD IS NOT A DIFFERENT VERDICT — and the gate treats an unparsed
+#: one as NONE, which is never a PASS, so the cost is paid and the answer thrown away.
+#: Measured (a lab wave, 2026-09-23): three lenses in one run opened with `## VERDICT: PASS`
+#: — a heading, which this matched emphasis for but not `#` — and each was recorded as "no
+#: `VERDICT:` line", ~$0.60 of judgement discarded apiece and the task blocked on lenses
+#: that had in fact passed it. A heading, a blockquote and emphasis are formatting; the
+#: verdict is the word after them.
 VERDICT = re.compile(
-    r"^[ \t]*\**[ \t]*VERDICT\**[ \t]*[:—-]?[ \t]*\**[ \t]*(?P<status>PASS|FAIL)\b\**(?P<qual>[^\n]*)",
+    r"^[ \t]*(?:[#>]+[ \t]*)*\**[ \t]*VERDICT\**[ \t]*[:—-]?[ \t]*\**[ \t]*(?P<status>PASS|FAIL)\b\**(?P<qual>[^\n]*)",
     re.IGNORECASE | re.MULTILINE,
 )
 #: Findings are tagged `blocking` or `filed` (`verification-gate`); counted, not judged.
