@@ -1,0 +1,39 @@
+direction: right
+
+selection: {
+  label: "SELECTION — which tier?"
+  style: { fill: "#eef2ff"; stroke: "#4f46e5" }
+  s1: "1. explicit override\n--tier, escalate.py"
+  s2: "2. policy\n--high-risk forces up"
+  s3: "3. project override\nharness.yaml agent_tiers:"
+  s4: "4. agent default\nfrontmatter model_tier:"
+  s5: "5. global default\ndefault_tier:"
+  s1 -> s2 -> s3 -> s4 -> s5: "no match"
+}
+
+definition: {
+  label: "DEFINITION — what IS that tier?"
+  style: { fill: "#f0fdf4"; stroke: "#16a34a" }
+  plugin: "tiers.yaml (the plugin)\nprovider · model · effort · ceiling"
+  project: "harness.yaml tiers:\npatched per key"
+  merged: "the tier, merged\ntier_source: plugin | project"
+  plugin -> merged
+  project -> merged: "patches"
+}
+
+name: { label: "a tier NAME"; shape: oval }
+resolved: {
+  label: "Resolved"
+  style: { fill: "#eef2ff"; stroke: "#4f46e5" }
+  note: "reason: WHICH source won\nprice · billing · ceiling"
+}
+
+selection -> name: "first match wins"
+name -> definition
+definition -> resolved
+
+note: |md
+  An agent names a **tier**, never a model.
+  The two axes are kept apart so a project can
+  change a model without editing an agent.
+| { near: bottom-center }

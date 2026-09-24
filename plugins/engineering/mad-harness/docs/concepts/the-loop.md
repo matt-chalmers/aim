@@ -15,6 +15,10 @@ whether it advances.
 | verify | (in wave) | 4 lenses | every **blocking** finding remediated and re-verified; non-blocking findings filed |
 | fold-in | `/landit` or campaign | `spec-editor` | staging folder archived, durable docs carry its content — `close-epic.sh` refuses the close until it is |
 
+The planning stages do not all run at their agent's full tier: the harness reads a
+complexity card first and may run the design and the audit lower, with the agent told it may
+escalate — see [agents and tiers](agents-and-tiers.md#a-stage-can-run-below-its-agents-tier).
+
 `/campaign` iterates this over the epic queue, one epic per session — the boundary is
 where the orchestrator's context is cleared, for the reason in [cost](cost.md);
 `/campaign-auto` runs it unattended. `/grind` is the serial alternative to a wave.

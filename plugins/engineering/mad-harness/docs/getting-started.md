@@ -154,3 +154,4 @@ harness/wavelab/compare.sh
 | [The loop](concepts/the-loop.md) | what those commands are doing |
 | [Workers](reference/workers.md) | isolation and the shared-state exceptions |
 | [Customising](guides/customising.md) | when the setup guessed your layout wrong |
+| [Cost](concepts/cost.md) | what every dispatch records, and where a campaign's money goes |

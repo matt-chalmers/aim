@@ -58,12 +58,31 @@ repository with nothing reporting it.
 | `mdfiles` | none | markdown, one file per open record | you want task state to diff and review like code |
 | `beads` | [`bd`](https://github.com/steveyegge/tasks) on PATH | a database with a JSONL export | you already use it, or want its query surface |
 
-Both satisfy the same 54-test conformance contract. Declared in one block:
+Both satisfy the same conformance contract, run against each backend's real binary.
+Declared in one block:
 
 ```yaml
 tracker:
   backend: mdfiles
 ```
+
+## Credentials
+
+Anthropic access comes from Claude Code's own auth — a subscription or an API key — and the
+harness adds nothing. It only needs a file of its own if you route a tier at another
+provider:
+
+```bash
+cp harness/.env.example harness/.env && chmod 600 harness/.env
+```
+
+That file is gitignored and the tracked template is `harness/.env.example`. A credential is
+referenced from `harness.yaml` as `${VAR}` and never written into it, into a task, or into
+telemetry — `harness.yaml` is committed. See [providers](concepts/providers.md).
+
+**Say which pocket pays.** If you are on a plan rather than an API key, declare it:
+`providers: {anthropic: {billing: subscription}}`. Nothing can detect this, and it changes
+how every cost report totals.
 
 ## Optional
 

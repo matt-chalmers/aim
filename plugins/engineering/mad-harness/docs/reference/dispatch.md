@@ -77,6 +77,8 @@ change rather than a bigger tier. [Providers](../concepts/providers.md) has the 
 
 ## Tier resolution
 
+<img src="../assets/tier-resolution.svg" alt="Selection picks a tier name by first match; definition merges the plugin's tiers.yaml with the project's patch">
+
 Two questions, kept apart in code and in config:
 
 | | question | answered by |

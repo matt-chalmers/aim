@@ -68,7 +68,41 @@ once and the lens was handed that directory through `add_dirs`; the moment the b
 writer and the lens's dispatcher ran in different environments (a sandbox sets its own
 `TMPDIR`), every lens in a headless epic was denied `Read` on its own brief.
 
-## Verdicts
+## Running the gate
+
+One call does the whole of it, so the orchestrator never assembles four dispatches by hand
+and never reads four verdicts by eye:
+
+```bash
+harness/swarm/lens-gate.sh <task> <sha> [--branch <b>] [--json]
+# exit 0 PASS · 1 FAIL, with the route printed · 2 could not judge
+```
+
+It builds the brief, decides whether L4 fires, runs the suite once where the change actually
+is, dispatches the lenses concurrently, parses the verdicts, applies unanimity, and writes
+the `VERIFIED <sha>` note on the task — **only** when every lens passed.
+
+## Three states, and the one that is not a pass
+
+A lens returns `PASS`, `FAIL`, or **`NONE` — could not judge**. That third state is the one
+that matters, and it is never treated as a pass.
+
+A lens that hung, was denied a tool it needed, was cut off by its ceiling, or answered
+without a labelled verdict has produced no judgement. Reading that as approval is how a gate
+quietly stops being one — and it is not hypothetical: a lens that could not read the brief
+written for it once returned `VERDICT: PASS` anyway, which is why a verdict is parsed rather
+than inferred and why the word `PASS` in prose does not count.
+
+**Unanimity.** Any FAIL from any lens blocks the task. A boolean, not a judgement.
+
+**One parser, and it has been wrong.** Because a missing verdict is a blocked task, how the
+verdict line is *spelled* is a real operational risk. Models write `VERDICT: PASS`,
+`**VERDICT:** PASS`, `## VERDICT: PASS` and `` `VERDICT: PASS` `` — and each formatting it
+did not know cost a discarded judgement and a task blocked by lenses that had passed it,
+found twice by re-reading the answers a lab run kept on disk. Markdown around the word is
+formatting; the verdict is the word after it.
+
+## What a FAIL means
 
 A FAIL is not a veto on shipping. It is a finding that must be **filed before the push** —
 the gate's value is that a finding cannot be silently dropped, not that it halts the world.

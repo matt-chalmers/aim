@@ -165,8 +165,11 @@ key to `Project.dispatch()` with validation.
 [cost](../concepts/cost.md).
 **4.** Tests: the switch reaches the SDK option / env / prompt when on and is absent when
 off; the yaml key is validated; `snapshot()` records it.
-**5.** Run the series (`ab.sh <lever> --runs 5`), read `ab-report.sh`. The default moves only
-if the spreads separate, in its own patch release, with the numbers in `upgrading.md`.
+**5.** Run the series (`ab.sh <lever> --runs 5 --lenses`), read `ab-report.sh`. The default
+moves only if the spreads separate, in its own patch release, with the numbers in
+`upgrading.md`. Judge with `--lenses` unless the lever cannot affect quality: a lever that
+gets cheap by doing less of the doctrine reads as a clean win on cost alone. What makes a
+result admissible, and the three ways one is not: [measurement](measurement.md).
 
 ---
 
@@ -180,13 +183,20 @@ A provider is reached through Claude Code's Anthropic-compatible path (`ANTHROPI
 ANTHROPIC_AUTH_TOKEN: "${<NAME>_API_KEY}"}}}`. A credential is a `${VAR}` reference — the file
 is committed — and no `*MODEL*` key: the tier owns the model.
 **2.** The tier that reaches it: `tiers: {<tier>: {provider: <name>, model: <concrete id>}}` —
-`model` and `provider` together, always; a new tier goes on `ladder:` too.
+`model` and `provider` together, always; a new tier goes on `ladder:` too. **Off Anthropic
+the tier must also declare `price:`**, or the config check refuses it by name: the CLI would
+price a model it does not recognise from its own table, and the resulting number is
+plausible rather than absent. Declare `billing:` on the provider too, if the pocket differs.
 **3.** The `.env` entry in `harness/.env` (`harness/.env.example` has the shape).
 **4.** `models/probe-compat.sh <name>` before anything real is routed there — it runs the
 CLI's tool loop against the endpoint and says what broke. It runs `claude -p` unsandboxed,
 so it cannot tell you a sandboxed worker reaches the endpoint; the lab can.
 **5.** `check-project-config.sh` prints the redefinition beside what the plugin ships;
 `dispatch.sh <agent> --dry-run` shows the provider the tier now resolves to.
+**6.** Read one real dispatch back before trusting a series from it: `cost_source` should say
+`priced (…)` with your rates, and `ceiling_source` should say `harness`. `none` there means
+nothing is enforcing the ceiling — the mechanism, and what to do about it, is in
+[providers](../concepts/providers.md).
 
 ---
 

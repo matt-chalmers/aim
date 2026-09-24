@@ -1645,3 +1645,38 @@ config note: `price` in a tier, required off Anthropic.
 
 - **mechanical** — nothing. Re-stamp `harness.version` when convenient:
   `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`.
+
+### 0.10.35
+
+**Documentation pass over the provider, pricing and ceiling work; `docs/` is prose-checked.**
+No config change.
+
+- **Two new pages.** [`concepts/providers.md`](concepts/providers.md) is the whole
+  multi-provider path in one place — a quick start, the three assumptions an
+  Anthropic-compatible endpoint does *not* carry, the probe and why one of its six checks is
+  advisory rather than a gate, the `price` block and its peak windows, billing pockets, and
+  who enforces the ceiling, with the two measured properties of a live stream that shape it.
+  [`guides/measurement.md`](guides/measurement.md) is the *discipline* — what makes an A/B
+  result admissible, how to read a spread verdict, and the three ways a number that looks
+  like a finding is not one — where `harness/wavelab/README.md` remains the *rig*.
+- **Corrections found while writing it**, each a fact a reader would have acted on:
+  `concepts/agents-and-tiers.md` still said "Claude Code enforces it, not the harness" two
+  releases after that stopped being true; `reference/dispatch.md`'s `Resolved` was missing
+  `price`, `billing` and `tier_source`; and three counted phrases beside generated tables had
+  drifted ("twelve agents" — thirteen; "54 tests" — 72). A count next to a generated table is
+  a second source of truth for what the table already states, so those are dropped rather
+  than reset.
+- **The tier demotion had no documentation at all.** `plan_tiers` has been on since 0.10.29
+  and moves the design and audit stages below their agent's declared tier; it now has a
+  section naming the two properties that make it safe — the agent is told and may escalate,
+  and the planner never moves.
+- **`check-prose.sh` now reads `docs/`.** It scanned the prompt directories, `harness/` and
+  the top-level README — but not the largest body of prose in the repository and the one
+  people read end to end. It was clean on the first scan (0 findings over 30 files), so
+  nothing was owed; the scan went 49 files → 79, and the companion test plants a defect in a
+  docs page to prove the new scope can fail.
+- **Two diagrams**: `ceiling-enforcement` (which enforcer checks `max_budget_usd`, and the
+  unenforceable case) and `tier-resolution` (selection and definition as two axes).
+
+- **mechanical** — nothing. Re-stamp `harness.version` when convenient:
+  `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`.
