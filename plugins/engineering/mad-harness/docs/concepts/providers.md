@@ -28,22 +28,28 @@ DEEPSEEK_API_KEY=sk-…
 plugin's, so upgrades still reach you.
 
 ```yaml
+# The ROLE: which model, how hard it thinks, what it may spend.
 tiers:
   worker:
     provider: deepseek
     model: deepseek-v4-pro        # a concrete id, never an alias
     effort: high
     max_budget_usd: 3.00
-    price:                        # REQUIRED off Anthropic — see "Pricing" below
-      input_per_mtok: 1.32
-      output_per_mtok: 3.96
-      cache_read_per_mtok: 0.044
-      off_peak_multiplier: 0.5
-      peak_utc: ["01:00-04:00", "06:00-10:00"]
 
+# What that model COSTS, and which pocket pays.
 providers:
   anthropic:
     billing: subscription         # if you are on a plan rather than an API key
+  deepseek:
+    billing: metered
+    models:
+      deepseek-v4-pro:
+        price:                    # REQUIRED off Anthropic — see "Pricing" below
+          input_per_mtok: 1.32
+          output_per_mtok: 3.96
+          cache_read_per_mtok: 0.044
+          off_peak_multiplier: 0.5
+          peak_utc: ["01:00-04:00", "06:00-10:00"]
 ```
 
 **3. Prove the provider can actually do the work.**
@@ -122,20 +128,35 @@ not recognise, and the result is not an error — it is a number.
 > $0.66 off-peak / $1.32 peak. Measured again end to end: $0.1600 reported against $0.015494
 > of real cost, and $0.1105 against $0.011348 — **9.7–10.3×**.
 
-So a tier on a non-Anthropic provider **must** declare a `price` block, and
-`check-project-config.sh` refuses it by name when it does not. The cost is then computed
-from the token counts the probe certified.
+So any model a tier reaches off Anthropic **must** declare a `price`, and
+`check-project-config.sh` refuses a tier that resolves to one without — naming both the tier
+and the model. The cost is then computed from the token counts the probe certified.
 
 ```yaml
-price:
-  input_per_mtok: 1.32          # required
-  output_per_mtok: 3.96         # required
-  cache_read_per_mtok: 0.044    # optional — defaults to the input rate
-  cache_write_per_mtok: 1.32    # optional — defaults to the input rate, never free
-  off_peak_multiplier: 0.5      # optional
-  peak_utc: ["01:00-04:00", "06:00-10:00"]   # optional; outside these, off-peak
-  peak_weekdays_only: true      # optional, default true
+providers:
+  deepseek:
+    models:
+      deepseek-v4-pro:
+        price:
+          input_per_mtok: 1.32          # required
+          output_per_mtok: 3.96         # required
+          cache_read_per_mtok: 0.044    # optional — defaults to the input rate
+          cache_write_per_mtok: 1.32    # optional — defaults to the input rate, never free
+          off_peak_multiplier: 0.5      # optional
+          peak_utc: ["01:00-04:00", "06:00-10:00"]   # optional; outside these, off-peak
+          peak_weekdays_only: true      # optional, default true
 ```
+
+**A rate belongs to a model, not to a role.** It sat on the tier in 0.10.32–0.10.36, which
+made it a second source of truth the moment two tiers shared a model — and the plugin's own
+`strong` and `strategic` *are* one model, so routing the escalation ladder at one provider
+meant writing one rate twice with nothing comparing them. Two tiers could declare different
+rates for the same model and both validate, leaving every cost record and every ceiling from
+one of them wrong with no symptom.
+
+That is not in tension with the rule that a provider must never name a model: that rule is
+about *choosing* the model, which the tier owns. A `models:` map is keyed **by** model id and
+chooses nothing — it states what the provider charges for models it serves.
 
 **Peak windows are data, not a constant.** A provider that charges half rate outside stated
 hours makes "assume peak" and "assume off-peak" both a 2× error, so the windows are declared

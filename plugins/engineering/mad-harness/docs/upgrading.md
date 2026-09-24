@@ -1721,3 +1721,50 @@ built out of nothing.** No config change.
 - **mechanical** — nothing, unless you have built a ladder rung out of effort alone off
   Anthropic; the check will say so. Re-stamp `harness.version` when convenient:
   `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`.
+
+### 0.11.0
+
+**A model's price moved from the tier to its provider.** One config change, and it is a
+**minor** release: a `price:` on a tier is now refused by name, so the pre-flights stop
+until the config is moved.
+
+- **What was wrong.** `price` sat on the tier from 0.10.32. A tier is a *role* — which
+  model, how hard it thinks, what it may spend — and a rate is a fact about a *model*. The
+  moment two tiers share a model the tier is the wrong home, and the plugin's own `strong`
+  and `strategic` **are** one model (`claude-opus-5[1m]`, differing only in effort). So
+  routing the escalation ladder at a third-party provider meant writing one rate twice, in
+  two tiers, with nothing comparing them: two tiers could declare *different* rates for one
+  model and both validate, leaving every cost record and every ceiling from one of them
+  wrong with no symptom. It is the second-source-of-truth defect this corpus treats as its
+  most expensive, shipped inside the feature that exists to keep fiction out of cost data.
+- **Where it lives now**, patched per model id and, within one, per key — so correcting one
+  rate never drops the others beside it:
+
+  ```yaml
+  providers:
+    deepseek:
+      billing: metered
+      env: { ANTHROPIC_BASE_URL: "${DEEPSEEK_BASE_URL}", ANTHROPIC_AUTH_TOKEN: "${DEEPSEEK_API_KEY}" }
+      models:
+        deepseek-v4-pro:
+          price: { input_per_mtok: 1.32, output_per_mtok: 3.96, cache_read_per_mtok: 0.044 }
+  ```
+
+  This does not contradict the standing rule that a provider must never name a model. That
+  rule is about *choosing* the model, which the tier owns; `models:` is keyed **by** model
+  id and chooses nothing — it states what the provider charges for what it serves.
+- **The old spelling is a hard error on both paths** — the project schema and the plugin
+  validator — each naming the exact block to write instead. Three days old with only the
+  lab using it, so there was nobody to carry; and a config that kept loading while its rate
+  was quietly ignored is the one outcome worse than a stop.
+- **The refusal now names both halves**: "tier `worker` resolves to deepseek/deepseek-v4-pro,
+  which declares no `price`", rather than naming only the tier.
+- **The template's own example was invalid** and nobody could have noticed, because a
+  commented block is never loaded: it routed `worker` at `openrouter` with no rates at all,
+  which the validator refuses. It is now a complete, working model-config example — tiers,
+  `billing`, and a full annotated `price` — delimited by sentinels and **lifted and
+  validated by the suite**, so it cannot drift from what the code accepts.
+
+- **mechanical** — if any tier in your `harness.yaml` carries `price:`, move it to
+  `providers.<provider>.models.<model>.price`; the error message prints the block. Then
+  re-stamp: `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`.

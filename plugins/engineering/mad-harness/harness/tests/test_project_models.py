@@ -43,6 +43,7 @@ def agents(tmp_path):
     (tmp_path / "lens.md").write_text("---\nname: lens\nmodel_tier: strong\n---\nbody\n")
     (tmp_path / "untiered.md").write_text("---\nname: untiered\n---\nbody\n")
     (tmp_path / "grunt.md").write_text("---\nname: grunt\nmodel_tier: worker\n---\nbody\n")
+    (tmp_path / "designer.md").write_text("---\nname: designer\nmodel_tier: strategic\n---\nbody\n")
     return tmp_path
 
 
@@ -54,8 +55,9 @@ def merged(raw):
 
 
 def test_a_project_redefining_a_tiers_provider_and_model_changes_what_resolve_returns(agents):
-    cfg = merged({"providers": {"openrouter": {"env": {"ANTHROPIC_BASE_URL": "https://openrouter.ai/api", "ANTHROPIC_AUTH_TOKEN": "${OPENROUTER_API_KEY}"}}},
-                  "tiers": {"worker": {"provider": "openrouter", "model": "qwen/qwen3-coder-plus", "price": PRICE}}})
+    cfg = merged({"providers": {"openrouter": {"env": {"ANTHROPIC_BASE_URL": "https://openrouter.ai/api", "ANTHROPIC_AUTH_TOKEN": "${OPENROUTER_API_KEY}"},
+                                            "models": {"qwen/qwen3-coder-plus": {"price": PRICE}}}},
+                  "tiers": {"worker": {"provider": "openrouter", "model": "qwen/qwen3-coder-plus"}}})
     r = mod.resolve("grunt", config=cfg, agents_dir=agents, project_tiers={})
     assert (r.provider, r.model) == ("openrouter", "qwen/qwen3-coder-plus")
     assert r.effort == "high" and r.max_budget_usd == 3.0, "the keys the project did not name are the plugin's"
@@ -69,7 +71,8 @@ def test_patching_only_the_budget_inherits_provider_model_and_effort(agents):
 
 
 def test_a_brand_new_tier_is_selectable_through_agent_tiers_and_keeps_declaration_order(agents):
-    raw = {"tiers": {"candidate": {"provider": "deepseek", "model": "deepseek-v4", "effort": "high", "max_budget_usd": 1.0, "price": PRICE}},
+    raw = {"providers": {"deepseek": {"models": {"deepseek-v4": {"price": PRICE}}}},
+           "tiers": {"candidate": {"provider": "deepseek", "model": "deepseek-v4", "effort": "high", "max_budget_usd": 1.0}},
            "ladder": ["worker", "candidate", "strong", "strategic"]}
     cfg = merged(raw)
     assert list(cfg["tiers"]) == ["worker", "strong", "strategic", "candidate"], "new tiers append; redefined ones keep their place"
@@ -93,7 +96,8 @@ def test_a_project_default_tier_moves_an_undeclared_agent_and_the_reason_still_r
 def test_a_project_ladder_replaces_the_plugins_outright_and_escalation_walks_it(agents):
     from models.escalate import next_tier
 
-    raw = {"tiers": {"candidate": {"provider": "deepseek", "model": "deepseek-v4", "effort": "high", "max_budget_usd": 1.0, "price": PRICE}},
+    raw = {"providers": {"deepseek": {"models": {"deepseek-v4": {"price": PRICE}}}},
+           "tiers": {"candidate": {"provider": "deepseek", "model": "deepseek-v4", "effort": "high", "max_budget_usd": 1.0}},
            "ladder": ["candidate", "worker", "strong", "strategic"]}
     cfg = merged(raw)
     assert cfg["ladder"] == ["candidate", "worker", "strong", "strategic"], "replaced, never interleaved"
@@ -147,7 +151,7 @@ def test_the_merged_config_is_what_is_validated():
     """A tier the project adds with a provider nobody defined fails the merged check,
     naming the tier and the provider — before the merge it would have looked fine."""
     with pytest.raises(mod.ConfigError, match="tier 'candidate' names provider 'nowhere'"):
-        merged({"tiers": {"candidate": {"provider": "nowhere", "model": "m", "effort": "high", "max_budget_usd": 1.0, "price": PRICE}}})
+        merged({"tiers": {"candidate": {"provider": "nowhere", "model": "m", "effort": "high", "max_budget_usd": 1.0}}})
     with pytest.raises(mod.ConfigError, match="default_tier 'ghost'"):
         merged({"default_tier": "ghost"})
 
@@ -188,7 +192,8 @@ def test_the_merged_config_refuses_a_model_in_a_provider_env_a_templated_model_a
     [
         ({"ladder": ["worker", "ghost", "strong", "strategic"]}, "ladder names tier\(s\) that do not exist: ghost"),
         ({"ladder": ["worker", "worker", "strong", "strategic"]}, "ladder names tier\(s\) more than once: worker"),
-        ({"tiers": {"candidate": {"provider": "deepseek", "model": "m", "effort": "high", "max_budget_usd": 1.0, "price": PRICE}}}, "defined but not on the ladder: candidate"),
+        ({"providers": {"deepseek": {"models": {"m": {"price": PRICE}}}},
+      "tiers": {"candidate": {"provider": "deepseek", "model": "m", "effort": "high", "max_budget_usd": 1.0}}}, "defined but not on the ladder: candidate"),
         ({"ladder": ["worker", "strong"]}, "not on the ladder"),
     ],
 )
@@ -283,8 +288,9 @@ def _check(monkeypatch, raw, model_raw=None):
 
 
 def test_check_project_config_prints_each_redefinition_beside_what_the_plugin_ships_and_names_strategic(monkeypatch):
-    rc, out, _ = _check(monkeypatch, {"providers": {"openrouter": {"env": {"ANTHROPIC_BASE_URL": "https://openrouter.ai/api", "ANTHROPIC_AUTH_TOKEN": "${OPENROUTER_API_KEY}"}}},
-                                      "tiers": {"worker": {"provider": "openrouter", "model": "qwen/qwen3-coder-plus", "price": PRICE},
+    rc, out, _ = _check(monkeypatch, {"providers": {"openrouter": {"env": {"ANTHROPIC_BASE_URL": "https://openrouter.ai/api", "ANTHROPIC_AUTH_TOKEN": "${OPENROUTER_API_KEY}"},
+                                                                   "models": {"qwen/qwen3-coder-plus": {"price": PRICE}}}},
+                                      "tiers": {"worker": {"provider": "openrouter", "model": "qwen/qwen3-coder-plus"},
                                                 "strategic": {"provider": "anthropic", "model": "claude-opus-5"}}})
     assert rc == 0, out
     lines = [ln for ln in out.splitlines() if ln.startswith("models:")]
@@ -340,9 +346,8 @@ def test_the_event_says_which_number_it_is_and_an_anthropic_tier_still_uses_the_
     t = dispatch("analyst-survey", "x", runner=lambda r, p, **kw: payload).telemetry(task="T-1")
     assert t["cost_source"] == "sdk" and t["cost_usd"] == 4.2, "Anthropic: the vendor's own accounting"
 
-    monkeypatch.setattr(mod, "load_config", _patched({"tiers": {"worker": {"provider": "deepseek", "model": "deepseek-v4-pro",
-                                                                          "price": {"input_per_mtok": 1.32, "output_per_mtok": 3.96,
-                                                                                    "off_peak_multiplier": 0.5, "peak_utc": ["01:00-04:00"]}}}}))
+    monkeypatch.setattr(mod, "load_config", _patched({"providers": {"deepseek": {"models": {"deepseek-v4-pro": {"price": {"input_per_mtok": 1.32, "output_per_mtok": 3.96,
+                                                                                    "off_peak_multiplier": 0.5, "peak_utc": ["01:00-04:00"]}}}}}, "tiers": {"worker": {"provider": "deepseek", "model": "deepseek-v4-pro"}}}))
     t = dispatch("analyst-survey", "x", runner=lambda r, p, **kw: payload).telemetry(task="T-1")
     assert t["cost_source"].startswith("priced ("), t["cost_source"]
     assert t["cost_usd"] in (1.32, 0.66), f"the tier's own rate, not the SDK's $4.20: {t['cost_usd']}"
@@ -453,9 +458,8 @@ def test_a_priced_dispatch_is_stopped_by_the_harness_at_its_real_ceiling(monkeyp
         async def aclose(self):
             closed.append("closed")
 
-    monkeypatch.setattr(mod, "load_config", _patched({"tiers": {"worker": {
-        "provider": "deepseek", "model": "deepseek-v4-pro", "max_budget_usd": 3.0,
-        "price": {"input_per_mtok": 1.0, "output_per_mtok": 1.0}}}}))
+    monkeypatch.setattr(mod, "load_config", _patched({"providers": {"deepseek": {"models": {"deepseek-v4-pro": {"price": {"input_per_mtok": 1.0, "output_per_mtok": 1.0}}}}}, "tiers": {"worker": {
+        "provider": "deepseek", "model": "deepseek-v4-pro", "max_budget_usd": 3.0}}}))
     monkeypatch.setattr("claude_agent_sdk.query", lambda prompt, options: _Stream())
     monkeypatch.setattr(D, "broker", lambda *a, **k: None)
     monkeypatch.setattr(D, "require_sandbox", lambda: None)
@@ -523,9 +527,8 @@ def test_a_priced_tier_that_streams_no_usage_is_stopped_rather_than_run_uncapped
         async def aclose(self):
             pass
 
-    monkeypatch.setattr(mod, "load_config", _patched({"tiers": {"worker": {
-        "provider": "deepseek", "model": "deepseek-v4-pro", "max_budget_usd": 3.0,
-        "price": {"input_per_mtok": 1.0, "output_per_mtok": 1.0}}}}))
+    monkeypatch.setattr(mod, "load_config", _patched({"providers": {"deepseek": {"models": {"deepseek-v4-pro": {"price": {"input_per_mtok": 1.0, "output_per_mtok": 1.0}}}}}, "tiers": {"worker": {
+        "provider": "deepseek", "model": "deepseek-v4-pro", "max_budget_usd": 3.0}}}))
     monkeypatch.setattr("claude_agent_sdk.query", lambda prompt, options: _Mute())
     monkeypatch.setattr(D, "broker", lambda *a, **k: None)
 
@@ -545,9 +548,8 @@ def test_a_priced_tier_whose_provider_reports_no_usage_records_an_unenforced_cei
     for this tier, and nothing took its place."""
     from models import dispatch as D
 
-    monkeypatch.setattr(mod, "load_config", _patched({"tiers": {"worker": {
-        "provider": "deepseek", "model": "deepseek-v4-pro",
-        "price": {"input_per_mtok": 1.0, "output_per_mtok": 1.0}}}}))
+    monkeypatch.setattr(mod, "load_config", _patched({"providers": {"deepseek": {"models": {"deepseek-v4-pro": {"price": {"input_per_mtok": 1.0, "output_per_mtok": 1.0}}}}}, "tiers": {"worker": {
+        "provider": "deepseek", "model": "deepseek-v4-pro"}}}))
     monkeypatch.setattr(D, "require_sandbox", lambda: None)
     monkeypatch.setattr(D, "record", lambda *a, **k: True)
     monkeypatch.setattr(D, "RESULT_DIR", tmp_path / "out")
@@ -612,9 +614,8 @@ def test_prompt_only_labels_a_kill_and_never_a_dispatch_that_finished(monkeypatc
     the final usage was complete."""
     from models import dispatch as D
 
-    monkeypatch.setattr(mod, "load_config", _patched({"tiers": {"worker": {
-        "provider": "deepseek", "model": "deepseek-v4-pro",
-        "price": {"input_per_mtok": 0.66, "output_per_mtok": 1.98, "cache_read_per_mtok": 0.022}}}}))
+    monkeypatch.setattr(mod, "load_config", _patched({"providers": {"deepseek": {"models": {"deepseek-v4-pro": {"price": {"input_per_mtok": 0.66, "output_per_mtok": 1.98, "cache_read_per_mtok": 0.022}}}}}, "tiers": {"worker": {
+        "provider": "deepseek", "model": "deepseek-v4-pro"}}}))
     full = {"subtype": "success", "is_error": False, "result": "done", "total_cost_usd": 0.16,
             "num_turns": 7, "duration_ms": 10, "session_id": "s", "permission_denials": [],
             "usage": {"input_tokens": 15524, "output_tokens": 1844, "cache_read_input_tokens": 72576},
@@ -673,3 +674,90 @@ def test_a_ladder_rung_that_only_changes_effort_off_anthropic_is_warned_about():
     same = {**collapsed, "tiers": {**collapsed["tiers"],
             "strategic": {"provider": "deepseek", "model": "deepseek-v4-pro", "effort": "xhigh"}}}
     assert _collapsed_rungs(same) == []
+
+
+def test_two_tiers_on_one_model_state_its_rate_once(agents):
+    """THE DEFECT THE MOVE FIXES. The plugin's own `strong` and `strategic` are the SAME
+    model and differ only in effort, so routing the escalation ladder at a third-party
+    provider meant writing one rate twice, in two tiers, with nothing comparing them — and
+    two tiers could declare different rates for one model and both validate. One of them is
+    then wrong, and every cost record and every ceiling from that tier is wrong with no
+    symptom. A rate is a fact about a model at a provider, not about a role."""
+    cfg = merged({
+        "providers": {"deepseek": {
+            "env": {"ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
+                    "ANTHROPIC_AUTH_TOKEN": "${DEEPSEEK_API_KEY}"},
+            "models": {"deepseek-v4-pro": {"price": {"input_per_mtok": 1.32, "output_per_mtok": 3.96}}},
+        }},
+        # Two roles, one model — stated once above.
+        "tiers": {"strong": {"provider": "deepseek", "model": "deepseek-v4-pro", "effort": "xhigh"},
+                  "strategic": {"provider": "deepseek", "model": "deepseek-v4-pro", "effort": "max"}},
+    })
+    a = mod.resolve("lens", config=cfg, agents_dir=agents, project_tiers={})
+    b = mod.resolve("designer", config=cfg, agents_dir=agents, project_tiers={})
+    assert (a.tier, b.tier) == ("strong", "strategic"), "two different roles"
+    assert a.model == b.model == "deepseek-v4-pro"
+    assert a.price == b.price == {"input_per_mtok": 1.32, "output_per_mtok": 3.96}, \
+        "one model, one rate — there is no second place for them to disagree"
+
+
+def test_a_projects_model_rates_patch_per_model_and_per_key(agents):
+    """A project correcting one rate must not drop the others declared beside it — the same
+    rule as a stack's `commands`, for the same reason."""
+    plugin = {
+        "default_tier": "worker",
+        "tiers": {"worker": {"provider": "acme", "model": "m1", "effort": "high", "max_budget_usd": 1.0}},
+        "providers": {"acme": {"env": {}, "models": {
+            "m1": {"price": {"input_per_mtok": 1.0, "output_per_mtok": 2.0, "cache_read_per_mtok": 0.1}},
+            "m2": {"price": {"input_per_mtok": 9.0, "output_per_mtok": 9.0}},
+        }}},
+    }
+    out = mod.merge_model_config(plugin, {"providers": {"acme": {"models": {"m1": {"price": {
+        "input_per_mtok": 1.5, "output_per_mtok": 2.0, "cache_read_per_mtok": 0.1}}}}}})
+    models = out["providers"]["acme"]["models"]
+    assert models["m1"]["price"]["input_per_mtok"] == 1.5, "the corrected rate"
+    assert models["m2"]["price"]["input_per_mtok"] == 9.0, "the sibling model survives"
+    assert out["providers"]["acme"]["env"] == {}, "env is untouched by a models patch"
+
+
+def test_the_old_tier_level_price_is_refused_by_name_on_both_paths():
+    """Three days old when it moved, so nobody is carried — but a config that silently kept
+    working while the rate was ignored would be the worst outcome, so both the plugin
+    validator and the project schema refuse it and name the block to write."""
+    import re
+
+    from models.project import ProjectError
+
+    with pytest.raises(ProjectError, match=re.escape("`price` moved to the provider in 0.11.0")) as exc:
+        _project({"tiers": {"worker": {"provider": "deepseek", "model": "m",
+                                       "price": {"input_per_mtok": 1.0, "output_per_mtok": 2.0}}}}).model_config()
+    assert "providers.<provider>.models.<model>.price" in str(exc.value)
+
+
+def test_the_templates_model_config_example_is_a_valid_config():
+    """The template is what a project COPIES, so an example that would be refused is worse
+    than no example. Measured: the shipped one routed `worker` at openrouter with no rates
+    at all — a config the validator refuses by name — and nothing noticed, because a
+    commented block is never loaded.
+
+    Lifted from between the sentinels, uncommented, and put through the real project schema
+    and the real merge, so the example cannot drift from what the code accepts."""
+    import re
+
+    import yaml
+
+    from models.resolve import PLUGIN_ROOT
+
+    template = (PLUGIN_ROOT / "templates" / "harness.yaml.example").read_text()
+    block = re.search(r"# EXAMPLE-BEGIN model-config.*?\n(.*?)# EXAMPLE-END", template, re.DOTALL)
+    assert block, "the model-config example lost its sentinels"
+    raw = "\n".join(ln[1:] if ln.startswith("#") else ln for ln in block.group(1).splitlines())
+    example = yaml.safe_load(raw)
+    assert set(example) == {"tiers", "providers"}, f"unexpected top-level keys: {sorted(example)}"
+
+    cfg = merged(example)   # the project schema, the merge, and _validate — the real path
+    assert cfg["tiers"]["worker"]["provider"] == "openrouter"
+    price = cfg["providers"]["openrouter"]["models"]["qwen/qwen3-coder-plus"]["price"]
+    assert price["input_per_mtok"] == 1.00 and price["output_per_mtok"] == 5.00
+    # The half the example exists to demonstrate: a tier off Anthropic reaches a priced model.
+    assert cfg["tiers"]["worker"]["model"] in cfg["providers"]["openrouter"]["models"]

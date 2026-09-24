@@ -245,6 +245,8 @@ class Resolved:
     tier_source: str = "plugin"
     #: The tier's published rates, where it is not on Anthropic — see models/pricing.py.
     #: Empty means the SDK's own cost figure is the record, which is right for Anthropic.
+    #: Per-Mtok rates for THIS tier's model, read from its provider's `models` map. Empty
+    #: on Anthropic, where the SDK's own figure is the vendor's accounting; required off it.
     price: dict[str, Any] = field(default_factory=dict)
     #: WHICH POCKET THIS DISPATCH SPENDS FROM: `metered` (billed per token, the default and
     #: the conservative reading) or `subscription` (drawn from a plan's allowance). Both are
@@ -471,27 +473,55 @@ def _validate(config: dict[str, Any], where: str = "tiers.yaml") -> dict[str, An
             f"the policy-forced tier {POLICY_FORCED_TIER!r} is not defined; "
             "high-risk work would have nowhere to escalate to"
         )
-    # A TIER OFF ANTHROPIC DECLARES ITS PRICE — checked after every tier's structure, so a
-    # missing `model` is reported as that rather than as a missing price. The SDK's
-    # `total_cost_usd` is the vendor's own accounting on Anthropic and right; against a
-    # third-party endpoint it is the CLI's table applied to a model it does not know —
-    # measured at a flat $5.00/Mtok of input for DeepSeek, 4-8x its published rate.
-    # Recording that as `cost_usd` puts a fiction in every cost series, so this refuses it.
-    for name, tier in tiers.items():
-        if tier["provider"] != "anthropic" and not tier.get("price"):
-            raise ConfigError(
-                f"tier {name!r} is on provider {tier['provider']!r} and declares no `price`. "
-                f"The CLI would price its tokens from its own table (measured: $5.00/Mtok for "
-                f"DeepSeek, against $0.66-1.32 published), and that number reaches every cost "
-                f"record. Declare the provider's published rates — see models/pricing.py."
-            )
-        if tier.get("price"):
-            from .pricing import validate as _validate_price
+    # A PRICE IS A FACT ABOUT A MODEL AT A PROVIDER, NOT ABOUT A TIER. It lived on the tier
+    # in 0.10.32-0.10.36, which made it a second source of truth the moment two tiers shared
+    # a model — and the plugin's own `strong` and `strategic` ARE one model, so routing the
+    # escalation ladder at a third-party provider meant writing one rate twice, with nothing
+    # comparing them. Two tiers could declare different rates for the same model and both
+    # validate; one of them is then wrong, and every cost record and ceiling from that tier
+    # is wrong with no symptom.
+    #
+    # This is not the rule below that a provider must not name a model. That rule is about
+    # CHOOSING the model, which the tier owns. A `models:` map is keyed BY model id and
+    # chooses nothing; it states what the provider charges for models it serves.
+    from .pricing import validate as _validate_price
 
-            try:
-                _validate_price(tier["price"], f"tier {name!r}")
-            except ValueError as exc:
-                raise ConfigError(str(exc)) from exc
+    for name, spec in providers.items():
+        models = (spec or {}).get("models") or {}
+        if not isinstance(models, dict):
+            raise ConfigError(f"provider {name!r}: `models` must be a map of model id to its facts")
+        for mid, mspec in models.items():
+            if not isinstance(mspec, dict):
+                raise ConfigError(f"provider {name!r} model {mid!r} must be a map (currently only `price`)")
+            unknown = set(mspec) - {"price"}
+            if unknown:
+                raise ConfigError(f"provider {name!r} model {mid!r}: unknown key(s) {', '.join(sorted(unknown))}")
+            if "price" in mspec:
+                try:
+                    _validate_price(mspec["price"], f"provider {name!r} model {mid!r}")
+                except ValueError as exc:
+                    raise ConfigError(str(exc)) from exc
+
+    for name, tier in tiers.items():
+        if "price" in tier:
+            raise ConfigError(
+                f"tier {name!r} declares `price`, which moved to the provider in 0.11.0 "
+                f"because a rate belongs to a model, not to a role — two tiers on one model "
+                f"had to state it twice and could disagree. Write it as:\n"
+                f"    providers:\n      {tier['provider']}:\n        models:\n"
+                f"          {tier['model']}:\n            price: {{...}}"
+            )
+        if tier["provider"] == "anthropic":
+            continue
+        priced = ((providers.get(tier["provider"]) or {}).get("models") or {}).get(tier["model"]) or {}
+        if not priced.get("price"):
+            raise ConfigError(
+                f"tier {name!r} resolves to {tier['provider']}/{tier['model']}, which declares no "
+                f"`price`. The CLI would price its tokens from its own table (measured: $5.00/Mtok "
+                f"for DeepSeek against $0.66-1.32 published, ~10x end to end), and that number "
+                f"reaches every cost record and the ceiling. Declare the published rates under "
+                f"`providers.{tier['provider']}.models.{tier['model']}.price` — see models/pricing.py."
+            )
 
     # THE TIER OWNS THE MODEL, and names it concretely. A provider env naming a model
     # (`ANTHROPIC_MODEL`) would be a second source of truth; a `${...}` model is one; and a
@@ -581,6 +611,14 @@ def merge_model_config(plugin: dict[str, Any], project: dict[str, Any]) -> dict[
             patch = dict(patch or {})
             if "env" in patch or "env" in base:
                 patch["env"] = {**(base.get("env") or {}), **(patch.get("env") or {})}
+            # `models` patches PER MODEL ID, and within one, per key — a project correcting
+            # one rate must not drop the others declared beside it, for the same reason a
+            # stack's `commands` merge rather than replace.
+            if "models" in patch or "models" in base:
+                models = {k: dict(v or {}) for k, v in (base.get("models") or {}).items()}
+                for mid, mpatch in (patch.get("models") or {}).items():
+                    models[mid] = {**(models.get(mid) or {}), **(mpatch or {})}
+                patch["models"] = models
             merged[name] = {**base, **patch}
             prov["providers"].append(name)
         out["providers"] = merged
@@ -1230,7 +1268,9 @@ def resolve(
         tier=tier,
         reason=reason,
         tier_source="project" if tier in provenance(config)["tiers"] else "plugin",
-        price=dict(spec.get("price") or {}),
+        # FROM THE PROVIDER'S MODEL, not the tier: one rate per model, stated once.
+        price=dict((((providers.get(spec["provider"]) or {}).get("models") or {})
+                    .get(spec["model"]) or {}).get("price") or {}),
         billing=str((providers.get(spec["provider"]) or {}).get("billing") or "metered"),
         provider=spec["provider"],
         model=spec["model"],

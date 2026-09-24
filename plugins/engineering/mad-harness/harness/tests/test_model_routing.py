@@ -41,9 +41,6 @@ CONFIG = {
             "model": "big",
             "effort": "max",
             "max_budget_usd": 8.0,
-            # A tier off Anthropic declares its published rates: the CLI cannot price a
-            # third-party endpoint, and `_validate` refuses a tier that leaves it guessing.
-            "price": {"input_per_mtok": 1.0, "output_per_mtok": 2.0},
         },
     },
     "providers": {
@@ -52,7 +49,11 @@ CONFIG = {
             "env": {
                 "ANTHROPIC_BASE_URL": "https://example.invalid",
                 "ANTHROPIC_AUTH_TOKEN": "${CHEAPO_KEY}",
-            }
+            },
+            # A model off Anthropic declares its published rates: the CLI cannot price a
+            # third-party endpoint, and `_validate` refuses a tier that leaves it guessing.
+            # On the PROVIDER's model, so two tiers sharing one model state one rate.
+            "models": {"big": {"price": {"input_per_mtok": 1.0, "output_per_mtok": 2.0}}},
         },
     },
 }
@@ -158,22 +159,35 @@ def test_a_tier_off_anthropic_must_declare_its_price(tmp_path):
     import copy
 
     broken = copy.deepcopy(CONFIG)
-    del broken["tiers"]["strategic"]["price"]
+    del broken["providers"]["cheapo"]["models"]
     path = tmp_path / "tiers.yaml"
     path.write_text(yaml.safe_dump(broken))
-    with pytest.raises(ConfigError, match=r"tier 'strategic' is on provider 'cheapo' and declares no `price`"):
+    # The error names BOTH halves — the tier that has no rate and the model that owes one.
+    with pytest.raises(ConfigError, match=r"tier 'strategic' resolves to cheapo/big, which declares no `price`"):
         load_config(path)
+    try:
+        load_config(path)
+    except ConfigError as exc:
+        assert "providers.cheapo.models.big.price" in str(exc), "the message names where to put it"
 
     bad = copy.deepcopy(CONFIG)
-    bad["tiers"]["strategic"]["price"] = {"input_per_mtok": 1.0}
+    bad["providers"]["cheapo"]["models"]["big"]["price"] = {"input_per_mtok": 1.0}
     path.write_text(yaml.safe_dump(bad))
     with pytest.raises(ConfigError, match="missing 'output_per_mtok'"):
         load_config(path)
 
     typo = copy.deepcopy(CONFIG)
-    typo["tiers"]["strategic"]["price"]["input_per_mtoken"] = 1.0
+    typo["providers"]["cheapo"]["models"]["big"]["price"]["input_per_mtoken"] = 1.0
     path.write_text(yaml.safe_dump(typo))
     with pytest.raises(ConfigError, match="unknown price key"):
+        load_config(path)
+
+    # A rate on a TIER is refused outright, naming the block to write instead: it moved
+    # because two tiers on one model had to state it twice and could disagree.
+    old_spelling = copy.deepcopy(CONFIG)
+    old_spelling["tiers"]["strategic"]["price"] = {"input_per_mtok": 1.0, "output_per_mtok": 2.0}
+    path.write_text(yaml.safe_dump(old_spelling))
+    with pytest.raises(ConfigError, match=r"tier 'strategic' declares `price`, which moved to the provider"):
         load_config(path)
 
     # An Anthropic tier needs none: the SDK's figure is the vendor's own accounting.

@@ -18,7 +18,7 @@ The one file that makes the harness fit your repository. Written by
 | `dispatch` | cost levers, each a measured switch: `cache_ttl`, `static_prefix`, `stagger_seconds`, `task_budget_tokens`, `lean_catalog`, `plan_tiers` — see [`models/levers.py`](../../harness/models/levers.py) | no (`task_budget_tokens` defaults from the tier, `lean_catalog` and `plan_tiers` on; the rest off) |
 | `agent_tiers` | per-agent tier overrides, agent → tier — **selection**, see [Model config](#model-config) | no |
 | `tiers` | the tier DEFINITIONS, patched over the plugin's — **definition**, see [Model config](#model-config) | no |
-| `providers` | the provider set: endpoint, credential and `billing` — see [Model config](#model-config) | no |
+| `providers` | the provider set: endpoint, credential, `billing`, and each model's `price` — see [Model config](#model-config) | no |
 | `default_tier` | where an agent declaring no `model_tier:` lands — replaces the plugin's outright | no |
 | `ladder` | escalation order, weakest first — replaces the plugin's outright, never interleaved; every defined tier must be on it | no |
 | `paths` | docs, staging, archive — **omit any your project lacks** | yes |
@@ -46,7 +46,7 @@ editing an agent.
 | `agent_tiers` | *which tier* — per agent | `agent: tier` |
 | `default_tier` | *which tier* — when an agent declares none | a tier name |
 | `tiers` | *what a tier is* | patched per key over the plugin's |
-| `providers` | how a provider is reached, and which pocket pays | patched per name |
+| `providers` | how a provider is reached, which pocket pays, and what its models cost | patched per name, and `models` per model id |
 | `ladder` | where escalation goes next | an ordered list, weakest first |
 
 **Patch, do not replace — for `tiers` and `providers`.** Keys you leave out stay the
@@ -71,18 +71,15 @@ agent_tiers:
 
 default_tier: strong
 
-# WHAT A TIER IS. Only the keys you state; the rest stay the plugin's.
+# WHAT A TIER IS — the ROLE. Only the keys you state; the rest stay the plugin's.
 tiers:
   worker:
     max_budget_usd: 6.00     # this project's tasks carry more to read than the lab's
   strategic:
     provider: deepseek       # provider and model move together
     model: deepseek-v4-pro
-    price:                   # REQUIRED off Anthropic — see concepts/providers.md
-      input_per_mtok: 1.32
-      output_per_mtok: 3.96
 
-# HOW A PROVIDER IS REACHED, and which pocket pays.
+# HOW A PROVIDER IS REACHED, which pocket pays, and WHAT ITS MODELS COST.
 providers:
   anthropic:
     billing: subscription    # a plan's allowance; `metered` is the default
@@ -90,6 +87,11 @@ providers:
     env:
       ANTHROPIC_BASE_URL: ${DEEPSEEK_BASE_URL}
       ANTHROPIC_AUTH_TOKEN: ${DEEPSEEK_API_KEY}
+    models:
+      deepseek-v4-pro:
+        price:               # REQUIRED off Anthropic — see concepts/providers.md
+          input_per_mtok: 1.32
+          output_per_mtok: 3.96
 
 ladder: [worker, strong, strategic]
 ```
@@ -99,9 +101,11 @@ Three rules this block is checked against, each by `check-project-config.sh`:
 1. **A credential is a `${VAR}` reference, never a value.** `harness.yaml` is committed. The
    reference is resolved from the environment (or `harness/.env`) at dispatch time and never
    written to a record, a task or telemetry — `env_names` carries names only.
-2. **A tier off Anthropic declares a `price`.** Without one the CLI's own table would price
-   a model it does not recognise, and every cost series would carry a plausible fiction.
-   Why, and what the block contains: [providers](../concepts/providers.md).
+2. **A model reached off Anthropic declares a `price`**, under its provider — a rate is a
+   fact about a model, not about a role, and two tiers on one model would otherwise state
+   it twice and be free to disagree. Without one the CLI's own table prices a model it does
+   not recognise, and every cost series carries a plausible fiction. Why, and what the block
+   contains: [providers](../concepts/providers.md).
 3. **`model:` is a concrete id, never an alias.** `opus` resolved to two different model
    generations on two dispatch paths in the same session, which invalidated a whole parity
    experiment before anyone noticed.

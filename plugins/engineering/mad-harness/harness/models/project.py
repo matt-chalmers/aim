@@ -372,20 +372,21 @@ class Project:
             for name, patch in tiers.items():
                 if not isinstance(patch, dict):
                     raise ProjectError(f"tiers.{name}: must be a map; a tier is patched per key, never replaced by a scalar")
-                unknown = set(patch) - {"provider", "model", "effort", "max_budget_usd", "task_budget_tokens", "price"}
+                if "price" in patch:
+                    # MOVED TO THE PROVIDER IN 0.11.0. A rate belongs to a model, and two
+                    # tiers on one model had to state it twice with nothing comparing them.
+                    raise ProjectError(
+                        f"tiers.{name}: `price` moved to the provider in 0.11.0 — a rate belongs "
+                        f"to a model, not to a role. Write it under "
+                        f"`providers.<provider>.models.<model>.price`."
+                    )
+                unknown = set(patch) - {"provider", "model", "effort", "max_budget_usd", "task_budget_tokens"}
                 if unknown:
                     raise ProjectError(f"tiers.{name}: unknown key(s) {', '.join(sorted(unknown))}")
                 # MODEL AND PROVIDER MOVE TOGETHER. A project pointing a tier at `qwen/...`
                 # while the provider silently stays `anthropic` dispatches to Anthropic
                 # with an unknown id and reads as a provider outage. Restating
                 # `provider: anthropic` is fine, and is the point.
-                if "price" in patch:
-                    from .pricing import validate as _validate_price
-
-                    try:
-                        _validate_price(patch["price"], f"tiers.{name}")
-                    except ValueError as exc:
-                        raise ProjectError(str(exc)) from exc
                 if "model" in patch and "provider" not in patch:
                     raise ProjectError(f"tiers.{name}: sets `model` without `provider` — the two move together; name the provider (restating `anthropic` is fine)")
             out["tiers"] = {str(k): dict(v) for k, v in tiers.items()}
@@ -396,9 +397,30 @@ class Project:
             for name, block in providers.items():
                 if not isinstance(block, dict):
                     raise ProjectError(f"providers.{name}: must be a map")
-                unknown = set(block) - {"env", "billing"}
+                unknown = set(block) - {"env", "billing", "models"}
                 if unknown:
                     raise ProjectError(f"providers.{name}: unknown key(s) {', '.join(sorted(unknown))}")
+                # `models` IS KEYED BY MODEL ID AND CHOOSES NOTHING — it states what this
+                # provider charges for models it serves, which is why it does not collide
+                # with the rule that a provider must never name a model (the tier owns
+                # WHICH model; this owns what that model costs).
+                models = block.get("models")
+                if models is not None:
+                    if not isinstance(models, dict):
+                        raise ProjectError(f"providers.{name}.models: must be a map of model id -> {{price: {{...}}}}")
+                    for mid, mblock in models.items():
+                        if not isinstance(mblock, dict):
+                            raise ProjectError(f"providers.{name}.models.{mid}: must be a map")
+                        extra = set(mblock) - {"price"}
+                        if extra:
+                            raise ProjectError(f"providers.{name}.models.{mid}: unknown key(s) {', '.join(sorted(extra))}")
+                        if "price" in mblock:
+                            from .pricing import validate as _validate_price
+
+                            try:
+                                _validate_price(mblock["price"], f"providers.{name}.models.{mid}")
+                            except ValueError as exc:
+                                raise ProjectError(str(exc)) from exc
                 if "billing" in block and block["billing"] not in ("metered", "subscription"):
                     raise ProjectError(f"providers.{name}.billing: must be 'metered' or 'subscription', got {block['billing']!r}")
                 if "env" in block and not isinstance(block["env"], dict):
