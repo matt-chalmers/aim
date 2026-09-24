@@ -39,6 +39,11 @@ not your project, it resolved the wrong one
 everything else portable. The skill reads what it can — lockfiles, layout, existing test
 commands — and asks about what it cannot infer.
 
+**If your toolchain has no shipped stack module**, this is where you find out — the setup
+skill will say so rather than guess. Writing one is a YAML file in your own repository under
+`.harness/stacks/`, starting from the shipped template; it answers how a fresh worktree is
+made usable and how your suite runs. [What ships, and the schema](reference/stacks.md).
+
 Expect it to push back in two places, because neither can be guessed safely:
 
 - **The security surface.** Which paths are sensitive decides when L4 fires.

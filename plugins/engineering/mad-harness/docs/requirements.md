@@ -1,7 +1,8 @@
 # Requirements
 
-Four dependencies. Each is listed with what breaks without it, because a prerequisite
-without a consequence is one people skip and then debug.
+Four things on the machine, and one thing about your repository. Each is listed with what
+breaks without it, because a prerequisite without a consequence is one people skip and then
+debug.
 
 | dependency | needed for | without it |
 |---|---|---|
@@ -13,6 +14,16 @@ without a consequence is one people skip and then debug.
 ```bash
 git --version && uv --version && claude --version
 ```
+
+## And one thing about your repository: a stack module
+
+The harness has to know how to restore dependencies in a fresh worktree and how to run your
+suite. That is a *stack module*, and only a few ship — see
+[what ships](reference/stacks.md#what-ships).
+
+If yours is not among them, nothing is blocked and no code changes: you write one YAML file
+in your own repository, and `/harness-setup` walks you through it as part of setup. Budget
+for it before your first wave rather than during one.
 
 ## Install
 

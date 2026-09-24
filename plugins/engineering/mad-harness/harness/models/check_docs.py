@@ -91,11 +91,35 @@ def checks_table() -> str:
     return "\n".join(rows)
 
 
+def modules_table() -> str:
+    """The stack and framework modules that SHIP.
+
+    Generated because the honest answer is small and a reader has to have it before they
+    adopt: the docs used to link the directory, so "which toolchains are supported" was a
+    click away rather than on the page, and a hand-written list of four would drift the
+    first time a fifth landed.
+    """
+    import yaml
+
+    rows = ["| module | axis | for |", "|---|---|---|"]
+    for axis in ("stacks", "frameworks"):
+        for f in sorted((PLUGIN_ROOT / "harness" / axis).glob("*.yaml")):
+            if f.stem.startswith("_") or f.stem.endswith("-selftest"):
+                continue  # the schema template, and this repo's own test fixture
+            try:
+                desc = (yaml.safe_load(f.read_text()) or {}).get("description", "")
+            except yaml.YAMLError:
+                desc = ""
+            rows.append(f"| `{f.stem}` | {axis[:-1]} | {str(desc)[:88]} |")
+    return "\n".join(rows)
+
+
 GENERATORS = {
     "agents": agents_table,
     "skills": skills_table,
     "commands": commands_table,
     "checks": checks_table,
+    "modules": modules_table,
 }
 
 
@@ -179,7 +203,15 @@ TARGETS = {
     "skills": DOCS / "reference" / "skills.md",
     "commands": DOCS / "reference" / "commands.md",
     "checks": DOCS / "reference" / "checks.md",
+    "modules": DOCS / "reference" / "stacks.md",
 }
+#: TWO LISTS THAT MUST AGREE. A generator with no target is never called and a target with
+#: no generator would raise; the first is the dangerous one, because the page keeps its
+#: EMPTY generated block and the check still reports OK. Measured: `modules` was written,
+#: the block was added to the page, `--write` ran, and the table stayed empty and clean.
+assert set(GENERATORS) == set(TARGETS), (
+    f"generators and targets disagree: {set(GENERATORS) ^ set(TARGETS)}"
+)
 
 
 def _short(path: Path) -> str:

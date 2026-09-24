@@ -6,9 +6,28 @@ the services boundary, migration discipline, server versus client components. A 
 project on uv uses one of each; neither module knows the other exists, which is why one
 toolchain serves many frameworks without an N×M matrix.
 
-Shipped modules: [`harness/stacks/`](../../harness/stacks/),
-[`harness/frameworks/`](../../harness/frameworks/). Schema reference:
-[`_template.yaml`](../../harness/stacks/_template.yaml).
+## What ships
+
+<!-- GENERATED:modules — do not hand-edit; run harness/checks/check-docs.sh --write -->
+
+| module | axis | for |
+|---|---|---|
+| `node-npm` | stack | Node/Next.js with npm, vitest for components and Playwright for E2E. |
+| `python-uv` | stack | Python with uv for dependency management and pytest for tests. |
+| `django` | framework | Django with an app-per-bounded-context layout and a services layer. |
+| `nextjs` | framework | Next.js App Router with TypeScript, server components by default. |
+
+<!-- /GENERATED:modules -->
+
+**This is a short list, and it is the honest state of the project.** If your toolchain is
+not here you are not blocked — a module is a YAML file with no code in it, it lives in your
+own repository under `.harness/stacks/`, and nothing in `harness/` changes. But it is work
+you do *before* your first wave rather than after, so plan for it.
+
+Start from [`_template.yaml`](../../harness/stacks/_template.yaml), which is the schema
+reference, and see [contributing](../guides/contributing.md) for the five steps and the
+check that verifies the result. A module that works for you is worth upstreaming: this is
+the designed growth axis.
 
 ## Stack schema
 

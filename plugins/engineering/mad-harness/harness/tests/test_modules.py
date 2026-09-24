@@ -1032,3 +1032,43 @@ def test_the_probe_reads_the_streamed_usage_and_warns_without_refusing_the_provi
 
     monkeypatch.setattr(probe_compat, "probe", lambda p: [quiet, fatal])
     assert probe_compat.main(["deepseek"]) == 1, "a fatal probe still refuses it"
+
+
+def test_every_generated_table_has_a_page_to_write_itself_into():
+    """MEASURED while adding the `modules` table (2026-09-24): the generator was written,
+    the `GENERATED:modules` block was added to the page, `check-docs.sh --write` ran — and
+    the block stayed EMPTY while the check reported OK, because nothing mapped the key to a
+    file. A generator with no target is never called, and the page keeps an empty block that
+    reads as correct: the empty-reads-as-clean failure this repo keeps re-finding."""
+    from models.check_docs import GENERATORS, TARGETS
+
+    assert set(GENERATORS) == set(TARGETS), (
+        f"a generated table with no page, or a page with no generator: "
+        f"{sorted(set(GENERATORS) ^ set(TARGETS))}"
+    )
+    for key, target in TARGETS.items():
+        assert target.is_file(), f"{key} names a page that does not exist: {target}"
+        body = GENERATORS[key]()
+        assert body.count("\n") >= 2, f"the {key} table rendered no rows"
+        assert f"GENERATED:{key}" in target.read_text(), f"{target.name} carries no {key} block"
+
+
+def test_the_shipped_module_list_is_the_real_one():
+    """A reader decides whether to adopt on this list, so it is generated rather than
+    written: it was a link to a directory, which put 'which toolchains are supported' one
+    click away from the page that claims to answer it."""
+    from models.check_docs import modules_table
+    from models.resolve import PLUGIN_ROOT
+
+    table = modules_table()
+    on_disk = {
+        f.stem
+        for axis in ("stacks", "frameworks")
+        for f in (PLUGIN_ROOT / "harness" / axis).glob("*.yaml")
+        if not f.stem.startswith("_") and not f.stem.endswith("-selftest")
+    }
+    assert on_disk, "no modules found — the glob has stopped matching"
+    for name in on_disk:
+        assert f"`{name}`" in table, f"{name} ships but is not in the table"
+    # The template and this repo's own fixture are not products and must not be listed.
+    assert "_template" not in table and "selftest" not in table

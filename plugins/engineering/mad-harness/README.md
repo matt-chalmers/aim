@@ -43,6 +43,13 @@ branch without that being reckless.
 judge a suite, and with nothing to run they degrade to opinion. Nor a task that is one
 indivisible edit: the parallel machinery is overhead you would pay for nothing.
 
+**Check your toolchain first.** The harness has to know how to restore dependencies in a
+fresh worktree and how to run your suite, and that comes from a *stack module*. Two ship
+today — `python-uv` and `node-npm` (plus `django` and `nextjs` on the framework axis). If
+yours is not one of them you are not blocked: a module is a YAML file with no code in it,
+living in your own repository. But it is an hour's work before your first wave rather than
+after, so know it going in. [The current list and the schema](docs/reference/stacks.md).
+
 **The honest status.** Extracted from a working repository where it has run real campaigns.
 Portable, but young: exercised end to end against a small number of projects so far. Expect
 the stack module set to grow — that is the designed extension point.
@@ -121,9 +128,12 @@ your security surface and coverage bar are yours.
 ### Two module axes
 
 A *stack* says how to run things; a *framework* says how to write good code. Independent, so
-one toolchain serves many frameworks, and teaching the harness a new one is a YAML file —
-never a code change, and never an agent change. Modules your project does not use cost it
-nothing: an agent loads only the doctrine it declares.
+one toolchain serves many frameworks without an N×M matrix, and teaching the harness a new
+one is a YAML file — never a code change, and never an agent change. Modules your project
+does not use cost it nothing: an agent loads only the doctrine it declares.
+
+Four ship, listed above. This is the growth axis, and the one place the project is most
+obviously young.
 
 → [Stacks](docs/reference/stacks.md) · [Customising](docs/guides/customising.md)
 
