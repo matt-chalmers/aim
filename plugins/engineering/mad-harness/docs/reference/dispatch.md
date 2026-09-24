@@ -15,7 +15,10 @@ One agent invocation: config resolution, containment, execution, telemetry.
 class Resolved:
     agent: str; tier: str; reason: str          # why this tier won
     provider: str; model: str; effort: str
-    max_budget_usd: float                        # the ceiling the CLI enforces between calls
+    tier_source: str                             # "plugin" | "project" — whose definition this tier is
+    price: dict[str, Any]                        # per-Mtok rates; required off Anthropic, empty on it
+    billing: str                                 # "metered" | "subscription" — which pocket pays
+    max_budget_usd: float                        # the ceiling; who checks it depends on `price`
     task_budget_tokens: int | None               # the budget the model is TOLD — env > harness.yaml > tier
     doctrine: str                                # every declared skill, in full — the system prompt's append
     env: dict[str, str]                          # provider credentials
@@ -41,10 +44,17 @@ class Outcome:
     permission_denials: list[Any]
     raw: dict[str, Any]                          # diagnostics only
     results: ResultVolume | None                 # the tool-result cost, read from the transcript; None = not found
-    # derived: terminal ("success" | "budget" | "max_turns" | "usage_limit" | "api_error" | "error"),
+    # derived: terminal ("success" | "budget" | "max_turns" | "usage_limit" | "api_error"
+    #          | "unenforceable_ceiling" | "error"),
     # budget_exhausted, transcript (the steps that arrived before a terminal error),
-    # prompt_tokens, cache_hit_pct, cache_write_pct
+    # prompt_tokens, cache_hit_pct, cache_write_pct,
+    # priced_cost() -> (usd, source), ceiling_source ("cli" | "harness" | "none")
 ```
+
+`cost_usd` is the SDK's field and `priced_cost()` is the number every report reads: they are
+the same on Anthropic and differ by ~10× on a provider the CLI cannot price. Which one an
+event carries is recorded as `cost_source`, and the two are never averaged together — see
+[providers](../concepts/providers.md).
 
 A closed usage window (`usage_limit`) is a terminal outcome too, and never a success: the
 CLI returns "You've hit your session limit" as the result text with `subtype: success`,
@@ -57,6 +67,13 @@ transcript it kept as the run streamed — so the dispatch is recorded with the 
 caused it and the orchestrator sees what the worker did, not a traceback in place of it.
 `dispatch.sh` exits **3** on a budget kill (`EXIT_BUDGET`), distinct from a worker that ran
 and returned not-ok (1), so a pipe like `dispatch.sh … | tail` has something to notice.
+
+**Two terminals the harness produces itself**, on a tier it prices rather than the CLI:
+`budget`, when the metered spend passes the ceiling, and `unenforceable_ceiling`, when three
+turns arrive carrying no usage at all and nothing is therefore checking the ceiling. The
+first takes the CLI's own shape so every caller that routes a budget kill keeps working; the
+second is deliberately distinct, because nothing was exceeded and the fix is a configuration
+change rather than a bigger tier. [Providers](../concepts/providers.md) has the mechanism.
 
 ## Tier resolution
 

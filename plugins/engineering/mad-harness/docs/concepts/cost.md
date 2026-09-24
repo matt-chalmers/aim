@@ -13,8 +13,9 @@ telemetry port. Beside the identity fields (`agent`, `tier`, `reason`, `model`, 
 
 | field | is |
 |---|---|
-| `billing` | `metered` (billed per token) or `subscription` (drawn from a plan's allowance), from the provider block. Both are real money — a subscription-dollar consumed is one no longer available — so the reports total them apart and never sum them |
-| `cost_source` | `sdk` — Claude Code's own figure, which is the vendor's accounting on Anthropic and right; or `priced (peak: in $…/Mtok, …)` — computed from this dispatch's tokens at the tier's declared rates, because the CLI cannot price a third-party endpoint. Measured 2026-09-23: it reported a flat $5.00/Mtok of input for DeepSeek against a published $0.66–1.32. `make models-cost` never shares a row between the two and `ab-report.sh` flags an arm that mixes them |
+| `billing` | which pocket paid — `metered` or `subscription`. Both are real money and the reports total them apart; see [providers](providers.md) |
+| `cost_source` | `sdk` (Claude Code's own figure) or `priced (…)` (computed from the tier's declared rates). `make models-cost` never shares a row between the two and `ab-report.sh` flags an arm that mixes them; why they cannot be mixed is in [providers](providers.md) |
+| `ceiling_source` | which enforcer actually checked `max_budget_usd` — `cli`, `harness`, or `none`. See [Ceilings](#ceilings) |
 | `tier_source` | `plugin` when the tier is as `tiers.yaml` ships it, `project` when the consuming project's `harness.yaml` redefined it. `make models-cost` never shares a row between the two and `ab-report.sh` refuses an arm that mixes them — a series run under a project's tiers is not comparable with one run under the plugin's, and one run under a project `ladder` is not comparable with one under the plugin's either |
 | `cost_usd`, `turns`, `duration_ms` | the SDK's own accounting — a client-side estimate, not billing |
 | `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens` | the four token classes |
@@ -129,26 +130,45 @@ kept at `.harness/run/out/<stack>-<key>.log`. `results%` is how you know.
 
 ## Ceilings
 
-`max_budget_usd` is a circuit breaker, not a guarantee: it is checked between calls, so a
-single large call can overshoot (measured 22×). It stops a runaway loop; it does not bound
-one call. A budget kill keeps the transcript the run produced, records the spend that
-caused it, and exits 3 from `dispatch.sh` — the swarm routes it rather than reading a
-stack trace. `task_budget_tokens` is the budget the model is *told*, which is why it
-paces; the two are different levers, and the second is the one that moved the number.
+Two different mechanisms, often confused:
 
-**Who checks it** is on every event as `ceiling_source`. On Anthropic, `cli` — the CLI's
-own figure is the vendor's accounting. On a tier that declares a `price`, `harness`: the
-CLI would be applying its own table to a model it does not know (measured: a $3.00 ceiling
-biting at ~$0.40 of real DeepSeek spend), so the dispatcher adds up each streamed message's
-usage at the tier's rates and stops the dispatch itself, and the CLI is given no ceiling for such a tier
-at all: its figure is 9.7–10.3× the real cost on the measured provider, so a kill against it
-lands where nobody can say, and one enforcer in known units beats two in different ones. Two measured properties of that stream shape it:
-one API response arrives as several messages carrying the same usage, so they are
-deduplicated on `message_id`; and a streamed usage reports no output tokens, so the meter
-prices prompt tokens only and the ceiling is reached slightly late, never early (11.9% of
-cost on the measured sample). `none` means the tier is priced and the provider streamed no
-usage. That is caught twice: `probe-compat.sh` certifies streamed token accounting before a
-provider is routed (advisory — it warns and names `task_budget_tokens`, rather than refusing
-a provider whose cost records are exact), and a dispatch that runs three turns without a
-usage payload is stopped as `unenforceable_ceiling`, which is not `budget` because nothing
-was exceeded.
+| | is | seen by the model? |
+|---|---|---|
+| `max_budget_usd` | a **circuit breaker** — the dispatch is stopped when spend passes it | no |
+| `task_budget_tokens` | a **pace** — the token budget the model is *told* it has | yes |
+
+The second is the one that moved a number (−32% cost per run): a worker that knows its
+budget wraps up, and one that does not is cut off from behind by a ceiling it never saw.
+
+### What a ceiling does not do
+
+**It is not a hard cap.** Spend is checked *between* calls, so one expensive call can carry
+a dispatch past it — measured, a $0.005 ceiling produced a $0.1118 dispatch, 22× over. It
+reliably stops a runaway *loop*; it does not bound a single large call. Set ceilings to
+"obviously too much for this tier's work", not to a figure you intend to hold anyone to.
+
+**It does not trigger escalation.** Budget exhaustion means the work exceeded its ceiling,
+not that the model was too weak. Re-running on a costlier tier turns a visible limit into a
+bigger bill. Raise the ceiling or split the task.
+
+**It does not roll anything back.** A writer stopped mid-task leaves partial edits in its
+worktree — uncommitted and isolated. `worktree-sweep.sh` reports them rather than
+discarding them, but the task is not done, whatever the worktree contains.
+
+### What happens when one trips
+
+The transcript that arrived before the kill is kept, the spend that caused it is recorded
+(`terminal: budget`), `Outcome.ok` is false, and `dispatch.sh` exits **3** — distinct from a
+worker that ran and returned not-ok — so the swarm routes it instead of reading a stack
+trace.
+
+### Who enforces it
+
+`ceiling_source` on every event records the answer, because it is not always the same
+component. On Anthropic the SDK enforces the ceiling against its own accounting. On a tier
+that declares a `price` the harness meters the stream itself, because the SDK would be
+pricing a model it does not recognise. And `none` — a priced tier whose provider streamed no
+usage — is stopped rather than allowed to run uncapped.
+
+The full mechanism, the measurements behind it, and the failure it was built to end:
+**[providers](providers.md)**.

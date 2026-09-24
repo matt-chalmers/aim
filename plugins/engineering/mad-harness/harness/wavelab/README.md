@@ -4,7 +4,7 @@ Everything else in this tree tests the harness against itself or against a scrat
 directory. This runs **real dispatched agents** against **two identical repositories** —
 one on `beads`, one on `mdfiles` — and diffs the outcomes.
 
-**The differential is the point.** Either backend can be tested alone, and the 50-test
+**The differential is the point.** Either backend can be tested alone, and the
 conformance contract already does that. What it cannot see is a divergence the contract
 never thought to assert: two backends that both pass every stated rule and still behave
 differently under a real wave. Identical base + identical work + different backend means

@@ -4,10 +4,10 @@ Look something up. For *why*, see [concepts/](../concepts/).
 
 | page | covers |
 |---|---|
-| [Commands](commands.md) | the ten slash commands |
+| [Commands](commands.md) | every slash command |
 | [harness.yaml](harness-yaml.md) | every configuration block |
-| [Agents](agents.md) | the twelve agents and their frontmatter contract |
-| [Skills](skills.md) | the thirteen skills |
+| [Agents](agents.md) | every agent, and the frontmatter contract |
+| [Skills](skills.md) | every skill, and which agents declare it |
 | [Stacks](stacks.md) | the toolchain and framework module schema |
 | [Checks](checks.md) | the mechanical gates |
 | [Scripts](scripts.md) | shell entry points |

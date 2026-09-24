@@ -213,7 +213,7 @@ pushing without an object, and a test pins it.
 One test module, parameterised over backends, run against the **real** binaries.
 
 ```bash
-make conformance     # 54 tests × every shipped backend
+make conformance     # the whole contract x every shipped backend
 ```
 
 Written *before* the second backend existed, deliberately: a suite written afterwards

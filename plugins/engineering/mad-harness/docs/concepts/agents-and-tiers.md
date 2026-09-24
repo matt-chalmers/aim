@@ -1,7 +1,7 @@
 # Agents and tiers
 
-Twelve agents and three tiers, on one rule: an agent declares what it is, and the
-harness derives the rest. Nothing keys off a list of agent names, because a name list goes stale
+Every agent declares what it is, and the harness derives the rest — which model, which
+ceiling, which doctrine. Nothing keys off a list of agent names, because a name list goes stale
 the first time an agent changes shape.
 
 ## The tiers
@@ -67,6 +67,38 @@ the two cannot drift; it judges the plugin's defaults, not a project's overrides
 | `quality-engineer` | hardened suites |
 | `fidelity-auditor` | a screen against its design handover |
 
+## A stage can run below its agent's tier
+
+The tiers above are what an agent declares it *needs*. For the planning stages of an epic,
+the harness asks a second question first: how much of that does **this** epic actually
+require?
+
+`plan_tiers` (on by default since 0.10.29) reads a **complexity card** — computed from the
+epic's own record, its children and the project's declared surface — and may run a stage
+lower than the agent's declared tier:
+
+| stage | agent | declared | runs at | when |
+|---|---|---|---|---|
+| survey | `analyst-survey` | `worker` | unchanged | — |
+| design / sanity-check | `architect` | `strategic` | **`strong`** | the surface is not FLAGGED |
+| plan | `planner` | `strong` | unchanged | — the planner writes the DAG |
+| audit | `analyst` | `strong` | **`worker`** | the surface reads SIMPLE |
+
+Two things make this safe rather than merely cheap:
+
+**The agent is told, and can refuse.** Every demoted stage carries a `TIER:` line naming the
+reading that demoted it and instructing the agent to answer `ADEQUACY: ESCALATE — <why>` (or
+`VERDICT: ESCALATE`) and stop if what it finds needs deeper deliberation. The stage is then
+re-run at its full tier with that reason recorded. The judgement about whether a cheap tier
+was adequate is made by something that has read the actual epic, not by a heuristic in front
+of it.
+
+**The planner never moves.** It produces the dependency graph every later stage and every
+worker is scheduled from; being wrong there is expensive in a way no lens recovers.
+
+Measured at −33% cost per §3 with the spreads separate. What is not yet measured, and is
+stated as such: the audit's catch rate at `worker`, and how often the escalation path fires.
+
 ## Cost is measured, not argued
 
 Routing decisions are only as good as the data behind them, so every dispatch appends its
@@ -86,28 +118,12 @@ campaign's money actually goes: [cost](cost.md).
 
 ## What `max_budget_usd` actually does
 
-It is passed to the SDK, so **Claude Code enforces it, not the harness.** When it trips the
-dispatch ends with `error_max_budget_usd`; the run's transcript so far, its cost and its
-turns are kept and recorded (`terminal: budget`), `Outcome.ok` is false, and `dispatch.sh`
-exits 3 so the swarm can route it. It is the ceiling the model never sees;
-`task_budget_tokens` is the budget it is *told*, and that is the one that changed the number.
+It is a **circuit breaker per dispatch**, not a target and not a hard cap — and *who checks
+it* depends on whether the harness can price the tier: the SDK on Anthropic, the harness
+itself on a tier that declares a price. Both the mechanism and its three deliberate
+non-guarantees are in [cost](cost.md#ceilings).
 
-Three things it deliberately does **not** do:
-
-**It is not a hard cap.** The budget is checked *between* API calls, so one expensive call
-can carry a dispatch past it. Measured: a `$0.005` budget produced a `$0.1118` dispatch —
-22× over. It reliably stops a runaway *loop*; it does not bound a single large call. Set
-these to "obviously too much for this tier's work", not to a number you intend to hold
-anyone to.
-
-**It does not trigger escalation.** Budget exhaustion means the work exceeded its ceiling,
-not that the model was too weak. Re-running on a costlier tier turns a visible limit into a
-bigger bill. Raise the ceiling or split the task.
-
-**It does not roll anything back.** A writer stopped mid-task leaves partial edits in its
-worktree. They are uncommitted and isolated, and `worktree-sweep.sh` reports them rather
-than discarding them — but the task is not done, whatever the worktree contains.
-
-The figure itself is a **client-side estimate**, not billing data.
+The figure the SDK reports is a client-side estimate, and off Anthropic it is an estimate of
+the wrong thing — see [providers](providers.md).
 
 See also: [reference/agents.md](../reference/agents.md) for the full roster.

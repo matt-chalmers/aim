@@ -12,3 +12,4 @@ Why the harness is shaped the way it is. Read these to understand it; read
 | [Verification](verification.md) | four lenses, and why they must not see the same evidence |
 | [Permissions](permissions.md) | the sandbox, the small allowlist, and the operator queue |
 | [Cost](cost.md) | what every dispatch records, the levers and what each measured, and where the money is |
+| [Providers and pricing](providers.md) | routing a tier off Anthropic: the probe, declared rates, pockets, and who enforces the ceiling |

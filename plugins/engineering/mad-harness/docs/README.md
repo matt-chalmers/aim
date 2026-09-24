@@ -26,14 +26,15 @@ Running it: [Getting started](getting-started.md). Evaluating it first:
 | [Verification](concepts/verification.md) | four lenses, why they must not see the same evidence |
 | [Permissions](concepts/permissions.md) | the sandbox, the allowlist, and the operator queue |
 | [Cost](concepts/cost.md) | what every dispatch records, the levers and what each measured, where the money is |
+| [Providers and pricing](concepts/providers.md) | routing a tier off Anthropic: the probe, declared rates, billing pockets, ceiling enforcement |
 
 **I want to look something up**
 | page | answers |
 |---|---|
-| [Commands](reference/commands.md) | the ten slash commands |
+| [Commands](reference/commands.md) | every slash command |
 | [harness.yaml](reference/harness-yaml.md) | every configuration block |
-| [Agents](reference/agents.md) | the twelve agents |
-| [Skills](reference/skills.md) | the thirteen skills |
+| [Agents](reference/agents.md) | every agent, and what each judges or produces |
+| [Skills](reference/skills.md) | every skill, and which agents declare it |
 | [Stacks](reference/stacks.md) | the toolchain module schema |
 | [Checks](reference/checks.md) | the mechanical gates |
 | [Scripts](reference/scripts.md) | shell entry points |
@@ -47,6 +48,7 @@ Running it: [Getting started](getting-started.md). Evaluating it first:
 |---|---|
 | [Customising](guides/customising.md) | fit it to your repository without forking |
 | [Contributing](guides/contributing.md) | add an agent, skill, stack, command, check or metric |
+| [Measurement](guides/measurement.md) | what counts as evidence, how to read an A/B verdict, when a default may move |
 
 ## Conventions
 

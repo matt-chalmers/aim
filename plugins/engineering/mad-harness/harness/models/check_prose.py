@@ -262,7 +262,13 @@ def scan() -> list[Finding]:
     # SCOPE, AND WHY IT STOPS WHERE IT DOES.
     #
     # Markdown prose, everywhere the plugin keeps any: the three prompt directories, the
-    # harness's own docs, and the top-level README.
+    # harness's own notes, `docs/`, and the top-level README.
+    #
+    # `docs/` WAS OUT OF SCOPE UNTIL 0.10.35, which is backwards: it is the largest body of
+    # prose here and the one people read end to end. It was clean when first scanned (0
+    # findings over 30 files), so nothing was owed — but a corpus that is only correct
+    # because nobody has edited it lately is one rule away from the defect class this
+    # check exists to catch, and generated tables inside it are rewritten by a script.
     #
     # NOT shell, Python or YAML comments, though an earlier pass claimed to widen scope
     # to `templates/` and quietly did nothing — the template is `.yaml`, so zero files
@@ -280,6 +286,7 @@ def scan() -> list[Finding]:
         _prompts_dir("commands"),
         _prompts_dir("skills"),
         HARNESS,
+        PLUGIN_ROOT / "docs",
         PLUGIN_ROOT,  # top-level README and any sibling prose; rglob is bounded by *.md
     ]
     for d in roots:
@@ -300,7 +307,7 @@ def _scanned() -> int:
     from .resolve import HARNESS, PLUGIN_ROOT
 
     seen: set = set()
-    for d in (AGENTS_DIR, _prompts_dir("commands"), _prompts_dir("skills"), HARNESS):
+    for d in (AGENTS_DIR, _prompts_dir("commands"), _prompts_dir("skills"), HARNESS, PLUGIN_ROOT / "docs"):
         if d.is_dir():
             seen |= set(d.rglob("*.md"))
     seen |= set(PLUGIN_ROOT.glob("*.md"))

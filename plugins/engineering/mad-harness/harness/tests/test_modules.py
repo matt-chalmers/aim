@@ -789,6 +789,25 @@ def test_the_prose_scan_actually_reads_files():
         f"the prose scan sees only {n} files — its scope has stopped matching"
     )
 
+    # `docs/` IS IN SCOPE. It is the largest body of prose here and the one people read end
+    # to end, and it was outside the scan until 0.10.35 — the same empty-reads-as-clean
+    # shape as the `templates/` widening above, one directory over.
+    from models.check_prose import scan
+    from models.resolve import PLUGIN_ROOT
+
+    docs = PLUGIN_ROOT / "docs"
+    assert docs.is_dir()
+    pages = {p for p in docs.rglob("*.md")}
+    assert len(pages) > 20, "the documentation corpus, or the glob that finds it, has moved"
+    # A planted defect in a docs page must be reported, or the scope is decorative.
+    broken = docs / "_scope_probe.md"
+    broken.write_text("A sentence that ends.\nand a lowercase continuation after it.\n")
+    try:
+        hits = [f for f in scan() if f.path == broken]
+    finally:
+        broken.unlink()
+    assert hits and hits[0].rule == "orphan-fragment", "a docs page is scanned like any other prose"
+
 
 def test_the_domain_report_runs_and_scans_the_harness():
     """The domain check is a REPORT, not a gate, and this asserts only that it works.

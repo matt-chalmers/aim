@@ -1,0 +1,56 @@
+direction: down
+
+title: |md
+  # Who checks `max_budget_usd`
+| { near: top-center; style.font-size: 22 }
+
+q: { label: "does the tier declare a `price`?"; shape: diamond }
+
+anth: {
+  label: "ceiling_source: cli"
+  style: { fill: "#eef2ff"; stroke: "#4f46e5" }
+  note: "the SDK is given the ceiling\nits price table IS the vendor's accounting"
+}
+
+priced: {
+  label: "ceiling_source: harness"
+  style: { fill: "#eef2ff"; stroke: "#4f46e5" }
+  sdk_none: "the SDK is given NO ceiling\nits table cannot price this model"
+  meter: "pricing.Meter over the streamed usage\ndeduplicated on message_id\nprompt tokens only — output arrives at the end"
+  sdk_none -> meter
+}
+
+streamed: { label: "did any message\ncarry usage?"; shape: diamond }
+
+none: {
+  label: "ceiling_source: none"
+  style: { fill: "#fef2f2"; stroke: "#dc2626" }
+  note: "nothing is enforcing anything"
+}
+
+stop: {
+  label: "terminal: unenforceable_ceiling"
+  style: { fill: "#fef2f2"; stroke: "#dc2626" }
+  note: "stopped after 3 unmetered turns\nNOT `budget` — nothing was exceeded"
+}
+
+over: { label: "spend >= ceiling?"; shape: diamond }
+kill: { label: "terminal: budget\nthe record and the ceiling are the same number" }
+run: { label: "the dispatch continues"; shape: oval }
+
+probe: {
+  label: "harness/models/probe-compat.sh"
+  shape: document
+  style: { fill: "#fffbeb"; stroke: "#d97706" }
+  note: "certifies streamed token accounting\nBEFORE a task is routed — advisory"
+}
+
+q -> anth: "no (Anthropic)"
+q -> priced: "yes"
+priced -> streamed
+streamed -> none: "no"
+none -> stop
+streamed -> over: "yes"
+over -> kill: "yes"
+over -> run: "no"
+probe -> streamed: "should have caught this" { style: { stroke-dash: 3; stroke: "#d97706" } }

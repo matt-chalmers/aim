@@ -193,6 +193,50 @@ shorter prompt; `evidence-gathering` says so. `breaks` means the prefix was re-w
 session left idle over an hour re-writes its whole context at the write rate on the next
 request. See [cost](../concepts/cost.md).
 
+## A worker on a third-party provider is cut off almost immediately
+
+Its ceiling is being checked against the wrong price table. Claude Code prices a model it
+does not recognise from its own table — measured at ~10x the real cost — so a $3.00 ceiling
+bites at a few hundred milli-dollars of actual spend, and it reads as the model failing.
+
+```bash
+make models-cost                        # `cost_source` and `ceiling_source` per row
+harness/models/probe-compat.sh <name>   # is the provider sound at all?
+```
+
+The tier must declare a `price` block; `check-project-config.sh` refuses one that does not,
+so a tier that got this far was configured before that check or bypasses it. Add the rates
+and the harness meters the dispatch itself. [Providers](../concepts/providers.md).
+
+## A dispatch ended with `unenforceable_ceiling`
+
+Nothing was exceeded — nothing was *checking*. The tier declares a price, so the SDK was
+deliberately given no ceiling, and then three turns arrived carrying no usage at all, so the
+harness had nothing to meter. It stops rather than run uncapped.
+
+This is a configuration fault, not a task to split or a tier to escalate:
+
+```bash
+harness/models/probe-compat.sh <provider>   # the streamed-usage probe reports WARN
+```
+
+If that provider genuinely cannot stream usage, bound the tier with `task_budget_tokens`,
+which needs no cooperation from it.
+
+## The cost numbers look impossible
+
+Three checks, in order:
+
+1. **Are two pockets being added?** A subscription allowance and an invoiced account are
+   both real money and are never summed. `make models-cost` totals them apart; a report that
+   shows one number for both is reading the wrong column.
+2. **Are two cost sources being compared?** `sdk` is Claude Code's estimate; `priced (...)`
+   is computed from declared rates. An A/B arm that mixes them is flagged, not averaged.
+3. **Is it a metered kill?** Its cost is prompt tokens only — the output count never
+   arrived, because the run was stopped before its final result message.
+
+All three: [providers](../concepts/providers.md) and [cost](../concepts/cost.md).
+
 ## The tracker and the docs disagree
 
 ```bash

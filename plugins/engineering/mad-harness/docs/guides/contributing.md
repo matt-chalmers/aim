@@ -232,7 +232,7 @@ and has nothing to do with where records are stored.
 
 **2.** Register it in `tracker/__init__.py::task_store`.
 
-**3.** `make conformance` — 54 tests against your real binary.
+**3.** `make conformance` — the whole TaskStore contract against your real binary.
 
 | contract | why it is easy to miss |
 |---|---|

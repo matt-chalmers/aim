@@ -84,11 +84,19 @@ Code's `worktree-agent-*` — reads the `VERIFIED <sha>` note the lens step reco
 checks the branch's worktree for uncommitted work. `dispatch.sh --resume <branch>` then
 attaches a worker to that branch rather than cutting a new one from HEAD.
 
+## Models and providers
+
+| script | does |
+|---|---|
+| `models/probe-compat.sh <provider>` | proves a provider can sustain what a worker needs before any task is routed there: reachability, instruction following, token accounting, streamed token accounting (advisory — the ceiling is metered from it), a tool call, and a multi-turn tool loop. Non-zero exit means do not route here — see [providers](../concepts/providers.md) |
+| `models/dispatch.sh --tier <name>` | overrides tier selection for one dispatch, above every other source |
+
 ## Telemetry
 
 | script | does |
 |---|---|
 | `campaign/campaign-telemetry.sh` | the campaign-level series |
+| `wavelab/ab.sh <lever> --runs N` / `wavelab/ab-report.sh <lever>` | the A/B rig and its report — medians, IQRs, and whether the spreads separate; see [measurement](../guides/measurement.md) |
 | `make models-cost` / `checks/models-cost.sh` | reads the dispatch cost series back, per agent and tier |
 | `checks/session-cost.sh <transcript.jsonl | session-id> [--json] [--top N]` | one session's context curve in tokens: requests, first/last/average context, what grew it (outputs, injected text, tool results), every jump over 15k and what landed it — the orchestrator-side measurement |
 
