@@ -1,7 +1,8 @@
 # Concepts
 
 Why the harness is shaped the way it is. Read these to understand it; read
-[reference/](../reference/) to look something up.
+[reference/](../reference/) to look something up, and the [glossary](../glossary.md) when a
+word is doing more work than you expected.
 
 | page | answers |
 |---|---|

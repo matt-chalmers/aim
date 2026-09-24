@@ -4,7 +4,8 @@ A multi-agent development harness for Claude Code. Machinery is shared; everythi
 to a repository lives in one `harness.yaml` that repository writes.
 
 Running it: [Getting started](getting-started.md). Evaluating it first:
-[Architecture](concepts/architecture.md) and [The loop](concepts/the-loop.md).
+[Architecture](concepts/architecture.md) and [The loop](concepts/the-loop.md). Unsure what a
+word means: [Glossary](glossary.md).
 
 ## By intent
 
@@ -15,6 +16,7 @@ Running it: [Getting started](getting-started.md). Evaluating it first:
 | [Requirements](requirements.md) | what must be on the machine, why, and how to install it |
 | [Upgrading](upgrading.md) | how a repository learns the plugin moved, and what `/harness-setup` applies |
 | [Troubleshooting](guides/troubleshooting.md) | a symptom, and what actually causes it |
+| [Glossary](glossary.md) | every term the corpus uses, and the page that owns it |
 
 **I want to understand it**
 | page | answers |

@@ -1677,6 +1677,17 @@ No config change.
   docs page to prove the new scope can fail.
 - **Two diagrams**: `ceiling-enforcement` (which enforcer checks `max_budget_usd`, and the
   unenforceable case) and `tier-resolution` (selection and definition as two axes).
+- **[`glossary.md`](glossary.md)**, because the corpus has a vocabulary and nothing defined
+  it: `wave`, `lane`, `lens`, `doctrine`, `pocket`, `arm`, `molecules`, `fold-in` and thirty
+  more, each one line and a link to the page that owns it. It also settles the one genuine
+  collision — the **orchestrator card**, the **technology card** and the **complexity card**
+  are three unrelated things, and "the card" appears unqualified fourteen times.
+- **Which stack modules ship is now on the page**, generated, rather than behind a link to a
+  directory: `python-uv` and `node-npm`, plus `django` and `nextjs`. Naming four is more
+  useful to someone evaluating the harness than implying a library, and the README says
+  plainly that this is where the project is youngest. Found while adding that table:
+  `check_docs.GENERATORS` and `TARGETS` are two lists that must agree and nothing enforced
+  it, so a generated block with no target stayed empty while the check reported OK.
 
 - **mechanical** — nothing. Re-stamp `harness.version` when convenient:
   `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`.

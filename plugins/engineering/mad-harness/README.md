@@ -169,6 +169,7 @@ Full list, with why each is needed: [docs/requirements.md](docs/requirements.md)
 | | |
 |---|---|
 | [Getting started](docs/getting-started.md) | install → configure → first wave |
+| [Glossary](docs/glossary.md) | stack, lens, wave, lane, tier, pocket — every term, and where it is defined |
 | [Concepts](docs/concepts/) | the loop, agents and tiers, tasks, verification, permissions, cost, providers |
 | [Reference](docs/reference/) | commands, `harness.yaml`, agents, skills, stacks, checks, scripts, ports, dispatch |
 | [Customising](docs/guides/customising.md) | fit it to your repo without forking |
