@@ -55,8 +55,8 @@ the stack module set to grow — that is the designed extension point.
 work needs, never a model, so changing provider is one edit and high-risk work is forced up
 regardless of an agent's default. Every agent runs through the Agent SDK with a per-dispatch
 model, effort, ceiling, sandbox, permission profile and doctrine — and one telemetry event.
-A hook refuses the Agent tool for the plugin's own agents, so nothing runs outside the
-boundary. *(67.2M tokens once went through it uncapped and unrecorded in five sessions.)*
+A hook refuses the Agent tool for the plugin's own agents, so there is no second path an
+agent can run on — no dispatch without a ceiling, a sandbox and a cost record.
 
 → [Agents and tiers](docs/concepts/agents-and-tiers.md) · [Dispatch](docs/reference/dispatch.md)
 
@@ -100,10 +100,12 @@ FAIL blocks. A result with no verdict line is "could not judge", never a pass.
 
 ### A pluggable tracker
 
-`beads` or plain markdown records, behind one port contract run against every backend's
-real binary. A live differential proves both reach the same place from the same epic.
-The harness schedules from a **graph**, not a list, so it can tell you whether your
-decomposition is actually parallel or a chain wearing a DAG's clothes.
+`beads` or plain markdown records, behind one port contract — so the choice is yours and
+reversible, and `tk.sh migrate` moves every record and edge between them. Markdown needs no
+install and diffs like code; beads gives you a query surface.
+
+Either way the harness schedules from a **graph**, not a list, so it can tell you before a
+wave whether your decomposition is genuinely parallel or a chain wearing a DAG's clothes.
 
 → [Tasks and tracking](docs/concepts/tasks-and-tracking.md) · [Tracker ports](docs/reference/tracker-ports.md)
 
@@ -119,19 +121,23 @@ your security surface and coverage bar are yours.
 ### Two module axes
 
 A *stack* says how to run things; a *framework* says how to write good code. Independent, so
-one toolchain serves many frameworks. Adding either is a YAML file — never a code change,
-and never an agent change. A test asserts that adding a module leaves every agent's preload
-bill unchanged.
+one toolchain serves many frameworks, and teaching the harness a new one is a YAML file —
+never a code change, and never an agent change. Modules your project does not use cost it
+nothing: an agent loads only the doctrine it declares.
 
 → [Stacks](docs/reference/stacks.md) · [Customising](docs/guides/customising.md)
 
-### Defaults that moved on measurement
+### Tuning you can audit
 
-Every cost lever is a switch recorded on each dispatch. A default moves only when an A/B in
-the lab separates the spreads, in its own patch release, with the numbers in the release
-note — so a rule you inherit can be re-measured and deleted. Two levers moved (a told token
-budget, −32% per run; doctrine preloaded into writers, −24%); three measured null and stayed
-off; one feature was built, measured at 2.4× the cost for no gain, and removed.
+The defaults you inherit are not folklore. Each one that affects cost or quality is a
+switch, recorded on every dispatch, and it was set by an A/B run against a seeded epic —
+with the numbers in the release note that changed it, including the interquartile ranges, so
+you can see whether the difference was real or noise.
+
+That matters when a default is wrong for *your* repository, which some will be: you can find
+what it was bought with, re-run the same comparison against your own code, and change it in
+`harness.yaml` with evidence rather than a guess. The lab that produces those numbers ships
+with the harness.
 
 → [Measurement](docs/guides/measurement.md) · [Cost](docs/concepts/cost.md)
 
