@@ -1691,3 +1691,33 @@ No config change.
 
 - **mechanical** — nothing. Re-stamp `harness.version` when convenient:
   `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`.
+
+### 0.10.36
+
+**`effort` may not survive the trip to a third-party provider, and a ladder rung can be
+built out of nothing.** No config change.
+
+- **Measured** (2026-09-24), one prompt, five runs per level against DeepSeek V4 Pro: output
+  tokens by effort were `low` 181, `high` 178, `max` 215 (medians; ranges 173–235, 155–211,
+  195–426), with every pair's spread overlapping and `thinking_tokens` 0 at every level on
+  every run. By this project's own standard there is **no effect to report**. The same probe
+  against `claude-opus-5[1m]` moved output 156 → 384 → 583 and thinking 39 → 113 → 299, so
+  it reads the effect where there is one. At n = 1 the DeepSeek numbers looked cleanly
+  monotonic (152 → 205 → 333); five runs dissolved it.
+- **Why it matters beyond a wasted parameter.** `strong` and `strategic` are the SAME model
+  and differ only in `effort` — effort *is* the step up. Point both at a provider that
+  ignores it and the top of the ladder becomes a no-op: a stage that escalated because it
+  needed deeper deliberation is re-run with exactly what it had, at the same price, and
+  reports success. Nothing downstream could tell.
+- **`check-project-config.sh` now warns** when two adjacent ladder rungs share a provider and
+  model off Anthropic and differ only in effort, naming the fix — a different model on the
+  upper rung, or one fewer rung. A warning rather than a refusal: one provider and one
+  prompt is not grounds for refusing everyone's config, and on Anthropic the same shape is
+  correct and must stay silent.
+- **Two limitations added** to the providers page: effort may be ignored, and thinking tokens
+  may go unreported — if a provider's `output_tokens` also excludes them, a priced cost is an
+  undercount, which only a real invoice can settle.
+
+- **mechanical** — nothing, unless you have built a ladder rung out of effort alone off
+  Anthropic; the check will say so. Re-stamp `harness.version` when convenient:
+  `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`.

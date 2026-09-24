@@ -58,6 +58,12 @@ half-applied.
 order is not a meaningful object, so these substitute the plugin's entirely; every tier you
 define must appear on the ladder.
 
+**A rung must be a real step.** The plugin's `strong` and `strategic` are the same model and
+differ only in `effort`, which works because Anthropic acts on it. Off Anthropic that is not
+guaranteed — measured as no effect on one provider — and such a rung escalates to something
+identical at the same price. `check-project-config.sh` warns; the fix is a different model on
+the upper rung, or one fewer rung. See [providers](../concepts/providers.md#effort-may-not-survive-the-trip).
+
 ```yaml
 # WHICH TIER an agent runs on.
 agent_tiers:

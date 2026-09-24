@@ -628,3 +628,48 @@ def test_prompt_only_labels_a_kill_and_never_a_dispatch_that_finished(monkeypatc
               "usage": {"input_tokens": 15524, "cache_read_tokens": 72576, "output_tokens": 0}}
     out = D.dispatch("analyst-survey", "x", runner=lambda *a, **k: killed)
     assert "prompt only" in out.priced_cost()[1], "a kill never saw its output count"
+
+
+def test_a_ladder_rung_that_only_changes_effort_off_anthropic_is_warned_about():
+    """`strong` and `strategic` are the SAME model and differ only in `effort` — which is
+    what makes the top of the ladder mean anything. Routed at a provider that ignores the
+    parameter, the rung is a no-op: a stage that escalated because it needed deeper
+    deliberation is re-run with exactly what it had, at the same price, reporting success,
+    and nothing else would notice.
+
+    MEASURED (2026-09-24), five runs per level against deepseek-v4-pro on one prompt: output
+    tokens by effort were low 181, high 178, max 215 (medians), every pair's spread
+    overlapping and `thinking_tokens` 0 throughout. The same probe on claude-opus-5[1m]
+    moved 156 -> 384 -> 583 output and 39 -> 113 -> 299 thinking, so the probe sees the
+    effect where there is one. One provider, one prompt — a warning, not a refusal."""
+    from models.check_project import _collapsed_rungs
+
+    anthropic = {
+        "tiers": {
+            "worker": {"provider": "anthropic", "model": "claude-sonnet-5", "effort": "high"},
+            "strong": {"provider": "anthropic", "model": "claude-opus-5[1m]", "effort": "xhigh"},
+            "strategic": {"provider": "anthropic", "model": "claude-opus-5[1m]", "effort": "max"},
+        },
+        "ladder": ["worker", "strong", "strategic"],
+    }
+    assert _collapsed_rungs(anthropic) == [], "effort IS the step up on Anthropic — never warn there"
+
+    collapsed = {
+        "tiers": {
+            "strong": {"provider": "deepseek", "model": "deepseek-v4-pro", "effort": "xhigh"},
+            "strategic": {"provider": "deepseek", "model": "deepseek-v4-pro", "effort": "max"},
+        },
+        "ladder": ["strong", "strategic"],
+    }
+    [warning] = _collapsed_rungs(collapsed)
+    assert "changes only `effort`" in warning and "xhigh -> max" in warning
+    assert "drop the rung" in warning, "a warning that does not say what to do is noise"
+
+    # Escaped by giving the upper rung a different model, which is the documented fix.
+    fixed = {**collapsed, "tiers": {**collapsed["tiers"],
+             "strategic": {"provider": "deepseek", "model": "deepseek-r2", "effort": "max"}}}
+    assert _collapsed_rungs(fixed) == []
+    # And two rungs at the same model AND the same effort are not this defect.
+    same = {**collapsed, "tiers": {**collapsed["tiers"],
+            "strategic": {"provider": "deepseek", "model": "deepseek-v4-pro", "effort": "xhigh"}}}
+    assert _collapsed_rungs(same) == []

@@ -61,6 +61,42 @@ def stamp(path: Path, installed: str) -> str:
     return f"{what} harness.version: {installed}"
 
 
+
+def _collapsed_rungs(cfg: dict) -> list[str]:
+    """Ladder rungs that escalate to the same thing, because effort is all that separates
+    them and the provider may not act on it.
+
+    `strong` and `strategic` are the SAME model and differ only in `effort`, which is what
+    makes the top of the ladder meaningful on Anthropic. Routed at a provider that ignores
+    the parameter, the rung becomes a no-op: a stage that escalated because it needed deeper
+    deliberation is re-run with exactly what it already had, at the same price, and reports
+    success. Nothing else would notice.
+
+    MEASURED (2026-09-24), one prompt, five runs per level against deepseek-v4-pro: output
+    tokens by effort were low 181, high 178, max 215 (medians; ranges 173-235, 155-211,
+    195-426) — low and high indistinguishable and every pair's spread overlapping, so by
+    this project's own standard there is no effect to report. `thinking_tokens` was 0 at
+    every level on every run. The same probe on claude-opus-5[1m] moved 156 -> 384 -> 583
+    output and 39 -> 113 -> 299 thinking, so the instrument reads the effect where there is
+    one. One provider and one prompt, hence a warning and not a refusal.
+    """
+    tiers, ladder = cfg.get("tiers") or {}, cfg.get("ladder") or []
+    out: list[str] = []
+    for lower, upper in zip(ladder, ladder[1:]):
+        a, b = tiers.get(lower) or {}, tiers.get(upper) or {}
+        if not a or not b:
+            continue
+        same = (a.get("provider"), a.get("model")) == (b.get("provider"), b.get("model"))
+        if same and a.get("provider") != "anthropic" and a.get("effort") != b.get("effort"):
+            out.append(
+                f"escalating {lower!r} -> {upper!r} changes only `effort` "
+                f"({a.get('effort')} -> {b.get('effort')}) on {a.get('provider')}/{a.get('model')}. "
+                f"Measured on one non-Anthropic provider, effort moved nothing outside the noise — "
+                f"so that rung may cost the same and deliver the same. Give the upper tier a "
+                f"different model, or drop the rung."
+            )
+    return out
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     strict = "--strict" in args
@@ -179,6 +215,7 @@ def main(argv: list[str] | None = None) -> int:
             ladder = cfg.get("ladder") or []
             if ladder and ladder[-1] != POLICY_FORCED_TIER:
                 warnings.append(f"the policy-forced tier {POLICY_FORCED_TIER!r} is not last on the project's ladder [{', '.join(ladder)}] — high-risk work is forced to it, and escalation from it continues upward to {ladder[-1]!r}; allowed, and worth knowing")
+        warnings.extend(_collapsed_rungs(cfg))
     except (ProjectError, ConfigError) as exc:
         failures.append(str(exc))
 

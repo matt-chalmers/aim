@@ -42,7 +42,7 @@ Terms are grouped by what you are doing when you meet them.
 | **tier** | required model capability — `worker`, `strong`, `strategic`. An agent names a tier, never a model — [agents and tiers](concepts/agents-and-tiers.md) |
 | **selection** | which tier an agent runs on, by first match over five sources |
 | **definition** | what that tier *is* — provider, model, effort, ceiling, price. A project patches it per key — [dispatch](reference/dispatch.md#tier-resolution) |
-| **ladder** | the escalation order, weakest first. Where a tier goes when work needs more than it has |
+| **ladder** | the escalation order, weakest first. Where a tier goes when work needs more than it has — a rung whose only difference is `effort` may be a no-op off Anthropic |
 | **dispatch** | one agent invocation through the boundary: a tier, a ceiling, a sandbox, a permission profile, its doctrine, and one telemetry event — [dispatch](reference/dispatch.md) |
 | **ceiling** | `max_budget_usd`, a circuit breaker per dispatch. Not a hard cap — [cost](concepts/cost.md#ceilings) |
 | **told budget** | `task_budget_tokens`, the budget the model is *told* it has, so it paces. The ceiling is the one it never sees |

@@ -222,6 +222,44 @@ usage — nothing is enforcing anything. This is caught twice:
    nothing was exceeded. It is a configuration fault to fix, not a task to split or a tier
    to escalate.
 
+## Effort may not survive the trip
+
+`effort` is part of a tier — `high`, `xhigh`, `max` — and it is sent on every dispatch. That
+does not mean the model on the other end acts on it.
+
+Measured 2026-09-24 against DeepSeek V4 Pro, one prompt, five runs per level:
+
+| effort | output tokens (median) | range | thinking tokens |
+|---|---|---|---|
+| `low` | 181 | 173–235 | 0 |
+| `high` | 178 | 155–211 | 0 |
+| `max` | 215 | 195–426 | 0 |
+
+`low` and `high` are indistinguishable and every pair's spread overlaps, so by the standard
+this project applies to its own levers there is **no effect to report**. The same probe
+against `claude-opus-5[1m]` moved output 156 → 384 → 583 and thinking tokens 39 → 113 → 299,
+so it reads the effect where there is one.
+
+> At n = 1 this looked like a clean monotonic response — 152 → 205 → 333. Five runs
+> dissolved it. It is a good illustration of why [measurement](../guides/measurement.md)
+> insists on spreads rather than differences.
+
+### Why that can break escalation silently
+
+The plugin's `strong` and `strategic` are **the same model**, `claude-opus-5[1m]`, differing
+only in effort. Effort *is* the step up. Point both at a provider that ignores the
+parameter and the top rung of the ladder becomes a no-op: a stage that escalated because it
+needed deeper deliberation is re-run with exactly what it already had, at the same price,
+and reports success. Nothing downstream can tell.
+
+`check-project-config.sh` warns when two adjacent ladder rungs share a provider and model
+off Anthropic and differ only in effort. The fix is to give the upper rung a different
+model, or to drop the rung — not to raise its effort.
+
+One provider and one prompt, so this is a warning rather than a refusal. If you route a tier
+at a provider you believe does honour effort, measure it: the probe above is fifteen cheap
+calls.
+
 ## Limitations, stated
 
 | limitation | why | what to do |
@@ -230,6 +268,8 @@ usage — nothing is enforcing anything. This is caught twice:
 | a metered ceiling reaches ~12% late | streamed usage carries no output count | treat the ceiling as a runaway stop, not a cap |
 | a `price` block can be wrong | nothing verifies your rates against the provider's invoice | reconcile `make models-cost` against a real bill once |
 | the probe certifies one model | it probes the model a tier on that provider declares | probe again after changing the model |
+| `effort` may be ignored | it is sent, but nothing confirms it was acted on — measured as no effect on one provider | do not build a ladder rung out of effort alone off Anthropic (above) |
+| thinking tokens may be unreported | one provider returned `thinking_tokens: 0` at every effort level | if its `output_tokens` also excludes them, a priced cost is an undercount; reconcile against a real invoice |
 | `model:` must be a concrete id | an alias resolves differently per dispatch path, silently | see [agents and tiers](agents-and-tiers.md) |
 
 ## What this measured
