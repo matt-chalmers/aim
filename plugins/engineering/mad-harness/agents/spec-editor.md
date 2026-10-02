@@ -6,7 +6,6 @@ disallowedTools: TodoWrite
 skills:
   - spec-lifecycle
 model: claude-sonnet-5
-model_tier: worker
 effort: high
 ---
 

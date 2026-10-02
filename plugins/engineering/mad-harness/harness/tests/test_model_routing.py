@@ -13,7 +13,6 @@ import yaml
 
 from models.resolve import (
     AGENTS_DIR,
-    POLICY_FORCED_TIER,
     ConfigError,
     agent_frontmatter,
     load_config,
@@ -22,26 +21,20 @@ from models.resolve import (
 )
 
 CONFIG = {
-    "default_tier": "strong",
-    "tiers": {
-        "worker": {
-            "provider": "anthropic",
-            "model": "sonnet",
-            "effort": "high",
-            "max_budget_usd": 1.5,
-        },
-        "strong": {
-            "provider": "anthropic",
-            "model": "opus",
-            "effort": "xhigh",
+    "strengths": {
+        "mid": {"provider": "anthropic", "model": "sonnet", "thinking": "high"},
+        "strong": {"provider": "anthropic", "model": "opus", "thinking": "xhigh"},
+        "elite": {"provider": "cheapo", "model": "big", "thinking": "max"},
+    },
+    "activities": {
+        "work.implement": {"agent": "writer", "strengths": ["mid", "strong"], "max_budget_usd": 1.5},
+        "verify.impl": {
+            "agent": "lens",
+            "strengths": ["strong", "elite"],
             "max_budget_usd": 4.0,
+            "complex": {"strengths": ["elite"], "max_budget_usd": 8.0},
         },
-        "strategic": {
-            "provider": "cheapo",
-            "model": "big",
-            "effort": "max",
-            "max_budget_usd": 8.0,
-        },
+        "spec.survey": {"agent": "reader", "strengths": ["mid"], "max_budget_usd": 1.0},
     },
     "providers": {
         "anthropic": {"env": {}},
@@ -51,8 +44,8 @@ CONFIG = {
                 "ANTHROPIC_AUTH_TOKEN": "${CHEAPO_KEY}",
             },
             # A model off Anthropic declares its published rates: the CLI cannot price a
-            # third-party endpoint, and `_validate` refuses a tier that leaves it guessing.
-            # On the PROVIDER's model, so two tiers sharing one model state one rate.
+            # third-party endpoint, and `_validate` refuses a strength that leaves it guessing.
+            # On the PROVIDER's model, so two strengths sharing one model state one rate.
             "models": {"big": {"price": {"input_per_mtok": 1.0, "output_per_mtok": 2.0}}},
         },
     },
@@ -61,83 +54,117 @@ CONFIG = {
 
 @pytest.fixture
 def agents(tmp_path):
-    """A tiny agent dir: one tiered, one untiered, one tiered at a bogus tier."""
-    (tmp_path / "tiered.md").write_text(
-        "---\nname: tiered\nmodel_tier: worker\n---\nbody\n"
-    )
-    (tmp_path / "untiered.md").write_text("---\nname: untiered\n---\nbody\n")
-    (tmp_path / "bogus.md").write_text(
-        "---\nname: bogus\nmodel_tier: nope\n---\nbody\n"
-    )
+    """A tiny agent dir. No agent declares a strength — an activity does."""
+    for name in ("writer", "lens", "reader"):
+        (tmp_path / f"{name}.md").write_text(f"---\nname: {name}\n---\nbody\n")
     return tmp_path
 
 
-# --- the precedence table, including the disagreement cases -------------------
+# --- the precedence table: TWO ranks, and the project is not one of them -------
 
 
-def test_agent_default_is_used_when_nothing_else_applies(agents):
-    r = resolve("tiered", config=CONFIG, agents_dir=agents)
-    assert (r.tier, r.reason) == ("worker", "agent default")
+def test_the_activity_chooses_and_the_head_of_its_chain_runs(agents):
+    r = resolve("writer", activity="work.implement", config=CONFIG, agents_dir=agents)
+    assert (r.strength, r.strength_reason) == ("mid", "activity")
+    assert r.max_budget_usd == 1.5 and r.activity == "work.implement"
 
 
-def test_global_default_is_used_when_the_agent_declares_no_tier(agents):
-    r = resolve("untiered", config=CONFIG, agents_dir=agents)
-    assert (r.tier, r.reason) == ("strong", "global default")
+def test_a_complexity_bucket_wins_over_the_activity_level(agents):
+    r = resolve("lens", activity="verify.impl", complexity="complex", config=CONFIG, agents_dir=agents)
+    assert r.strength == "elite" and r.max_budget_usd == 8.0 and r.complexity == "complex"
 
 
-def test_policy_outranks_the_agent_default(agents):
-    """A cheap tier must not be reachable for high-risk work by forgetting a flag.
-
-    This is the ordering that matters most: the agent whose *ordinary* work is
-    cheap is exactly the agent that will one day be handed an auth change.
-    """
-    r = resolve("tiered", high_risk=True, config=CONFIG, agents_dir=agents)
-    assert (r.tier, r.reason) == (POLICY_FORCED_TIER, "policy: high-risk surface")
+def test_a_bucket_that_restates_nothing_inherits_every_field(agents):
+    r = resolve("lens", activity="verify.impl", complexity="simple", config=CONFIG, agents_dir=agents)
+    assert r.strength == "strong" and r.max_budget_usd == 4.0
 
 
-def test_explicit_override_outranks_policy(agents):
-    """A human may deliberately force a tier down, but must say so outright."""
-    r = resolve(
-        "tiered",
-        override_tier="worker",
-        high_risk=True,
-        config=CONFIG,
-        agents_dir=agents,
-    )
-    assert (r.tier, r.reason) == ("worker", "explicit override")
+def test_an_explicit_strength_outranks_the_activity(agents):
+    """A human may deliberately force a strength, up or down, but must say so outright."""
+    r = resolve("writer", activity="work.implement", strength="elite", config=CONFIG, agents_dir=agents)
+    assert (r.strength, r.strength_reason) == ("elite", "explicit")
 
 
-def test_override_outranks_the_agent_default_upwards_too(agents):
-    r = resolve("tiered", override_tier="strategic", config=CONFIG, agents_dir=agents)
-    assert r.tier == "strategic"
+def test_high_risk_reads_the_surface_as_complex(agents):
+    """A cheap strength must not be reachable for high-risk work by forgetting a flag — but
+    the mechanism is the complexity axis, not a second forced-tier concept that would have to
+    be kept on a ladder and could be out-ranked by anything above it."""
+    r = resolve("lens", activity="verify.impl", high_risk=True, config=CONFIG, agents_dir=agents)
+    assert r.complexity == "complex" and r.strength == "elite"
+
+
+def test_an_explicit_strength_still_beats_high_risk(agents):
+    r = resolve("lens", activity="verify.impl", strength="mid", high_risk=True, config=CONFIG, agents_dir=agents)
+    assert (r.strength, r.strength_reason) == ("mid", "explicit")
+
+
+def test_the_budgets_are_optional_and_none_is_a_real_answer(agents):
+    """`max_budget_usd` was mandatory on every tier. It is not now, and an absent one must
+    read as absent rather than as zero — `ceiling_source: unset` depends on the distinction."""
+    import copy
+
+    cfg = copy.deepcopy(CONFIG)
+    del cfg["activities"]["spec.survey"]["max_budget_usd"]
+    r = resolve("reader", activity="spec.survey", config=cfg, agents_dir=agents)
+    assert r.max_budget_usd is None and r.task_budget_tokens is None
 
 
 # --- refusals: every one of these is a silent mis-route if it does not raise ---
 
 
-def test_an_unknown_override_tier_is_refused(agents):
-    with pytest.raises(ConfigError, match="unknown tier"):
-        resolve("tiered", override_tier="turbo", config=CONFIG, agents_dir=agents)
+def test_an_unknown_strength_is_refused(agents):
+    with pytest.raises(ConfigError, match="unknown strength"):
+        resolve("writer", activity="work.implement", strength="turbo", config=CONFIG, agents_dir=agents)
 
 
-def test_an_agent_declaring_an_undefined_tier_is_refused(agents):
-    with pytest.raises(ConfigError, match="not defined"):
-        resolve("bogus", config=CONFIG, agents_dir=agents)
+def test_an_unknown_activity_is_refused(agents):
+    with pytest.raises(ConfigError, match="unknown activity"):
+        resolve("writer", activity="work.nope", config=CONFIG, agents_dir=agents)
+
+
+def test_an_unknown_complexity_is_refused(agents):
+    with pytest.raises(ConfigError, match="unknown complexity"):
+        resolve("writer", activity="work.implement", complexity="gnarly", config=CONFIG, agents_dir=agents)
+
+
+def test_naming_neither_an_activity_nor_a_strength_is_refused(agents):
+    with pytest.raises(ConfigError, match="must name either --activity"):
+        resolve("writer", config=CONFIG, agents_dir=agents)
+
+
+def test_an_activity_dispatched_as_the_wrong_agent_is_refused(agents):
+    with pytest.raises(ConfigError, match="performed by 'writer', not 'lens'"):
+        resolve("lens", activity="work.implement", config=CONFIG, agents_dir=agents)
 
 
 def test_a_missing_agent_is_refused(agents):
+    """The activity's own binding catches it first, which is the better error: it names who
+    the activity IS performed by rather than only that a file is absent."""
+    with pytest.raises(ConfigError, match="performed by 'writer', not 'ghost'"):
+        resolve("ghost", activity="work.implement", config=CONFIG, agents_dir=agents)
+    # And with no activity to contradict, the file's absence is still the refusal.
     with pytest.raises(ConfigError, match="no agent definition"):
-        resolve("ghost", config=CONFIG, agents_dir=agents)
+        resolve("ghost", strength="mid", config=CONFIG, agents_dir=agents)
 
 
 @pytest.mark.parametrize(
     "mutate, match",
     [
-        (lambda c: c.update(default_tier="ghost"), "not one of"),
-        (lambda c: c.update(tiers={}), "no tiers"),
-        (lambda c: c["tiers"]["worker"].pop("model"), "missing 'model'"),
-        (lambda c: c["tiers"]["worker"].update(provider="nobody"), "not defined"),
-        (lambda c: c["tiers"].pop(POLICY_FORCED_TIER), "policy-forced tier"),
+        (lambda c: c.update(strengths={}), "no strengths"),
+        (lambda c: c.update(activities={}), "no activities"),
+        (lambda c: c["strengths"]["mid"].pop("model"), "missing 'model'"),
+        (lambda c: c["strengths"]["mid"].update(provider="nobody"), "not defined"),
+        (lambda c: c["strengths"]["mid"].update(max_budget_usd=1.0), "belongs on the activity"),
+        (lambda c: c["activities"]["work.implement"].pop("agent"), "declares no `agent`"),
+        (lambda c: c["activities"]["work.implement"].update(strengths=["ghost"]), "names undefined strength"),
+        # THE STATIC CHECK: a bucket-only activity that leaves one label unreachable must fail
+        # here, not mid-wave when an epic happens to read as that label.
+        (lambda c: c["activities"]["spec.survey"].update(
+            strengths=None, simple={"strengths": ["mid"]}), "resolves no `strengths` at complexity 'standard'"),
+        (lambda c: c["activities"]["work.implement"].update(complex={"nope": 1}), "unknown key"),
+        (lambda c: c.update(ladder=["mid", "strong"]), "`ladder:` is gone"),
+        (lambda c: c.update(default_tier="strong"), "`default_tier:` is gone"),
+        (lambda c: c.update(tiers={"worker": {}}), "became `strengths:`"),
     ],
 )
 def test_structurally_broken_config_is_refused(tmp_path, mutate, match):
@@ -152,18 +179,18 @@ def test_structurally_broken_config_is_refused(tmp_path, mutate, match):
         load_config(path)
 
 
-def test_a_tier_off_anthropic_must_declare_its_price(tmp_path):
+def test_a_strength_off_anthropic_must_declare_its_price(tmp_path):
     """Measured: the CLI priced DeepSeek at a flat $5.00/Mtok of input against a published
-    $0.66-1.32, and that number reaches `cost_usd` in every record, `make models-cost` and
-    every A/B report. A tier that leaves the CLI guessing is refused by name."""
+    $0.66-1.32 (~10x end to end), and that number reaches `cost_usd` in every record, `make
+    models-cost` and every A/B report. A strength that leaves the CLI guessing is refused."""
     import copy
 
     broken = copy.deepcopy(CONFIG)
     del broken["providers"]["cheapo"]["models"]
-    path = tmp_path / "tiers.yaml"
+    path = tmp_path / "strengths.yaml"
     path.write_text(yaml.safe_dump(broken))
-    # The error names BOTH halves — the tier that has no rate and the model that owes one.
-    with pytest.raises(ConfigError, match=r"tier 'strategic' resolves to cheapo/big, which declares no `price`"):
+    # The error names BOTH halves — the strength with no rate and the model that owes one.
+    with pytest.raises(ConfigError, match=r"strength 'elite' resolves to cheapo/big, which declares no `price`"):
         load_config(path)
     try:
         load_config(path)
@@ -182,21 +209,13 @@ def test_a_tier_off_anthropic_must_declare_its_price(tmp_path):
     with pytest.raises(ConfigError, match="unknown price key"):
         load_config(path)
 
-    # A rate on a TIER is refused outright, naming the block to write instead: it moved
-    # because two tiers on one model had to state it twice and could disagree.
-    old_spelling = copy.deepcopy(CONFIG)
-    old_spelling["tiers"]["strategic"]["price"] = {"input_per_mtok": 1.0, "output_per_mtok": 2.0}
-    path.write_text(yaml.safe_dump(old_spelling))
-    with pytest.raises(ConfigError, match=r"tier 'strategic' declares `price`, which moved to the provider"):
-        load_config(path)
-
-    # An Anthropic tier needs none: the SDK's figure is the vendor's own accounting.
+    # An Anthropic strength needs none: the SDK's figure is the vendor's own accounting.
     fine = copy.deepcopy(CONFIG)
     # The fixture's model names are aliases, which _validate also refuses; make them concrete.
-    fine["tiers"]["strong"]["model"] = "claude-opus-5"
-    fine["tiers"]["worker"]["model"] = "claude-sonnet-5"
+    fine["strengths"]["strong"]["model"] = "claude-opus-5"
+    fine["strengths"]["mid"]["model"] = "claude-sonnet-5"
     path.write_text(yaml.safe_dump(fine))
-    assert load_config(path)["tiers"]["worker"].get("price") is None
+    assert load_config(path)["strengths"]["mid"].get("price") is None
 
 
 # --- secrets ------------------------------------------------------------------
@@ -226,8 +245,9 @@ def test_no_rendering_path_can_emit_a_credential_value(agents):
     rendering path rather than the one we happened to think of.
     """
     r = resolve(
-        "tiered",
-        override_tier="strategic",
+        "lens",
+        activity="verify.impl",
+        strength="elite",
         config=CONFIG,
         agents_dir=agents,
         environ={"CHEAPO_KEY": "sk-do-not-leak"},
@@ -244,33 +264,49 @@ def test_no_rendering_path_can_emit_a_credential_value(agents):
 # --- the real repository ------------------------------------------------------
 
 
-def test_every_real_agent_declares_a_tier_that_resolves():
-    """The check script enforces this too; this fails the suite as well as the gate."""
+def test_every_real_agent_is_performed_by_at_least_one_activity():
+    """An agent nothing can dispatch is dead weight; the check script enforces this too.
+
+    DERIVED FROM THE ACTIVITY CONFIG, never from the agent's name — the binding lives in
+    `activities.<id>.agent` and the relationship between the two names is incidental.
+    """
     config = load_config()
+    bound = {spec.get("agent") for spec in config["activities"].values()}
     for path in sorted(AGENTS_DIR.glob("*.md")):
-        r = resolve(path.stem, config=config)
-        assert r.reason == "agent default", (
-            f"{path.stem} has no model_tier, so it silently takes the global default"
+        assert path.stem in bound, (
+            f"{path.stem} is named by no activity, so nothing can dispatch it on a standard "
+            f"boundary. Declare one under `activities:`."
         )
 
 
-def test_real_frontmatter_matches_the_tier_it_declares():
-    """Native Agent-tool dispatch reads frontmatter; the boundary reads the tier.
+def test_no_agent_declares_a_strength_any_more():
+    """`model_tier:` is gone. An agent describes what it IS; the activity it performs decides
+    what runs it, which is what lets one agent serve two activities at two strengths."""
+    for path in sorted(AGENTS_DIR.glob("*.md")):
+        fm = agent_frontmatter(path.stem)
+        assert "model_tier" not in fm, f"{path.stem} still declares model_tier"
 
-    If they disagree the same agent runs a different model depending on how it
-    was called, and both paths appear to work.
+
+def test_real_frontmatter_matches_the_activity_that_dispatches_it():
+    """Native Agent-tool dispatch reads frontmatter; the boundary reads the activity.
+
+    If they disagree the same agent runs a different model depending on how it was called,
+    and both paths appear to work.
     """
     config = load_config(merge_project=False)
     for path in sorted(AGENTS_DIR.glob("*.md")):
-        r = resolve(path.stem, config=config, project_tiers={})
+        acts = [a for a, spec in config["activities"].items() if spec.get("agent") == path.stem]
+        if not acts:
+            continue
+        r = resolve(path.stem, activity=acts[0], config=config)
         if r.provider != "anthropic":
-            # The frontmatter reader has no provider concept; a tier the plugin ships
-            # at another provider is exempt from the mirror, as check_config exempts it.
+            # The frontmatter reader has no provider concept; a strength the plugin ships at
+            # another provider is exempt from the mirror, as check_config exempts it.
             continue
         fm = agent_frontmatter(path.stem)
         assert (fm.get("model"), fm.get("effort")) == (r.model, r.effort), (
             f"{path.stem}: frontmatter {fm.get('model')}/{fm.get('effort')} != "
-            f"tier {r.tier} -> {r.model}/{r.effort}"
+            f"{acts[0]} -> {r.strength} -> {r.model}/{r.effort}"
         )
 
 
@@ -294,19 +330,19 @@ def test_no_provider_declares_a_model():
         )
 
 
-def test_every_tier_names_a_model_directly():
+def test_every_strength_names_a_model_directly():
     """Uniformly, for every provider — that is what makes the dispatcher's
     ``--model`` the single path and keeps a provider swap to one edit."""
-    for name, spec in load_config()["tiers"].items():
+    for name, spec in load_config()["strengths"].items():
         assert spec.get("model") and "${" not in str(spec["model"]), (
-            f"tier {name!r} must name a concrete model, got {spec.get('model')!r}"
+            f"strength {name!r} must name a concrete model, got {spec.get('model')!r}"
         )
 
 
 ALIASES = {"opus", "sonnet", "haiku", "fable", "inherit", "default"}
 
 
-def test_no_tier_names_a_bare_model_alias():
+def test_no_strength_names_a_bare_model_alias():
     """An alias resolves differently per dispatch path, silently.
 
     Measured, and it invalidated a whole parity experiment: with `model: opus`,
@@ -315,14 +351,14 @@ def test_no_tier_names_a_bare_model_alias():
     apart, for the same word. The verdicts differed and the difference was
     attributed to the dispatch path. Only a concrete id means one thing everywhere.
     """
-    for name, spec in load_config()["tiers"].items():
+    for name, spec in load_config()["strengths"].items():
         model = str(spec["model"])
         assert model.lower() not in ALIASES, (
-            f"tier {name!r} names the alias {model!r}; use a concrete model id "
+            f"strength {name!r} names the alias {model!r}; use a concrete model id "
             f"(e.g. claude-opus-5) so every dispatch path resolves it the same way"
         )
         assert model.startswith("claude-") or "/" in model or "-" in model, (
-            f"tier {name!r} model {model!r} does not look like a concrete id"
+            f"strength {name!r} model {model!r} does not look like a concrete id"
         )
 
 
@@ -335,13 +371,14 @@ def test_frontmatter_parsing_survives_a_description_containing_a_colon():
     """
     fm = agent_frontmatter("verifier-security")
     assert fm["name"] == "verifier-security"
-    # The VALUE is not pinned here — which tier this agent sits in is an owner
-    # decision that will change. What is pinned is that the key survives the
-    # lenient path at all, which is what a return to safe_load would break.
-    assert fm["model_tier"] in load_config()["tiers"]
+    # The VALUES are not pinned here — they are owner decisions that will change. What is
+    # pinned is that keys survive the lenient path at all, which a return to safe_load would
+    # break. `model:` is the generated mirror and is present on every shipped agent.
+    assert fm["model"] and fm["effort"]
+    assert fm["description"].count(":") >= 1, "the colon that defeats a strict parse"
 
 
-def test_a_non_anthropic_tier_is_exempt_from_the_mirror_and_says_so(monkeypatch, capsys):
+def test_a_non_anthropic_strength_is_exempt_from_the_mirror_and_says_so(monkeypatch, capsys):
     """The frontmatter has no provider field: stamping a `qwen/...` id into `model:` would
     hand it to Anthropic on the native path. sync() leaves such an agent alone and main()
     prints the exemption instead of failing it as drift."""
@@ -349,7 +386,12 @@ def test_a_non_anthropic_tier_is_exempt_from_the_mirror_and_says_so(monkeypatch,
     from models import resolve as mod
 
     shipped = load_config(merge_project=False)
-    cfg = {**shipped, "tiers": {**shipped["tiers"], "worker": {**shipped["tiers"]["worker"], "provider": "deepseek", "model": "deepseek-v4"}}}
+    cfg = {
+        **shipped,
+        "strengths": {**shipped["strengths"], "mid": {"provider": "deepseek", "model": "deepseek-v4", "thinking": "high"}},
+        "providers": {**shipped["providers"], "deepseek": {**shipped["providers"]["deepseek"],
+                                                          "models": {"deepseek-v4": {"price": {"input_per_mtok": 1.0, "output_per_mtok": 2.0}}}}},
+    }
     monkeypatch.setattr(mod, "load_config", lambda *a, **k: cfg)
     monkeypatch.setattr(check_config, "load_config", lambda *a, **k: cfg)
     assert check_config.sync("analyst-survey") is None, "not stamped"

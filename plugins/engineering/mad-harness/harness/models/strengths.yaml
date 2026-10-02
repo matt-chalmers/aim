@@ -1,0 +1,254 @@
+# Strengths and activities — what runs a piece of work, and what that work is worth.
+#
+# REPLACES tiers.yaml (0.12.0). A `tier` bundled four things and only one of them belonged
+# together: the model configuration. The other three were facts about the WORK, not the
+# engine, and keeping them on the tier made each of them wrong in a different way.
+#
+#   what a tier carried     where it lives now      why
+#   {provider,model,effort} strengths:              correct — a reusable model configuration
+#   max_budget_usd          activities:             what you will spend is a property of the
+#                                                   job. A $4.00 ceiling sized for Opus is
+#                                                   meaningless for a model costing 1/50th
+#   task_budget_tokens      activities:             same: how much room the work warrants
+#   ladder: (the ordering)  activities:             the right NEXT step depends on what you
+#                                                   are doing, not on which engine you are in
+#
+# TWO AXES, EACH OWNING ONE FACT.
+#
+#   a STRENGTH says what runs the work — provider, model, thinking. Nothing else.
+#   an ACTIVITY says what the work IS — which agent, what it may spend, and where "up" goes.
+#
+# NAME CONCRETE MODEL IDS, NEVER ALIASES. An alias resolves differently per dispatch path,
+# silently. Measured, and it invalidated a whole parity experiment: with `model: opus`, the
+# Agent tool resolved `claude-opus-5[1m]` while the CLI's `--model opus` resolved
+# `claude-opus-4-7` — a model generation and 5x the context window apart, for the same word.
+#
+# A MODEL OFF ANTHROPIC DECLARES ITS PRICE, under its provider in the consuming project's
+# harness.yaml (`providers.<name>.models.<id>.price`). The CLI prices from its own table,
+# which is the vendor's accounting on Anthropic and a fiction anywhere else — measured
+# ~10x the real cost for DeepSeek — and that number reaches every cost record AND the
+# per-dispatch ceiling. See models/pricing.py.
+
+# ─── STRENGTHS ─────────────────────────────────────────────────────────────────────────
+#
+# A named, reusable model configuration that activities route to. NOT a seniority and not a
+# job title: the activity says what the work is, the strength says what runs it. That is why
+# these are named for capability rather than for a role — `worker` was a tier name until
+# 0.12.0 and it named a job, which is exactly the confusion this split removes.
+#
+# There is no cap on how many you define. The rule that matters is mechanical rather than
+# doctrinal: a strength referenced by no activity is reported by check-project-config.sh,
+# because an unreferenced model configuration is either dead or a typo.
+strengths:
+
+  # Routine, well-specified work with a cheap recovery path: the acceptance criteria are
+  # explicit, the blast radius is one task, and a mistake is caught by the lens gate.
+  mid:
+    provider: anthropic
+    model: claude-sonnet-5
+    thinking: high
+
+  # Real reasoning over a codebase, where being wrong is expensive to detect. On the [1m]
+  # variant because the context window is the binding constraint for whole-corpus reads and
+  # it carries NO price premium — Opus 5 is one rate for both variants.
+  strong:
+    provider: anthropic
+    model: claude-opus-5[1m]
+    thinking: xhigh
+
+  # Architecture and irreversible calls. Same model as `strong`, more thinking: the step up
+  # IS the thinking, which is why a rung built out of thinking alone is meaningless on a
+  # provider that ignores the parameter (measured: DeepSeek, 2026-09-24 — see
+  # check_project.py::_collapsed_strengths).
+  elite:
+    provider: anthropic
+    model: claude-opus-5[1m]
+    thinking: max
+
+# ─── ACTIVITIES ────────────────────────────────────────────────────────────────────────
+#
+# A named unit of dispatched work: the thing that has a model, a ceiling and a cost record.
+# Every dispatch on a standard boundary names one (`dispatch.sh --activity <id>`); nothing
+# infers an activity from an agent name, and nothing infers an agent name from an activity.
+# The relationship between the two names is incidental.
+#
+# RESOLUTION — specificity wins, FIELD BY FIELD. For activity A at complexity B:
+#
+#   strengths           B's value, else A's value, else REFUSE the dispatch
+#   max_budget_usd      B's value, else A's value, else WARN and do not enforce
+#   task_budget_tokens  B's value, else A's value, else WARN and do not enforce
+#
+# Either location satisfies the requirement and neither is privileged: declare at activity
+# level, per bucket, or any mixture. `strengths` is mandatory because there is no sane
+# default for "which model runs this" — and it is checked STATICALLY, so an activity that
+# declares two of the three complexity labels and nothing at activity level fails
+# check-project-config.sh rather than failing mid-wave on the third.
+#
+# COMPLEXITY is one of `simple` | `standard` | `complex`, read from the epic's own surface by
+# models/complexity.py. A dispatch that names no complexity resolves the activity level only.
+#
+# `strengths` IS A CHAIN, DECLARATIVE. Its head runs. The rest are consumed only when the
+# agent explicitly escalates (`ADEQUACY: ESCALATE` / `VERDICT: ESCALATE`), which re-runs the
+# stage at the next entry. Nothing auto-advances: a budget kill is deliberately NOT an
+# escalation trigger, because re-running on a costlier strength turns a visible limit into a
+# bigger bill.
+activities:
+
+  # ── the requirements and specification stages ──
+  spec.survey:
+    agent: analyst-survey
+    strengths: [mid, strong]
+    max_budget_usd: 3.00
+    task_budget_tokens: 400000
+
+  spec.draft:
+    agent: spec-editor
+    strengths: [mid, strong]
+    max_budget_usd: 3.00
+    task_budget_tokens: 400000
+
+  spec.audit:
+    agent: analyst
+    strengths: [strong, elite]
+    max_budget_usd: 4.00
+
+  spec.fold-in:
+    agent: spec-editor
+    strengths: [mid, strong]
+    max_budget_usd: 3.00
+    task_budget_tokens: 400000
+
+  # ── design ──
+  #
+  # MEASURED (0.10.29, -33% cost per §3 with the spreads separate): the architect runs at
+  # `strong` unless the epic's surface is FLAGGED, where it keeps the deeper strength. That
+  # rule used to live in plan_epic.py as two string literals; it is data now, and it is
+  # encoded here bit-for-bit so no measurement is owed.
+  design.sanity-check:
+    agent: architect
+    strengths: [strong, elite]
+    max_budget_usd: 4.00
+    complex: {strengths: [elite], max_budget_usd: 8.00}
+
+  design.create:
+    agent: architect
+    strengths: [strong, elite]
+    max_budget_usd: 4.00
+    complex: {strengths: [elite], max_budget_usd: 8.00}
+
+  # ── planning ──
+  #
+  # THE PLANNER IS NEVER MOVED. It writes the dependency graph every later stage and every
+  # worker is scheduled from; being wrong there is expensive in a way no lens recovers.
+  plan.create:
+    agent: planner
+    strengths: [strong, elite]
+    max_budget_usd: 4.00
+
+  # The audit drops to `mid` only where the surface reads SIMPLE — the other half of the
+  # 0.10.29 measurement.
+  plan.audit:
+    agent: analyst
+    strengths: [strong, elite]
+    max_budget_usd: 4.00
+    simple: {strengths: [mid, strong], max_budget_usd: 3.00, task_budget_tokens: 400000}
+
+  # ── verification ──
+  #
+  # No complexity split: a lens judges one task, and the complexity card is computed per
+  # EPIC. A per-task reading does not exist, so these declare at activity level and every
+  # lens runs at `strong`, exactly as it does today. Moving any of them to a cheaper
+  # strength needs its own `--lenses` A/B first.
+  verify.impl:
+    agent: verifier
+    strengths: [strong, elite]
+    max_budget_usd: 4.00
+
+  verify.tests:
+    agent: verifier-tests
+    strengths: [strong, elite]
+    max_budget_usd: 4.00
+
+  verify.spec:
+    agent: verifier-spec
+    strengths: [strong, elite]
+    max_budget_usd: 4.00
+
+  verify.security:
+    agent: verifier-security
+    strengths: [strong, elite]
+    max_budget_usd: 4.00
+
+  # ── doing the work ──
+  work.implement:
+    agent: fullstack-engineer
+    strengths: [mid, strong]
+    # 3.00, from 1.50. Measured: two tasks carrying 34KB records and twelve criteria each
+    # needed to read a harvest document and several ADRs before writing code, and $1.50 did
+    # not cover reading the inputs — both were cut off mid-exploration, one with no commit.
+    max_budget_usd: 3.00
+    # An API-side budget the model is TOLD about, so it paces its tool use and wraps up
+    # rather than being cut off by the ceiling it never sees. Measured (0.10.4): the same
+    # three-task epic, five runs per arm — cost per run $2.67 -> $1.80 (-32%) with the
+    # interquartile ranges apart, turns 43 -> 36, no seeded task killed on either arm.
+    task_budget_tokens: 400000
+
+  work.remediate:
+    agent: quality-engineer
+    strengths: [mid, strong]
+    max_budget_usd: 3.00
+    task_budget_tokens: 400000
+
+  work.fidelity:
+    agent: fidelity-auditor
+    strengths: [strong, elite]
+    max_budget_usd: 4.00
+
+  # ── the loop itself ──
+  #
+  # THE ORCHESTRATOR'S CEILING IS PER EPIC, NOT PER TASK. It runs the whole loop for one
+  # epic — every survey, design, plan, audit, wave and lens goes through it — so a per-task
+  # ceiling stops it mid-epic. Measured: the first headless lab epic had spent $3.19 when it
+  # judged $4.00 would not cover a remediation round and stopped, correctly, with the epic
+  # open. A field orchestrator spent $16 on one epic. A circuit breaker, not a target.
+  #
+  # This is why the ceiling belongs to the activity: under tiers it needed a special-case
+  # `orchestrator:` block beside the tier table, keyed off agent frontmatter.
+  loop.orchestrate:
+    agent: campaign-orchestrator
+    strengths: [strong, elite]
+    max_budget_usd: 25.00
+
+# ─── PROVIDERS ─────────────────────────────────────────────────────────────────────────
+#
+# `env` carries ONLY what is provider-specific and cannot be said per-strength: the endpoint
+# and the credential. It must never name a model — the strength above declares `model:` and
+# the dispatcher passes it, so a model here would be a second source of truth for one value,
+# able to disagree with the strength and looking live while being dead.
+#
+# A ${VAR} reference is read from the orchestrator's environment (or harness/.env) at
+# dispatch time, and NEVER written to this file, to a task, or to telemetry.
+#
+# WHICH POCKET, per provider: `billing: subscription` where the work draws on a plan's
+# allowance, `metered` (the default) where it is billed per token. Both are real money — a
+# consumed subscription-dollar is one no longer available — so the reports total them APART
+# and never sum them. The plugin declares nothing: an Anthropic key is metered and a Max
+# plan is not, and only the operator knows which they are on.
+providers:
+
+  anthropic:
+    # Native. Claude Code's own auth (subscription or API key) is used as-is;
+    # deliberately nothing here, so the default path stays exactly as it is today.
+    env: {}
+
+  # Reachable because Claude Code honours ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN and
+  # DeepSeek publishes an Anthropic-compatible endpoint. Compatibility is a CLAIM TO TEST,
+  # not to assume — harness/models/probe-compat.sh gates its use, and it certifies every
+  # model a strength names on the provider, not just the first.
+  #
+  # To route work at it, define a strength and point an activity at it — not this block:
+  #     strengths: { cheap: { provider: deepseek, model: deepseek-v4-pro, thinking: high } }
+  deepseek:
+    env:
+      ANTHROPIC_BASE_URL: ${DEEPSEEK_BASE_URL}
+      ANTHROPIC_AUTH_TOKEN: ${DEEPSEEK_API_KEY}

@@ -80,10 +80,17 @@ def test_detach_then_wait_returns_5_while_running_and_0_when_done(tmp_path):
 
 def test_dispatched_is_recorded_on_the_manifest(tmp_path):
     path = wm.open_wave("E-1", lane="backend", planned=["T-1"], dropped=[], wave_base="abc", base=tmp_path)
-    r = run_jobs([Job("1:T-1", (PY, "-c", "print('T-1 · PASS · done'); print('full: /o/T-1.md (3 lines)')", "fullstack-engineer", "--task", "T-1"), "/tmp", 30, "T-1")], cap=1)
+    # A REALISTIC DISPATCH ARGV: the agent is the token after the wrapper, which is how
+    # `dispatch.sh` is actually called. The fixture used to bury the name mid-argv, which
+    # only worked because the recorder scanned for a hardcoded list of agent names.
+    r = run_jobs([Job("1:T-1", (PY, "-c", "print('T-1 · PASS · done'); print('full: /o/T-1.md (3 lines)')",
+                                "dispatch.sh", "fullstack-engineer", "--activity", "work.implement",
+                                "--task", "T-1"), "/tmp", 30, "T-1")], cap=1)
     mod.record_dispatched(str(path), r)
     doc = wm.load(path)
-    assert doc["dispatched"]["T-1"] == {"agent": "fullstack-engineer", "exit": 0, "status": "ok", "first_line": "T-1 · PASS · done", "full": "/o/T-1.md"}
+    assert doc["dispatched"]["T-1"] == {"agent": "fullstack-engineer", "activity": "work.implement",
+                                       "exit": 0, "status": "ok", "first_line": "T-1 · PASS · done",
+                                       "full": "/o/T-1.md"}
 
 
 def test_main_refuses_a_bad_jobs_file_and_starts_nothing(tmp_path, capsys):

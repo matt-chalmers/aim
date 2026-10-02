@@ -151,7 +151,7 @@ def test_a_tracker_that_cannot_answer_does_not_stop_the_dispatch(monkeypatch, ca
 def test_dispatch_refuses_task_prompt_without_task(capsys):
     from models import dispatch as D
 
-    assert D.main(["fullstack-engineer", "--task-prompt"]) == 2
+    assert D.main(["fullstack-engineer", "--activity", "work.implement", "--task-prompt"]) == 2
     assert "--task-prompt needs --task" in capsys.readouterr().err
 
 

@@ -86,7 +86,7 @@ def test_a_dispatch_records_its_result_volume_and_absence_is_absence(tmp_path, m
     payload = {"subtype": "success", "is_error": False, "result": "ok", "total_cost_usd": 0.1,
                "num_turns": 2, "duration_ms": 1, "session_id": "sess-9", "usage": {}, "permission_denials": []}
     monkeypatch.setattr("models.transcript.result_volume_for", lambda cwd, sid: None)
-    t = dispatch("verifier", "x", runner=lambda *a, **k: payload).telemetry()
+    t = dispatch("verifier", "x", activity="verify.impl", runner=lambda *a, **k: payload).telemetry()
     assert "carried_result_tokens" not in t and "tool_result_chars" not in t
 
     seen = {}
@@ -96,7 +96,7 @@ def test_a_dispatch_records_its_result_volume_and_absence_is_absence(tmp_path, m
         return mod.ResultVolume(results=2, chars=9_000, large=1, carried_tokens=2_250, by_tool={"Read": 9_000})
 
     monkeypatch.setattr("models.transcript.result_volume_for", found)
-    t = dispatch("verifier", "x", runner=lambda *a, **k: payload).telemetry()
+    t = dispatch("verifier", "x", activity="verify.impl", runner=lambda *a, **k: payload).telemetry()
     assert seen["args"][1] == "sess-9"
     assert t["tool_result_chars"] == 9_000 and t["large_results"] == 1 and t["carried_result_tokens"] == 2_250
 

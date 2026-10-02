@@ -253,6 +253,21 @@ def test_every_documented_dispatch_parses(site):
             continue
         norm.append("1" if tok in ("<n>", "<N>") else tok)
     try:
-        build_parser().parse_args(norm)
+        parsed = build_parser().parse_args(norm)
     except SystemExit:
         pytest.fail(f"{rel}:{line}: `dispatch.sh {' '.join(argv)}` does not parse")
+
+    # AND EVERY DOCUMENTED DISPATCH NAMES ITS ACTIVITY (0.12.0). Nothing infers an activity
+    # from an agent name — the relationship between the two is incidental — so a prompt that
+    # omits it dispatches work on a strength nobody chose for it, and `resolve` refuses. The
+    # ad-hoc path exists for work OFF the standard boundaries and must say so out loud, so a
+    # documented example that means to use it carries `--strength` explicitly.
+    #
+    # Without this, the ad-hoc escape hatch becomes a back door by omission: forget the flag
+    # in a prompt and the dispatch silently becomes "not a standard activity".
+    if not parsed.activity and not parsed.strength:
+        pytest.fail(
+            f"{rel}:{line}: `dispatch.sh {' '.join(argv)}` names no --activity. Every "
+            f"standard dispatch names one; an example that is deliberately ad-hoc passes "
+            f"--strength instead."
+        )

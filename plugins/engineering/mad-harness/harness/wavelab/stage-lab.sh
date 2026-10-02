@@ -40,8 +40,8 @@ build_repo() {
 # MAD_HARNESS_CALLER_PWD: the wrappers record the caller's directory themselves.
 tk() { ( cd "$REPO" && "$HARNESS/tracker/tk.sh" "$@" ); }
 
-dispatch() {  # $1 agent  $2 prompt-file  -> prints the returned text
-  ( cd "$REPO" && "$HARNESS/models/dispatch.sh" "$1" \
+dispatch() {  # $1 agent  $2 prompt-file  $3 activity  -> prints the returned text
+  ( cd "$REPO" && "$HARNESS/models/dispatch.sh" "$1" --activity "$3" \
     --prompt-file "$2" --no-record 2>"$SCRATCH/err-$1.txt" )
 }
 

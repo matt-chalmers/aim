@@ -7,7 +7,6 @@ skills:
   - evidence-gathering
 role: orchestrator
 model: claude-opus-5[1m]
-model_tier: strong
 effort: xhigh
 color: magenta
 ---

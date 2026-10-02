@@ -129,7 +129,25 @@ def _run(
     }
 
 
-def probe(provider: str) -> list[Probe]:
+def models_on(provider: str, config: dict | None = None) -> list[str]:
+    """Every distinct model a strength routes at this provider, in name order.
+
+    EVERY ONE, not the first. Until 0.12.0 this took `tiers[0]["model"]` and reported the
+    PROVIDER as proven — so routing two models at one provider certified one of them and ran
+    the other with its streamed-usage accounting unverified. Ceiling enforcement depends on
+    exactly that probe (`UNMETERED_TURNS_ALLOWED`, the harness-side `Meter`), so the gap was
+    the difference between a bound and none.
+    """
+    from .resolve import load_config
+
+    config = config or load_config()
+    return sorted({
+        spec["model"] for spec in (config.get("strengths") or {}).values()
+        if spec.get("provider") == provider
+    })
+
+
+def probe(provider: str, model: str | None = None) -> list[Probe]:
     config = load_config()
     env, missing = provider_env(provider, config)
     if missing:
@@ -143,21 +161,30 @@ def probe(provider: str) -> list[Probe]:
             )
         ]
 
-    # The model comes from a TIER that uses this provider, never from the
-    # provider block — same rule the dispatcher follows, so the probe exercises
-    # the real path rather than a parallel one that could pass while it fails.
-    tiers = [t for t in config["tiers"].values() if t["provider"] == provider]
-    if not tiers:
+    # The model comes from a STRENGTH that uses this provider, never from the provider block
+    # — same rule the dispatcher follows, so the probe exercises the real path rather than a
+    # parallel one that could pass while it fails.
+    found = models_on(provider, config)
+    if not found:
         return [
             Probe(
-                "tier",
-                "a provider is only reachable through a tier that uses it",
+                "strength",
+                "a provider is only reachable through a strength that uses it",
                 False,
-                f"no tier in tiers.yaml has provider: {provider}. Point one at it "
-                f"first — e.g. worker: {{ provider: {provider}, model: <id> }}.",
+                f"no strength in strengths.yaml has provider: {provider}. Point one at it "
+                f"first — e.g. cheap: {{ provider: {provider}, model: <id>, thinking: high }}.",
             )
         ]
-    model = tiers[0]["model"]
+    if model is not None and model not in found:
+        return [
+            Probe(
+                "strength",
+                "the named model must be one a strength actually routes here",
+                False,
+                f"no strength routes {model!r} at {provider}; it serves: {', '.join(found)}.",
+            )
+        ]
+    model = model or found[0]
 
     probes: list[Probe] = []
     with tempfile.TemporaryDirectory() as tmp:
@@ -281,9 +308,17 @@ def probe(provider: str) -> list[Probe]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = argv if argv is not None else sys.argv[1:]
+    args = list(argv if argv is not None else sys.argv[1:])
+    only: str | None = None
+    if "--model" in args:
+        i = args.index("--model")
+        if i + 1 >= len(args):
+            print("usage: probe-compat.sh <provider> [--model <id>]", file=sys.stderr)
+            return 2
+        only = args[i + 1]
+        del args[i:i + 2]
     if len(args) != 1:
-        print("usage: probe-compat.sh <provider>", file=sys.stderr)
+        print("usage: probe-compat.sh <provider> [--model <id>]", file=sys.stderr)
         return 2
     provider = args[0]
 
@@ -299,26 +334,40 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    print(f"probing provider: {provider}\n")
-    results = probe(provider)
-    for p in results:
-        mark = {True: "PASS", False: "FAIL", None: "UNPROVEN"}[p.ok]
-        if p.ok is not True and not p.fatal:
-            mark = "WARN"
-        print(f"  [{mark:8s}] {p.name}")
-        print(f"             why: {p.why}")
-        print(f"             {p.detail}")
+    # EVERY MODEL THE PROVIDER SERVES, unless one is named. A pass on one model says nothing
+    # about another: the ceiling is metered from streamed usage, and that is a property of
+    # the model's own accounting.
+    targets = [only] if only else models_on(provider, config)
+    if not targets:
+        targets = [None]  # let probe() produce the "no strength routes here" refusal
+    advisory_total, required_total, failed_total = 0, 0, 0
+    for model in targets:
+        print(f"probing provider: {provider}" + (f"   model: {model}" if model else "") + "\n")
+        results = probe(provider, model)
+        for p in results:
+            mark = {True: "PASS", False: "FAIL", None: "UNPROVEN"}[p.ok]
+            if p.ok is not True and not p.fatal:
+                mark = "WARN"
+            print(f"  [{mark:8s}] {p.name}")
+            print(f"             why: {p.why}")
+            print(f"             {p.detail}")
+        advisory = [p for p in results if p.ok is not True and not p.fatal]
+        for p in advisory:
+            print(
+                f"\nWARN — {provider}/{model} does not provide: {p.name}. {p.detail}",
+                file=sys.stderr,
+            )
+        failed = [p for p in results if p.ok is not True and p.fatal]
+        for p in failed:
+            print(f"\nFAIL — {provider}/{model}: {p.name} — {p.detail}", file=sys.stderr)
+        advisory_total += len(advisory)
+        required_total += len(results) - len(advisory)
+        failed_total += len(failed)
+        print()
 
-    advisory = [p for p in results if p.ok is not True and not p.fatal]
-    for p in advisory:
+    if failed_total:
         print(
-            f"\nWARN — {provider} does not provide: {p.name}. {p.detail}",
-            file=sys.stderr,
-        )
-    failed = [p for p in results if p.ok is not True and p.fatal]
-    if failed:
-        print(
-            f"\nFAIL — {len(failed)} of {len(results)} probes did not pass. "
+            f"\nFAIL — {failed_total} probe(s) did not pass across {len(targets)} model(s). "
             f"Do NOT route a task to {provider!r}.\n"
             f"A provider that fails the tool-loop probe produces workers that "
             f"appear lazy rather than broken, and the lenses will blame the work.",
@@ -326,8 +375,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     print(
-        f"\nOK — {provider} passed all {len(results) - len(advisory)} required probes"
-        + (f", with {len(advisory)} advisory warning(s) above" if advisory else "")
+        f"OK — {provider} passed all {required_total} required probes across "
+        f"{len(targets)} model(s)"
+        + (f", with {advisory_total} advisory warning(s) above" if advisory_total else "")
         + "."
     )
     return 0

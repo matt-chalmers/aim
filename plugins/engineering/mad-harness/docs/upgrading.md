@@ -1768,3 +1768,99 @@ until the config is moved.
 - **mechanical** — if any tier in your `harness.yaml` carries `price:`, move it to
   `providers.<provider>.models.<model>.price`; the error message prints the block. Then
   re-stamp: `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`.
+
+### 0.12.0
+
+**Activities and strengths replace tiers.** Five config keys are gone, each refused by name.
+This is the largest config change the harness has made, and it moves three things that were
+bundled into `tier` to where they belong.
+
+- **What was wrong.** A `tier` carried four facts and only one belonged there:
+
+  | on the tier | moved to | why |
+  |---|---|---|
+  | `{provider, model, effort}` | **`strengths:`** — correct, renamed | a reusable model configuration |
+  | `max_budget_usd` | **`activities:`** | what you will spend is a property of the JOB. A $4.00 ceiling sized for Opus is meaningless for a model costing 1/50th |
+  | `task_budget_tokens` | **`activities:`** | the same: how much room the work warrants |
+  | `ladder:` (the ordering) | **`activities:`** | the right NEXT step depends on what you are doing, not on which engine you are in |
+
+- **And one live bug.** `plan_epic.tier_for` returned the literal tier names `"strong"` and
+  `"worker"` and reached dispatch as `--tier` — **precedence rank 1**. So it outranked the
+  policy tier AND outranked a project's own `agent_tiers:`, meaning a project setting
+  `agent_tiers: {architect: strategic}` for an A/B had it silently reverted and the arm read
+  "no effect" — precisely the failure that block's own docstring said validation existed to
+  prevent. Its telemetry reason was the string `"explicit override"`, indistinguishable from
+  an operator typing `--tier`, so the measured −33% was attributed to a reason conflating two
+  causes. The stage now passes a **complexity** and the activity's own config decides what
+  that means; the reason is an enum.
+
+- **An ACTIVITY is the named unit of dispatched work** — the thing with a model, a ceiling and
+  a cost record. Sixteen ship, namespaced (`verify.spec`, `design.create`, `work.implement`).
+  Each declares the agent that performs it, and **nothing infers an activity from an agent
+  name or the reverse**: that relationship is incidental, so an alias would work until an
+  agent gained a second activity and then keep resolving to the old one. `--activity` is
+  required on every standard dispatch, guarded by the prose check over all 50 documented
+  dispatch sites.
+
+- **Resolution is per field, specificity wins.** Declare `strengths`, `max_budget_usd` and
+  `task_budget_tokens` at the activity level, in a `simple`/`standard`/`complex` bucket, or
+  any mixture; a bucket that restates one field inherits the others. `strengths` is
+  **mandatory** — a dispatch that cannot resolve one is refused, because there is no sane
+  default for which model runs work — and it is checked **statically**, so an activity
+  covering two of the three readings fails the config check rather than failing mid-wave on
+  the third. The budgets are optional and warn at config-check time.
+
+- **`ceiling_source` gains `unset`.** An absent ceiling is a CHOICE; an unenforceable one is a
+  FAULT, and sharing a value would hide the fault inside the choice.
+
+- **A project patches the same blocks the plugin ships.** `agent_tiers:` was a parallel,
+  differently-shaped project-only block answering the same question — two schemas for one
+  fact. It is deleted, not renamed: patch `activities:` and `strengths:` directly, per key and
+  per bucket. "Plugin or project" is now provenance (`strength_source`), not a precedence rank.
+
+- **`ladder:` is deleted and not replaced.** It was a total order over every tier, enforced on
+  every project config in service of `escalate.next_tier` — which had **no production caller,
+  ever**. It also forced a claim: `ladder: [flash, gpt5, elite]` asserts a cross-vendor ranking
+  nobody can justify. Escalation is each activity's `strengths` chain, and `plan_epic` walks it
+  on `ADEQUACY: ESCALATE` / `VERDICT: ESCALATE` — a real caller, which the ladder never had.
+  `escalate.classify` and `escalation_prompt` are kept and filed as still unwired.
+
+- **`POLICY_FORCED_TIER` is gone.** High risk reads the surface as `complex` instead, so one
+  mechanism serves it and the activity's own `complex:` bucket decides what that means for
+  that work.
+
+- **Two correctness fixes that this release makes reachable.** `probe-compat.sh` now certifies
+  **every** model a strength routes at a provider, not `tiers[0]`: routing two models at one
+  provider while certifying one is the difference between a ceiling bound and none, because
+  the ceiling is metered from the model's own streamed accounting. And `make models-cost`
+  groups by activity, without which the feature cannot be measured.
+
+- **Three name-leaks closed.** `ab_report.WRITERS` classified a dispatch as a writer by
+  matching a literal name tuple — so every "writers / run" figure the rig has reported came
+  from that list, and adding a writer agent would have silently undercounted. `fanout` picked
+  the agent by scanning for one of three hardcoded names. `lens_gate.LENSES` mapped a lens id
+  to an agent name. All three now key off the activity or the agent's own frontmatter.
+
+- **A security guard restored.** The credential check covers `TOKEN`, `KEY` **and `SECRET`**;
+  an intermediate draft of this change had narrowed it to the first two.
+
+- **mechanical** — rewrite your model config:
+
+  ```yaml
+  strengths:                       # was `tiers:`, minus the budget and the ordering
+    cheap: {provider: openrouter, model: qwen/qwen3-coder-plus, thinking: medium}
+  activities:                      # was `agent_tiers:` + the ceiling + the ladder
+    work.implement:
+      strengths: [cheap, strong]   # the chain; its head runs
+      max_budget_usd: 6.00
+      complex: {strengths: [strong], max_budget_usd: 10.00}
+  ```
+
+  Then re-stamp: `${CLAUDE_PLUGIN_ROOT}/harness/checks/check-project-config.sh --stamp`.
+  Every removed key — `tiers:`, `agent_tiers:`, `ladder:`, `default_tier:`, `model_tier:` —
+  is a hard error naming its replacement, so nothing fails silently.
+
+- **The licensing test**, pinned: with no project patch, all 21 activity × complexity
+  combinations resolve to exactly the model, thinking, ceiling and told-budget they resolved
+  to at 0.11.0. Zero behavioural delta, which is what lets a change this size ship without
+  owing a new measurement.

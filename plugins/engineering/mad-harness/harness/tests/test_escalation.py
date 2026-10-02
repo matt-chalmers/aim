@@ -15,17 +15,18 @@ from models.dispatch import Outcome
 from models.escalate import (
     classify,
     escalation_prompt,
-    next_tier,
 )
 from models.resolve import ConfigError, Resolved
 
 
-def an_outcome(text="", ok=False, subtype="success", tier="worker", **kw):
+def an_outcome(text="", ok=False, subtype="success", strength="mid", **kw):
     return Outcome(
         resolved=Resolved(
             agent="fullstack-engineer",
-            tier=tier,
-            reason="agent default",
+            activity="work.implement",
+            complexity=None,
+            strength=strength,
+            strength_reason="activity",
             provider="anthropic",
             model="sonnet",
             effort="high",
@@ -142,23 +143,39 @@ def test_a_different_failure_on_attempt_two_does_not_escalate():
     assert not classify(an_outcome(second), attempt=2, previous_failure=first).escalate
 
 
-# --- ladder -------------------------------------------------------------------
+# --- the escalation path, per activity ----------------------------------------
 
 
-def test_the_ladder_is_explicit_and_terminates():
-    assert next_tier("worker") == "strong"
-    assert next_tier("strong") == "strategic"
-    assert next_tier("strategic") is None, "the top rung must not wrap around"
+def test_the_chain_is_per_activity_and_ordered():
+    """REPLACES the `ladder:` tests. A single global order over every tier asserted a
+    ranking across models that nobody could justify once strengths span vendors — and
+    `next_tier`, the only thing that read it, had no production caller in its whole life.
+    An activity's `strengths` list is the path: local, ordered, and actually walked (by
+    `plan_epic` on `ADEQUACY: ESCALATE` / `VERDICT: ESCALATE`)."""
+    from models.resolve import strength_chain
+
+    chain = strength_chain("design.create")
+    assert chain == ["strong", "elite"], "the head runs; the rest are where ESCALATE goes"
+    # Per complexity, field by field: `complex` restates the chain, so it wins.
+    assert strength_chain("design.create", "complex") == ["elite"]
+    # A bucket that restates nothing inherits the activity's chain.
+    assert strength_chain("design.create", "simple") == ["strong", "elite"]
 
 
-def test_an_off_ladder_tier_is_refused():
-    with pytest.raises(ConfigError, match="not on the ladder"):
-        next_tier("turbo")
+def test_an_unknown_activity_is_refused_by_name():
+    from models.resolve import strength_chain
+
+    with pytest.raises(ConfigError, match="unknown activity 'design.nope'"):
+        strength_chain("design.nope")
 
 
-def test_a_config_without_a_ladder_is_refused():
-    with pytest.raises(ConfigError, match="no `ladder`"):
-        next_tier("worker", config={"tiers": {"worker": {}}})
+def test_the_top_of_a_chain_does_not_wrap():
+    """The property the ladder test was really pinning, kept: there is nothing above the
+    last entry, and a caller must park rather than loop."""
+    from models.resolve import strength_chain
+
+    chain = strength_chain("plan.create")
+    assert chain[-1] == "elite" and len(set(chain)) == len(chain), "no repeats, so no cycle"
 
 
 # --- context carrying ---------------------------------------------------------

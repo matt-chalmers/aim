@@ -461,7 +461,7 @@ def test_the_dispatcher_tells_a_worker_where_the_harness_is():
     from models.dispatch import build_env, with_context
     from models.resolve import HARNESS, resolve
 
-    assert build_env(resolve("verifier"))["HARNESS_ROOT"] == str(HARNESS)
+    assert build_env(resolve("verifier", activity="verify.impl"))["HARNESS_ROOT"] == str(HARNESS)
     assert "$HARNESS_ROOT" in with_context("task", None)
 
 
@@ -1023,14 +1023,18 @@ def test_the_probe_reads_the_streamed_usage_and_warns_without_refusing_the_provi
     # A provider that streams nothing: reported as WARN, and the run is still a pass.
     quiet = probe_compat.Probe("streamed token accounting", "why", False, "none of them", fatal=False)
     fatal = probe_compat.Probe("multi-turn tool loop", "why", False, "broken")
-    monkeypatch.setattr(probe_compat, "probe", lambda p: [quiet])
-    monkeypatch.setattr(probe_compat, "load_config", lambda: {"providers": {"deepseek": {}}, "tiers": {}})
+    # probe() takes (provider, model) now: every model a strength routes at the provider is
+    # certified, not just the first — a pass on one model says nothing about another, and the
+    # ceiling is metered from the model's own streamed accounting.
+    monkeypatch.setattr(probe_compat, "probe", lambda p, m=None: [quiet])
+    monkeypatch.setattr(probe_compat, "models_on", lambda p, cfg=None: ["m-1"])
+    monkeypatch.setattr(probe_compat, "load_config", lambda: {"providers": {"deepseek": {}}, "strengths": {}})
     assert probe_compat.main(["deepseek"]) == 0, "an advisory miss never gates the provider"
     o, e = capsys.readouterr()
-    assert "[WARN" in o and "WARN — deepseek does not provide: streamed token accounting" in e
+    assert "[WARN" in o and "does not provide: streamed token accounting" in e
     assert "0 required probes" not in o or "advisory" in o
 
-    monkeypatch.setattr(probe_compat, "probe", lambda p: [quiet, fatal])
+    monkeypatch.setattr(probe_compat, "probe", lambda p, m=None: [quiet, fatal])
     assert probe_compat.main(["deepseek"]) == 1, "a fatal probe still refuses it"
 
 

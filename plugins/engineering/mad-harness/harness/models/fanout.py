@@ -249,8 +249,19 @@ def record_dispatched(manifest: str, results: list[JobResult]) -> None:
     for r in results:
         if not r.task:
             continue
-        agent = next((a for a in r.argv if a in ("fullstack-engineer", "quality-engineer", "fidelity-auditor")), None) or (r.argv[1] if len(r.argv) > 1 else "?")
-        wave_manifest.append(path, "dispatched", {"agent": agent, "exit": r.rc, "status": r.status, "first_line": r.first_line, "full": r.full_path}, task=r.task)
+        # STRUCTURALLY, from `dispatch.sh`'s own interface: the agent is the token after the
+        # wrapper. This used to scan the argv for a member of a hardcoded three-name tuple —
+        # so a fourth writer agent would have gone unrecognised, and the tuple was doing
+        # nothing but hiding that it depended on knowing every name in advance.
+        agent, activity = "?", None
+        for i, a in enumerate(r.argv):
+            if str(a).endswith("dispatch.sh") and i + 1 < len(r.argv):
+                agent = str(r.argv[i + 1])
+            elif a == "--activity" and i + 1 < len(r.argv):
+                activity = str(r.argv[i + 1])
+        if agent == "?" and len(r.argv) > 1:
+            agent = str(r.argv[1])
+        wave_manifest.append(path, "dispatched", {"agent": agent, "activity": activity, "exit": r.rc, "status": r.status, "first_line": r.first_line, "full": r.full_path}, task=r.task)
 
 
 # --- the command ----------------------------------------------------------------------

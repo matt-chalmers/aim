@@ -54,7 +54,7 @@ def _dispatch(monkeypatch, tmp_path, payload, *extra):
     monkeypatch.setattr(mod, "_run_sdk", lambda *a, **k: payload)
     pf = tmp_path / "p.txt"
     pf.write_text("do the thing")
-    return mod.main(["verifier", "--prompt-file", str(pf), "--task", "T-1", *extra])
+    return mod.main(["verifier", "--activity", "verify.impl", "--prompt-file", str(pf), "--task", "T-1", *extra])
 
 
 def _path_line(out: str) -> str:
@@ -157,7 +157,7 @@ def test_an_adhoc_dispatch_is_named_as_one(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(mod, "_run_sdk", lambda *a, **k: RESULT)
     pf = tmp_path / "p.txt"
     pf.write_text("x")
-    assert mod.main(["verifier", "--prompt-file", str(pf)]) == 0
+    assert mod.main(["verifier", "--activity", "verify.impl", "--prompt-file", str(pf)]) == 0
     capsys.readouterr()
     [kept] = list((tmp_path / "out").glob("*.md"))
     assert kept.name.startswith("dispatch-verifier-adhoc-")

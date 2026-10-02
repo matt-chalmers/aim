@@ -502,15 +502,20 @@ class SimpleStore(StoreWithChildren):
         self.kids = [Task(id=k.id, type=k.type, status=k.status, title=k.title, parent=k.parent, description=f"Add src/new{i}.py\nSURFACE: none", acceptance=k.acceptance) for i, k in enumerate(self.kids, 1)]
 
 
-def test_the_plan_tiers_lever_tiers_from_the_card_and_never_moves_the_planner(repo, monkeypatch):
-    """Off: every dispatch at its declared tier. On: the architect at strong unless the
-    surface is flagged (it escalates itself), the audit at worker only when the surface
-    reads simple. The planner is never moved — it writes the DAG."""
-    (repo / "src").mkdir(exist_ok=True)
-    tiers = []
+def test_the_plan_tiers_lever_passes_a_complexity_and_never_moves_the_planner(repo, monkeypatch):
+    """Off: no complexity, so every activity resolves at its own top level. On: the card's
+    reading travels, and the ACTIVITY decides what it means — the architect's `complex:`
+    bucket takes the deeper strength, the audit's `simple:` bucket the cheaper one. The
+    planner is never moved: it writes the DAG.
 
-    def dispatch(agent, pfile, out, tier=None):
-        tiers.append((agent, tier))
+    This replaces the old assertion on literal tier names. The lever no longer names a tier,
+    which is what took it off precedence rank 1 — where it outranked both the policy tier and
+    a project's own override, so an A/B arm read as "no effect"."""
+    (repo / "src").mkdir(exist_ok=True)
+    seen = []
+
+    def dispatch(agent, pfile, out, activity=None, complexity=None, strength=None):
+        seen.append((agent, activity, complexity, strength))
         return results_for(**{"analyst-survey": SURVEY, "architect": DESIGN, "planner": PLAN, "analyst": "VERDICT: PASS\n"})(agent, pfile, out)
 
     def run(triage, store):
@@ -519,38 +524,49 @@ def test_the_plan_tiers_lever_tiers_from_the_card_and_never_moves_the_planner(re
         s.state.data["triage"] = triage
         s.state.data["done"] = []
         s.run()
-        out = dict(tiers)
-        tiers.clear()
+        out = {a: (act, cx) for a, act, cx, _ in seen}
+        seen.clear()
         return out
 
     monkeypatch.setenv("MAD_HARNESS_PLAN_TIERS", "0")
-    assert all(t is None for t in run("READY", SimpleStore(2)).values()), "off restores every declared tier"
-    monkeypatch.delenv("MAD_HARNESS_PLAN_TIERS", raising=False)  # the default is ON, by the owner's decision
     by = run("READY", SimpleStore(2))
-    assert by["architect"] == "strong" and by["analyst"] == "worker" and by["planner"] is None, by
+    assert all(cx is None for _, cx in by.values()), "off: no reading travels, so no bucket applies"
+    assert by["architect"][0] == "design.sanity-check", "and the activity is named either way"
+
+    monkeypatch.delenv("MAD_HARNESS_PLAN_TIERS", raising=False)  # the default is ON
+    by = run("READY", SimpleStore(2))
+    assert by["architect"] == ("design.sanity-check", "simple")
+    assert by["analyst"] == ("plan.audit", "simple"), "the audit's cheap bucket applies"
+    assert by["planner"] == ("plan.create", None), "the planner is handed no reading at all"
+
     by = run("PARTIAL", SimpleStore(40))
-    assert by["architect"] == "strong" and by["analyst"] == "worker", "forty new files in an untriggered area is still simple"
+    assert by["architect"] == ("design.create", "simple"), "forty new files in an untriggered area is still simple"
+
     by = run("READY", StoreWithChildren(2, ready=True))
-    assert by["architect"] == "strong" and by["analyst"] is None, "tasks naming no paths: the architect still at strong (it escalates itself); the audit at its declared tier"
+    assert by["analyst"][1] == "standard", "tasks naming no paths read as unreadable, which is the honest middle"
+
     flagged = SimpleStore(2)
     flagged.kids = [Task(id=k.id, type=k.type, status=k.status, title=k.title, parent=k.parent, description="Edit harness/models/dispatch.py\nSURFACE: none", acceptance=k.acceptance) for k in flagged.kids]
     (repo / "harness" / "models").mkdir(parents=True, exist_ok=True)
     (repo / "harness" / "models" / "dispatch.py").write_text("x = 1\n")
     by = run("READY", flagged)
-    assert by["architect"] is None and by["analyst"] is None, "a triggered area: the declared tiers"
+    assert by["architect"][1] == "complex" and by["analyst"][1] == "complex", "a triggered area reads complex"
 
 
-def test_a_lighter_stage_may_escalate_once_to_its_declared_tier_and_the_reason_travels(repo, monkeypatch):
+def test_a_stage_escalates_along_its_activitys_chain_and_the_reason_travels(repo, monkeypatch):
+    """The chain is walked — which `ladder:` never was, in its whole life. `strength` is None
+    on the first attempt (the activity resolves its own head) and names the next entry on the
+    second."""
     (repo / "src").mkdir(exist_ok=True)
     monkeypatch.setenv("MAD_HARNESS_PLAN_TIERS", "1")
     calls = []
 
-    def dispatch(agent, pfile, out, tier=None):
-        calls.append((agent, tier, pfile.read_text()))
-        if agent == "architect" and tier == "strong":
+    def dispatch(agent, pfile, out, activity=None, complexity=None, strength=None):
+        calls.append((agent, strength, pfile.read_text()))
+        if agent == "architect" and strength is None:
             out.write_text("ADEQUACY: ESCALATE — the phone rule touches a contract three callers depend on\n")
             return Raw(0, f"full: {out}", "")
-        if agent == "analyst" and tier == "worker":
+        if agent == "analyst" and strength is None:
             out.write_text("VERDICT: ESCALATE — the plan re-scopes an ADR\n")
             return Raw(0, f"full: {out}", "")
         return results_for(**{"analyst-survey": SURVEY, "architect": DESIGN, "planner": PLAN, "analyst": "VERDICT: PASS\n"})(agent, pfile, out)
@@ -560,24 +576,32 @@ def test_a_lighter_stage_may_escalate_once_to_its_declared_tier_and_the_reason_t
     s.state.data["triage"] = "READY"
     text, code = s.run()
     assert code == 0, text
-    arch = [(t, p) for a, t, p in calls if a == "architect"]
-    assert [t for t, _ in arch] == ["strong", None], "once at strong, once escalated to the declared tier"
-    assert "ESCALATED from a lighter tier, which said: ADEQUACY: ESCALATE — the phone rule" in arch[1][1]
-    assert "TIER: you are running at `strong`" in arch[0][1] and "TIER:" not in arch[1][1]
-    aud = [(t, p) for a, t, p in calls if a == "analyst"]
-    assert [t for t, _ in aud] == ["worker", None] and "ESCALATED from tier worker" in aud[1][1]
+
+    arch = [(st, p) for a, st, p in calls if a == "architect"]
+    assert [st for st, _ in arch] == [None, "elite"], "the head, then the next entry in the chain"
+    assert "ESCALATED from a lighter strength, which said: ADEQUACY: ESCALATE — the phone rule" in arch[1][1]
+    assert "STRENGTH: the epic's declared surface reads" in arch[0][1] and "STRENGTH:" not in arch[1][1]
+
+    aud = [(st, p) for a, st, p in calls if a == "analyst"]
+    assert [st for st, _ in aud] == [None, "strong"], "the audit's simple chain is [mid, strong]"
+    assert "ESCALATED from strength mid" in aud[1][1]
+
     notes = [c[4] for c in r.calls if key(c) == "tk.sh update" and "--append-notes" in c]
-    assert any(n.startswith("ESCALATED: architect strong") for n in notes) and any(n.startswith("ESCALATED: audit worker") for n in notes)
-    assert "ESCALATE at tier strong" in text and "ESCALATE at tier worker" in text
+    assert any(n.startswith("ESCALATED: architect strong → elite") for n in notes), notes
+    assert any(n.startswith("ESCALATED: audit mid → strong") for n in notes), notes
+    assert "ESCALATE at strength strong" in text and "ESCALATE at strength mid" in text
 
 
-def test_escalate_at_the_declared_tier_parks_rather_than_looping(repo, monkeypatch):
+def test_escalate_at_the_top_of_the_chain_parks_rather_than_looping(repo, monkeypatch):
+    """There is nothing above the last entry, so the stage parks. The chain is a list, so it
+    cannot cycle — which is the property the ladder needed cycle detection to get."""
     monkeypatch.setenv("MAD_HARNESS_PLAN_TIERS", "0")
     r = Runner()
     d = results_for(**{"analyst-survey": SURVEY, "architect": "ADEQUACY: ESCALATE — beyond me\n"})
     text, code = seq(repo, r, d).run()
     assert code == 4 and "nothing above it" in text and "tk.sh park" in r.keys()
-    assert [a for a, _ in d.seen].count("architect") == 1
+    # Once at the head and once at the one entry above it, then park — never a loop.
+    assert [a for a, _ in d.seen].count("architect") == 2
 
 
 def test_the_audit_is_handed_the_rendered_view_and_told_not_to_loop(repo):

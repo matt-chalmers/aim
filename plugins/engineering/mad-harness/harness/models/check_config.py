@@ -1,6 +1,6 @@
 """Fail loudly when the model routing config and the agent definitions disagree.
 
-WHY THIS EXISTS. The tier lives in ``tiers.yaml``; each agent declares which tier
+WHY THIS EXISTS. The strength lives in ``strengths.yaml``; each activity declares which
 it wants; and each agent ALSO carries ``model:``/``effort:``, which is what Claude
 Code reads when the agent is run natively (``claude --agent <name>``) rather than
 through the boundary. Two readers, one intent. Let them drift and the same agent
@@ -10,7 +10,7 @@ path is refused for this plugin's agents by ``swarm/guard-agent-tool.sh``; the
 native CLI path is what the mirror still guards.)
 
 A NON-ANTHROPIC TIER IS EXEMPT, out loud. The frontmatter has no provider field, so
-a tier routed at another provider cannot be mirrored into it; the agent is printed
+a strength routed at another provider cannot be mirrored into it; the agent is printed
 with the exemption rather than failed as drift.
 
 This is the same shape of guard as ``check-analyst-mirror.sh``: two files that
@@ -18,7 +18,7 @@ must agree, and a script that says so out loud rather than trusting anyone to
 remember.
 
 THE PLUGIN'S DEFAULTS, NOT A PROJECT'S ARM. Every resolve here passes
-``project_tiers={}``: a consuming project's ``agent_tiers:`` block moves an agent
+``merge_project=False``: a consuming project's own patch moves an agent
 deliberately, for a measured A/B, and the frontmatter is meant to keep saying what
 the plugin ships. Run from such a project, the override would otherwise read as
 drift between the two readers and fail a config that is exactly as intended.
@@ -33,22 +33,40 @@ import sys
 from .resolve import AGENTS_DIR, ConfigError, agent_frontmatter, load_config, resolve
 
 
+def activities_of(agent: str, config: dict | None = None) -> list[str]:
+    """Every activity this agent performs, in declaration order.
+
+    DERIVED FROM THE ACTIVITY CONFIG, never from the agent's name: the binding lives in
+    `activities.<id>.agent` and the relationship between the two names is incidental.
+    """
+    config = config or load_config(merge_project=False)
+    return [aid for aid, spec in (config.get("activities") or {}).items() if spec.get("agent") == agent]
+
+
 def sync(name: str) -> tuple[str, str] | None:
     """Stamp an agent's `model:`/`effort:` from its tier. Returns (before, after).
 
     These two fields are DERIVED — fully determined by the agent's `model_tier:`
-    and by tiers.yaml — but they are also the fields that EXECUTE on the native path:
+    and by strengths.yaml — but they are also the fields that EXECUTE on the native path:
     Claude Code reads them when an agent is run as `claude --agent <name>`. (The Agent
     tool path is refused for this plugin's agents by `swarm/guard-agent-tool.sh`, so
     since 0.10.9 the boundary is how nearly every dispatch runs; the mirror guards the
     native path that remains.) Hand-maintaining a derived field that is also an
     operative one is where a costly mistake hides, so it is generated.
 
-    NOT FOR A NON-ANTHROPIC TIER. The frontmatter reader has no provider concept: a
+    NOT FOR A NON-ANTHROPIC STRENGTH. The frontmatter reader has no provider concept: a
     `qwen/...` id stamped into `model:` would be handed to Anthropic. Such an agent is
     left unstamped, and the check says so rather than reporting drift.
+
+    FROM THE AGENT'S ACTIVITIES, since 0.12.0 — an agent no longer declares a tier. Where an
+    agent performs several activities that resolve to DIFFERENT models, there is no single
+    value to stamp and the check reports the ambiguity rather than picking one.
     """
-    r = resolve(name, project_tiers={}, config=load_config(merge_project=False))
+    config = load_config(merge_project=False)
+    acts = activities_of(name, config)
+    if not acts:
+        return None
+    r = resolve(name, activity=acts[0], config=config)
     if r.provider != "anthropic":
         return None
     path = AGENTS_DIR / f"{name}.md"
@@ -74,14 +92,13 @@ def main() -> int:
     try:
         # THE PLUGIN'S SHIPPED DEFAULTS, not the project's patch of them: this compares
         # agent frontmatter with what the plugin declares, and a project's deliberate
-        # redefinition of a tier is not drift — the same reason `project_tiers={}` below.
+        # patch of a strength is not drift — this judges what the plugin ships.
         config = load_config(merge_project=False)
     except ConfigError as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 2
 
-    tiers = config["tiers"]
-    print(f"tiers: {', '.join(sorted(tiers))}   default: {config['default_tier']}")
+    print(f"strengths: {', '.join(sorted(config['strengths']))}   activities: {len(config['activities'])}")
 
     failures: list[str] = []
     agents = sorted(AGENTS_DIR.glob("*.md"))
@@ -92,11 +109,20 @@ def main() -> int:
     synced: list[str] = []
     for path in agents:
         name = path.stem
+        acts = activities_of(name, config)
+        if not acts:
+            failures.append(
+                f"{name}: no activity in strengths.yaml names this agent, so nothing can "
+                f"dispatch it on a standard boundary. Declare one under `activities:`."
+            )
+            continue
         try:
-            r = resolve(name, config=config, project_tiers={})
+            resolutions = {a: resolve(name, activity=a, config=config) for a in acts}
         except ConfigError as exc:
             failures.append(f"{name}: {exc}")
             continue
+        r = resolutions[acts[0]]
+        distinct = {(x.model, x.effort) for x in resolutions.values()}
 
         if write:
             change = sync(name)
@@ -104,30 +130,38 @@ def main() -> int:
                 synced.append(f"{name}: {change[0]} -> {change[1]}")
 
         fm = agent_frontmatter(name)
-        if fm.get("model_tier") is None:
+        if "model_tier" in fm:
             failures.append(
-                f"{name}: no model_tier declared, so it silently takes the global "
-                f"default ({config['default_tier']}). Declare it."
+                f"{name}: declares `model_tier:`, which is gone (0.12.0). An agent no longer "
+                f"picks its own strength — the activity it performs does, in strengths.yaml. "
+                f"Remove the key."
             )
+        if len(distinct) > 1:
+            failures.append(
+                f"{name}: performs {', '.join(acts)}, which resolve to different models "
+                f"({', '.join(sorted(f'{m} {e}' for m, e in distinct))}). `claude --agent` can "
+                f"carry only one, so the frontmatter mirror cannot be stamped unambiguously."
+            )
+            continue
         if r.provider != "anthropic":
             # The frontmatter reader cannot express a provider; the mirror is exempt and
             # says so — a native `claude --agent` run of this agent would not reach the
             # tier's model, and that is the fact to print, not a drift to fail on.
-            print(f"  {name:22s} {r.tier:10s} {r.provider}/{r.model} effort={r.effort}  (frontmatter not mirrored: non-Anthropic provider)")
+            print(f"  {name:22s} {'+'.join(acts):34s} {r.strength:7s} {r.provider}/{r.model}  (frontmatter not mirrored: non-Anthropic provider)")
             continue
         for key in ("model", "effort"):
             declared, expected = fm.get(key), getattr(r, key)
             if declared != expected:
                 failures.append(
-                    f"{name}: frontmatter {key}={declared!r} contradicts tier "
-                    f"{r.tier!r} which resolves {key}={expected!r}. `claude --agent` "
-                    f"reads frontmatter; the boundary reads the tier — so this "
+                    f"{name}: frontmatter {key}={declared!r} contradicts strength "
+                    f"{r.strength!r} which resolves {key}={expected!r}. `claude --agent` "
+                    f"reads frontmatter; the boundary reads the activity — so this "
                     f"agent runs differently depending on how it is dispatched."
                 )
-        print(f"  {name:22s} {r.tier:10s} {r.provider}/{r.model} effort={r.effort}")
+        print(f"  {name:22s} {'+'.join(acts):34s} {r.strength:7s} {r.provider}/{r.model} thinking={r.effort}")
 
     if synced:
-        print("\nsynced from tiers.yaml:")
+        print("\nsynced from strengths.yaml:")
         for line in synced:
             print(f"  {line}")
 
@@ -138,14 +172,14 @@ def main() -> int:
         if not write:
             print(
                 "\n  Run `make models-sync` to regenerate model:/effort: from the "
-                "tiers, or fix the tier declaration itself.",
+                "activities, or fix the activity itself.",
                 file=sys.stderr,
             )
         return 1
 
     tail = " (nothing to sync)" if write and not synced else ""
     print(
-        f"\nOK — {len(agents)} agents, every tier resolves, no frontmatter drift{tail}."
+        f"\nOK — {len(agents)} agents, every activity resolves, no frontmatter drift{tail}."
     )
     return 0
 

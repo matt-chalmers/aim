@@ -7,8 +7,7 @@ skills:
   - spec-lifecycle
   - work-decomposition
 model: claude-opus-5[1m]
-model_tier: strategic
-effort: max
+effort: xhigh
 color: purple
 ---
 

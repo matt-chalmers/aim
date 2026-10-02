@@ -272,8 +272,8 @@ def test_a_reader_gets_tracker_readonly_and_a_writer_never_inherits_it(monkeypat
     from models.resolve import resolve
 
     monkeypatch.setenv("TRACKER_READONLY", "1")  # a dispatcher that is itself a reader
-    reader = build_env(resolve("verifier"))
-    writer = build_env(resolve("fullstack-engineer"))
+    reader = build_env(resolve("verifier", activity="verify.impl"))
+    writer = build_env(resolve("fullstack-engineer", activity="work.implement"))
     assert reader["TRACKER_READONLY"] == "1"
     assert "TRACKER_READONLY" not in writer, "a writer dispatched by a reader must still be able to close its task"
 

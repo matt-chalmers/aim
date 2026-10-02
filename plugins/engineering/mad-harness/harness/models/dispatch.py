@@ -339,7 +339,12 @@ class Outcome:
 
     @property
     def ceiling_source(self) -> str:
-        """WHO CHECKED `max_budget_usd` on this dispatch — `harness`, `cli`, or `none`.
+        """WHO CHECKED `max_budget_usd` — `harness`, `cli`, `unset`, or `none`.
+
+        AN ABSENT CEILING IS A CHOICE; AN UNENFORCEABLE ONE IS A FAULT, and they must not
+        share a value or the fault hides inside the choice. `unset` means the activity
+        declared no ceiling at this complexity — the operator's call, warned about at config
+        time and not enforced. `none` means a ceiling EXISTS and nothing could check it.
 
         `cli` is right on Anthropic, where the SDK's figure is the vendor's own accounting.
         On a priced tier the harness meters the stream itself, and `none` is the case that
@@ -347,6 +352,8 @@ class Outcome:
         deliberately loosened, but no message carried usage and nothing enforced the real
         number. A ceiling that looks enforced and is not is worse than one that is absent.
         """
+        if self.resolved.max_budget_usd is None:
+            return "unset"
         if not self.resolved.price:
             return "cli"
         if self.raw.get("ceiling_enforced_by") == "harness" or self.raw.get("metered_turns"):
@@ -387,7 +394,7 @@ class Outcome:
             "levers": _levers.snapshot(),
             "cost_usd": self.priced_cost()[0],
             #: `sdk` — Claude Code's own figure, the vendor's accounting on Anthropic; or
-            #: `priced (...)` — computed from this dispatch's tokens at the tier's declared
+            #: `priced (...)` — computed from this dispatch's tokens at the strength's declared
             #: rates, because the CLI cannot price a third-party endpoint (models/pricing.py).
             "cost_source": self.priced_cost()[1],
             #: Which enforcer actually checked the ceiling — see `ceiling_source`.
@@ -635,7 +642,10 @@ def _run_sdk(
         # fifth of the way in and looking like the model failing. Each message carries its
         # own usage; summed at the tier's declared rates, that is the same number the
         # record will show, which is what makes the ceiling mean what it says.
-        meter = pricing.Meter(r.price, r.max_budget_usd) if r.price else None
+        # A ceiling of None is "no ceiling declared" — nothing to meter against, so no meter
+        # and no `unenforceable_ceiling`: that fault is for a ceiling that exists and cannot
+        # be checked, never for one the operator chose not to set.
+        meter = pricing.Meter(r.price, r.max_budget_usd) if (r.price and r.max_budget_usd is not None) else None
         seen_ids: set[str] = set()
         killed: dict[str, Any] | None = None
         began = time.monotonic()
@@ -676,9 +686,9 @@ def _run_sdk(
                                 "result": (
                                     f"the harness stopped this dispatch: {progress['turns']} turn(s) "
                                     f"carried no usage, so nothing was checking its "
-                                    f"${r.max_budget_usd:.2f} ceiling. Tier {r.tier!r} is on "
+                                    f"${r.max_budget_usd:.2f} ceiling. Strength {r.strength!r} is on "
                                     f"{r.provider}, which is priced by this harness rather than by "
-                                    f"the CLI — run probe-compat.sh {r.provider} and bound the tier "
+                                    f"the CLI — run probe-compat.sh {r.provider} and bound the activity "
                                     f"with task_budget_tokens."
                                 ),
                                 "total_cost_usd": 0.0,
@@ -806,7 +816,11 @@ def dispatch(
     agent: str,
     prompt: str,
     *,
-    override_tier: str | None = None,
+    activity: str | None = None,
+    complexity: str | None = None,
+    strength: str | None = None,
+    max_budget_usd: float | None = None,
+    task_budget_tokens: int | None = None,
     high_risk: bool = False,
     cwd: Path | None = None,
     lane: str | None = None,
@@ -822,7 +836,15 @@ def dispatch(
     # permission rules behind it, which is the posture this project decided not to ship.
     require_sandbox()
 
-    r = resolve(agent, override_tier=override_tier, high_risk=high_risk)
+    r = resolve(
+        agent,
+        activity=activity,
+        complexity=complexity,
+        strength=strength,
+        max_budget_usd=max_budget_usd,
+        task_budget_tokens=task_budget_tokens,
+        high_risk=high_risk,
+    )
     if r.missing_env:
         raise DispatchError(
             f"provider {r.provider!r} needs {', '.join(r.missing_env)} in the "
@@ -1005,8 +1027,15 @@ def build_parser():
     )
     ap.add_argument("--prompt-extra", type=Path, default=None, help="with --task-prompt: a file appended under 'From the orchestrator'")
     ap.add_argument("--no-claim", action="store_true", help="do not claim the task before spawning a writer (the default claims it under the worker's actor)")
-    ap.add_argument("--tier", default=None, help="explicit override (rank 1)")
-    ap.add_argument("--high-risk", action="store_true", help="force the policy tier")
+    ap.add_argument("--activity", default=None, help="the standard activity this dispatch performs, e.g. verify.spec")
+    ap.add_argument("--complexity", default=None, help="simple|standard|complex, from the epic's surface")
+    ap.add_argument("--strength", default=None, help="explicit override (rank 1), and the ad-hoc path's mandatory input")
+    # AD-HOC ONLY, and they exist because nothing may be guessed: a dispatch off the standard
+    # activity boundaries must supply what an activity would have supplied. Neither flag
+    # existed before 0.12.0 — a ceiling only ever came from the tier.
+    ap.add_argument("--max-budget-usd", type=float, default=None, help="ad-hoc: the ceiling an activity would have given")
+    ap.add_argument("--task-budget-tokens", type=int, default=None, help="ad-hoc: the token budget to tell the model")
+    ap.add_argument("--high-risk", action="store_true", help="read the surface as `complex`")
     ap.add_argument("--task", default=None, help="task id, for telemetry")
     ap.add_argument("--attempt", type=int, default=1)
     ap.add_argument("--cwd", type=Path, default=None, help="worktree to run in")
@@ -1059,7 +1088,9 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.dry_run:
-            r = resolve(args.agent, override_tier=args.tier, high_risk=args.high_risk)
+            r = resolve(args.agent, activity=args.activity, complexity=args.complexity,
+                        strength=args.strength, max_budget_usd=args.max_budget_usd,
+                        task_budget_tokens=args.task_budget_tokens, high_risk=args.high_risk)
             print(r)
             # The routing the project set, with provenance — a run's property, not a
             # dispatch's, so it is printed here and never repeated on every event.
@@ -1067,8 +1098,12 @@ def main(argv: list[str] | None = None) -> int:
 
             cfg = load_config()
             prov = provenance(cfg)
-            print(f"  route: default_tier={cfg['default_tier']} ({'project' if prov['default_tier'] else 'plugin'})"
-                  f"  ladder=[{', '.join(cfg.get('ladder') or [])}] ({'project' if prov['ladder'] else 'plugin'})")
+            patched = ", ".join(sorted(set(prov["strengths"]) | set(prov["activities"]))) or "none"
+            print(f"  route: {len(cfg['strengths'])} strength(s), {len(cfg['activities'])} activity(ies)"
+                  f"  project-patched: {patched}")
+            if r.max_budget_usd is None:
+                print("  NO CEILING: this activity and complexity declare no max_budget_usd — "
+                      "nothing will be enforced")
             o = r.sdk_options(cwd=str(REPO))
             print("  agent:", o.extra_args.get("agent"))
             print("  mode :", o.permission_mode, "| settings:", ",".join(o.setting_sources or []))
@@ -1118,7 +1153,11 @@ def main(argv: list[str] | None = None) -> int:
         outcome = dispatch(
             args.agent,
             prompt,
-            override_tier=args.tier,
+            activity=args.activity,
+            complexity=args.complexity,
+            strength=args.strength,
+            max_budget_usd=args.max_budget_usd,
+            task_budget_tokens=args.task_budget_tokens,
             high_risk=args.high_risk,
             cwd=cwd,
             lane=args.lane,
@@ -1154,10 +1193,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"full: {kept}")
     if outcome.ceiling_source == "none":
         print(
-            f"\n-- CEILING NOT ENFORCED: tier {outcome.resolved.tier!r} declares a price, so the "
+            f"\n-- CEILING NOT ENFORCED: strength {outcome.resolved.strength!r} declares a price, so the "
             f"CLI's own ceiling was loosened to let the harness meter the real spend — but no "
             f"message carried usage, so nothing checked the ${outcome.resolved.max_budget_usd:.2f} "
-            f"ceiling. Bound this tier with `task_budget_tokens` until the provider reports usage.",
+            f"ceiling. Bound this activity with `task_budget_tokens` until the provider reports usage.",
             file=sys.stderr,
         )
     if outcome.budget_exhausted:
@@ -1174,13 +1213,14 @@ def main(argv: list[str] | None = None) -> int:
             f"\n-- BUDGET EXHAUSTED: {money(spent_usd)} spent"
             + (f" against a {money(ceiling)} ceiling" if ceiling else "")
             + f" after {outcome.turns} turn(s). This is not BLOCKED — the worker was cut off. "
-            f"Check `resume-point.sh <task>` for uncommitted work, then escalate the tier or "
+            f"Check `resume-point.sh <task>` for uncommitted work, then escalate the strength or "
             f"split the task; do not re-dispatch as-is.",
             file=sys.stderr,
         )
     print(
         f"\n-- {outcome.resolved.provider}/{outcome.resolved.model} "
-        f"tier={outcome.resolved.tier} terminal={outcome.terminal} turns={outcome.turns} "
+        f"{outcome.resolved.activity or 'ad-hoc'} strength={outcome.resolved.strength} "
+        f"terminal={outcome.terminal} turns={outcome.turns} "
         # THE NUMBER THIS DISPATCH COST, not the SDK's field — which is absent on a tier
         # the harness prices itself, and printed $0.0000 beside `terminal=budget` for a
         # dispatch that had just spent $0.009.

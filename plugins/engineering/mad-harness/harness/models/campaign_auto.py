@@ -141,7 +141,8 @@ def run_epic(epic: dict[str, Any], *, runner: Runner | None = None, cwd: Path = 
         }
     try:
         proc = _run(
-            [str(DISPATCH), "campaign-orchestrator", "--prompt-file", str(prompt), "--task", str(epic["id"]),
+            [str(DISPATCH), "campaign-orchestrator", "--activity", "loop.orchestrate",
+             "--prompt-file", str(prompt), "--task", str(epic["id"]),
              "--digest", "12", "--out", str(out_file)],
             cwd=cwd, runner=runner, timeout=timeout,
         )

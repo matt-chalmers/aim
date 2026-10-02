@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # The analyst is split in two so the SURVEY can run at lower effort than the AUDIT:
 #
-#   agents/analyst-survey.md            tier: worker     — breadth-first corpus sweep
-#   agents/analyst.md                   tier: strong     — judges a drafted plan
+#   agents/analyst-survey.md     spec.survey at `mid`    — breadth-first corpus sweep
+#   agents/analyst.md            spec.audit at `strong`  — judges a drafted plan
 #
-# The concrete model and effort now come from the tier (harness/models/tiers.yaml);
+# The concrete model and thinking come from the strength the ACTIVITY routes at
+# (harness/models/strengths.yaml);
 # this script asserts only that the two DIFFER, which is what the split buys.
 #
 # Effort is one value per agent file and the Agent tool has no per-dispatch override, so the
-# split is the only way to tier them. The cost of splitting is DRIFT — the exact failure the
+# split is the only way to route them apart. The cost of splitting is DRIFT — the exact failure the
 # skill/command factoring exists to prevent — and the two files share a block of GUARDRAILS
 # ("you never write requirements, and you never enhance them"), which must be present
 # unconditionally rather than behind a skill load that might not happen.
@@ -55,4 +56,4 @@ eb=$(sed -n 's/^effort: *//p' "$B" | head -1)
 echo "effort — analyst(AUDIT)=$ea  analyst-survey(SURVEY)=$eb"
 [ "$ea" = "xhigh" ] || { echo "FAIL: the AUDIT must stay xhigh — it has caught a false premise in every plan it has read." >&2; exit 4; }
 [ "$eb" = "$ea" ] && { echo "FAIL: efforts are equal, so the split buys nothing." >&2; exit 5; }
-echo "OK — tiering is in effect."
+echo "OK — the split routing is in effect."

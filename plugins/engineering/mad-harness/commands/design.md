@@ -31,8 +31,9 @@ frontmatter → the architecture doc for the subsystem touched. All four locatio
 ## 2. Dispatch the architect
 
 **Dispatch the `architect` agent through the harness boundary now:**
-`${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh architect --prompt-file <path>` — the tier decides its model,
-effort and budget. Name it explicitly — this
+`${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh architect --activity design.create --prompt-file <path>` — the
+activity decides its model, thinking and budget, and `--activity` is required: nothing infers
+one from the agent's name. Name it explicitly — this
 instruction is the request, so do not skip it on the grounds that you could design it
 yourself.
 

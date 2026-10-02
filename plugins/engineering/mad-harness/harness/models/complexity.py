@@ -68,6 +68,19 @@ class Card:
     def reading(self) -> str:
         return "flagged" if self.flagged else ("unreadable" if self.unreadable else "simple")
 
+    @property
+    def complexity(self) -> str:
+        """The reading as one of `resolve.COMPLEXITIES`, which is what routing keys on.
+
+        THE MAPPING IS NOT COSMETIC. `unreadable` — the honest "we cannot tell" — becomes
+        `standard`, the middle, which is exactly what the tier rule did with it before
+        0.12.0: it was treated as not-simple, so the stage kept its declared tier rather
+        than being demoted. Mapping it to `simple` would demote work nobody has read, and
+        mapping it to `complex` would pay deep-thinking rates for an epic that may be
+        trivial. The middle is the only answer that claims nothing.
+        """
+        return {"flagged": "complex", "unreadable": "standard", "simple": "simple"}[self.reading]
+
     def why(self) -> str:
         reasons = []
         if self.triggered:

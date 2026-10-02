@@ -35,20 +35,25 @@ def load_events(cwd: str | None = None) -> list[dict[str, Any]]:
 
 
 def summarise(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Per agent+tier: count, total and mean cost, mean turns, failure rate."""
+    """Per agent+activity+strength: count, total and mean cost, mean turns, failure rate."""
     groups: dict[tuple[str, str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for e in events:
         # A project's redefined `worker` is not the plugin's; the two never share a row.
         # A computed cost and the SDK's estimate are different measurements; a row that
         # mixed them would average a price against a guess.
+        # ACTIVITY IS PART OF THE KEY. Without it, the architect's sanity-check and its full
+        # design share a row — and telling those apart is the whole point of routing by
+        # activity. The product stays sparse (one agent per activity), so this adds rows
+        # roughly one-for-one rather than multiplying them.
         groups[
-            (e.get("agent", "?"), e.get("tier", "?"), e.get("provider", "?"), e.get("tier_source") or "plugin",
+            (e.get("agent", "?"), str(e.get("activity") or "ad-hoc"), e.get("strength", "?"),
+             e.get("provider", "?"), e.get("strength_source") or "plugin",
              "priced" if str(e.get("cost_source") or "sdk").startswith("priced") else "sdk",
              str(e.get("billing") or "metered"))
         ].append(e)
 
     rows = []
-    for (agent, tier, provider, source, costing, billing), es in groups.items():
+    for (agent, activity, strength, provider, source, costing, billing), es in groups.items():
         costs = [float(e.get("cost_usd") or 0) for e in es]
         turns = [int(e.get("turns") or 0) for e in es]
         fails = sum(1 for e in es if not e.get("ok"))
@@ -62,9 +67,10 @@ def summarise(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         rows.append(
             {
                 "agent": agent,
-                "tier": tier,
+                "activity": activity,
+                "strength": strength,
                 "provider": provider,
-                "tier_source": source,
+                "strength_source": source,
                 "cost_source": costing,
                 "billing": billing,
                 "n": len(es),
@@ -76,7 +82,7 @@ def summarise(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "cache_hit_pct": round(100 * reads / prompt) if prompt else None,
                 "cache_write_pct": round(100 * writes / prompt) if prompt else None,
                 # A budget kill is not a failure the worker reported; it is the ceiling
-                # cutting it off. Counted apart so a tier that keeps dying is visible.
+                # cutting it off. Counted apart so an activity that keeps dying is visible.
                 "budget_kills": sum(1 for e in es if e.get("terminal") == "budget"),
                 # TOOL RESULTS AS A SHARE OF THE PROMPT, token-weighted like the cache
                 # figures. Field: 28% per worker; lab: ~7%. Measured only where the
@@ -119,14 +125,14 @@ def main() -> int:
     for r in rows:
         pockets[r["billing"]] += r["total_usd"]
     print(
-        f"{'agent':<22}{'tier':<11}{'provider':<11}{'src':<9}{'$src':<8}{'n':>4}"
+        f"{'agent':<20}{'activity':<20}{'strength':<8}{'provider':<11}{'src':<8}{'$src':<7}{'n':>4}"
         f"{'total $':>10}{'mean $':>9}{'turns':>7}{'fail%':>7}{'esc':>5}"
         f"{'kills':>7}{'cache%':>8}{'write%':>8}{'results%':>10}{'large':>7}{'breaks':>8}"
     )
     pct = lambda v: "—" if v is None else str(v)  # noqa: E731
     for r in rows:
         print(
-            f"{r['agent']:<22}{r['tier']:<11}{r['provider']:<11}{r['tier_source']:<9}{r['cost_source']:<8}{r['n']:>4}"
+            f"{r['agent']:<20}{r['activity']:<20}{r['strength']:<8}{r['provider']:<11}{r['strength_source']:<8}{r['cost_source']:<7}{r['n']:>4}"
             f"{r['total_usd']:>10.3f}{r['mean_usd']:>9.4f}"
             f"{r['mean_turns']:>7.1f}{r['fail_pct']:>7}{r['escalations']:>5}"
             f"{r['budget_kills']:>7}{pct(r['cache_hit_pct']):>8}{pct(r['cache_write_pct']):>8}"
@@ -152,8 +158,8 @@ def main() -> int:
             for k, v in sorted(pockets.items())
         ) + ("   (two pockets, deliberately not summed)" if len(pockets) > 1 else ""))
     print(
-        "A tier is worth keeping when its fail% and escalations stay low. "
-        "A cheap tier that escalates re-pays the whole fixed base, so it is a "
+        "A strength is worth keeping for an activity when its fail% stays low. "
+        "A cheap strength that escalates re-pays the whole fixed base, so it is a "
         "loss well before its failure rate looks alarming."
     )
     return 0

@@ -9,7 +9,6 @@ skills:
   - evidence-gathering
 isolation: worktree
 model: claude-sonnet-5
-model_tier: worker
 effort: high
 color: green
 ---

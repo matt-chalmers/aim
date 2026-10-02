@@ -58,10 +58,32 @@ def load(root: Path, lever: str) -> dict[str, list[dict[str, Any]]]:
 
 
 #: Writers, whose cost a lever is about; everything else in a run is the judging of it.
-WRITERS = ("fullstack-engineer", "quality-engineer")
-#: The one agent whose turns ARE the orchestration cost — present only in an
+#:
+#: BY ACTIVITY NAMESPACE, NOT BY AGENT NAME. This was `("fullstack-engineer",
+#: "quality-engineer")` — a classification keyed off a literal name tuple, so every
+#: "writers / run" figure the rig has ever reported came from that list, and adding a writer
+#: agent would have silently undercounted without a symptom. The activity namespace is the
+#: fact being asked about: `work.*` is the doing, everything else is the judging of it.
+WRITER_NAMESPACE = "work."
+#: The activity whose turns ARE the orchestration cost — present only in an
 #: `ab.sh --orchestrated` run, where it drove the whole epic through `campaign.sh`.
-ORCHESTRATOR = "campaign-orchestrator"
+ORCHESTRATOR_ACTIVITY = "loop.orchestrate"
+
+
+def _is_writer(row: dict[str, Any]) -> bool:
+    """A writing dispatch. Falls back to the agent's own frontmatter for a row with no
+    activity (an ad-hoc dispatch, or a series recorded before 0.12.0), which is the same
+    question `permission_for` asks: does it declare Edit or Write?"""
+    activity = str(row.get("activity") or "")
+    if activity:
+        return activity.startswith(WRITER_NAMESPACE)
+    from .resolve import agent_frontmatter
+
+    try:
+        tools = str(agent_frontmatter(str(row.get("agent") or "")).get("tools") or "")
+    except Exception:
+        return False
+    return "Edit" in tools or "Write" in tools
 
 
 def load_outcomes(root: Path, lever: str) -> dict[str, dict[str, dict[str, Any]]]:
@@ -124,9 +146,9 @@ def summarise(by_arm: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, An
             "n_dispatches": len(rows),
             "n_runs": len({r["_run"] for r in rows}),
             "shas": sorted({r.get("_sha", "?") for r in rows}),
-            # A series that mixes a project's redefined tier with the plugin's is two
+            # A series that mixes a project's patched strength with the plugin's is two
             # series; flagged like mixed code, never averaged.
-            "tier_sources": sorted({str(r.get("tier_source") or "plugin") for r in rows}),
+            "strength_sources": sorted({str(r.get("strength_source") or "plugin") for r in rows}),
             #: `sdk` is Claude Code's estimate, `priced` is computed from the tier's own
             #: rates (models/pricing.py). Comparing one against the other is not a series.
             "cost_sources": sorted({("priced" if str(r.get("cost_source") or "sdk").startswith("priced") else "sdk") for r in rows}),
@@ -151,10 +173,10 @@ def summarise(by_arm: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, An
         for r in rows:
             per_run[r["_run"]] += float(r.get("cost_usd") or 0)
             pocket_per_run[str(r.get("billing") or "metered")][r["_run"]] += float(r.get("cost_usd") or 0)
-            if r.get("agent") != ORCHESTRATOR:  # the container of the others, not one of them
+            if str(r.get("activity") or "") != ORCHESTRATOR_ACTIVITY:  # the container of the others, not one of them
                 minutes_per_run[r["_run"]] += float(r.get("duration_ms") or 0) / 60000
                 dispatches_per_run[r["_run"]] += 1
-            if r.get("agent") in WRITERS:
+            if _is_writer(r):
                 writers_per_run[r["_run"]] += float(r.get("cost_usd") or 0)
         s["cost_per_run"] = _quartiles(list(per_run.values()))
         s["cost_per_run_by_pocket"] = {
@@ -171,7 +193,7 @@ def summarise(by_arm: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, An
         # THE ORCHESTRATOR'S OWN PRICE, kept apart from the work it dispatched. Its turns
         # are the count the prose-to-code series claims to cut; its cost is those turns at
         # its context's price; the children are what it spent them on.
-        orch = [r for r in rows if r.get("agent") == ORCHESTRATOR]
+        orch = [r for r in rows if str(r.get("activity") or "") == ORCHESTRATOR_ACTIVITY]
         if orch:
             s["orch_turns"] = _quartiles([float(r.get("turns") or 0) for r in orch])
             s["orch_cost"] = _quartiles([float(r.get("cost_usd") or 0) for r in orch])
@@ -181,7 +203,7 @@ def summarise(by_arm: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, An
             kids: dict[str, int] = defaultdict(int)
             lens: dict[str, int] = defaultdict(int)
             for r in rows:
-                if r.get("agent") == ORCHESTRATOR:
+                if str(r.get("activity") or "") == ORCHESTRATOR_ACTIVITY:
                     continue
                 kids[r["_run"]] += 1
                 if r.get("agent") in LENS_LABEL:
@@ -230,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
         q1, med, q3 = a["cost_per_run"]
         code = ", ".join(a["shas"]) + ("  ← MIXED CODE across runs; do not read this arm as one sample" if len(a["shas"]) > 1 else "")
         code += f", cost {'/'.join(a['cost_sources'])}" + ("  ← MIXED COST SOURCES (the SDK's estimate and a computed price); not one sample" if len(a["cost_sources"]) > 1 else "")
-        code += f", tiers {'/'.join(a['tier_sources'])}" + ("  ← MIXED TIER SOURCES (plugin and project); not one sample" if len(a["tier_sources"]) > 1 else "")
+        code += f", strengths {'/'.join(a['strength_sources'])}" + ("  ← MIXED STRENGTH SOURCES (plugin and project); not one sample" if len(a["strength_sources"]) > 1 else "")
         print(f"\n[{arm}]  {a['n_runs']} run(s), {a['n_dispatches']} dispatch(es), {a['kills']} budget kill(s), {a['not_ok']} not-ok, code {code}")
         floor = f"   — a FLOOR: {a['timeouts']} dispatch(es) killed at timeout, cost unknown" if a.get("timeouts") else ""
         judged = "   — writers AND lenses" if a.get("judged") else ""

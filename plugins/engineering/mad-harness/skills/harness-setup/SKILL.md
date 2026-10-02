@@ -199,7 +199,7 @@ is measured at ~3s against a suite that takes over two minutes to execute.
 
 It earns its place because a wrong command fails **loudly but late** — once per worker per
 wave, and a worker that gives up returns `BLOCKED`, which the escalation policy sends to a
-costlier tier that cannot fix a config error. A module with no `verify` is reported
+costlier strength that cannot fix a config error. A module with no `verify` is reported
 UNPROVEN rather than assumed good, which is a real answer and a fine place to start.
 
 **The runner is a project choice, not a toolchain property.** A package manager does not

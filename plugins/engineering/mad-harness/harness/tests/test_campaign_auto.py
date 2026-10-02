@@ -71,13 +71,15 @@ def test_every_open_epic_gets_its_own_dispatch_and_the_prompt_names_only_it(tmp_
     dispatches = [c for c in run.calls if c[0].endswith("dispatch.sh")]
     assert [c[c.index("--task") + 1] for c in dispatches] == ["E-1", "E-2"]
     assert all(c[1] == "campaign-orchestrator" and "--digest" in c and "--out" in c for c in dispatches)
+    # EVERY STANDARD DISPATCH NAMES ITS ACTIVITY — no alias, no inference from the agent name.
+    assert all(c[c.index("--activity") + 1] == "loop.orchestrate" for c in dispatches)
     prompt = (tmp_path / "campaign" / "E-2-prompt.md").read_text()
     assert "`E-2`" in prompt and "E-1" not in prompt and "MODE=auto" in prompt
     assert "§1 (the queue) and §2 (triage) have been done" in prompt and "READY with 3 task(s)" in prompt
     assert "2 epic session(s), 2 ended ok" in capsys.readouterr().out
     # THE LEASE wraps every session, and the signals are recorded with the outcome.
     names = [c[0].split("/")[-1] + " " + " ".join(c[1:3]) for c in run.calls]
-    i = names.index("dispatch.sh campaign-orchestrator --prompt-file")
+    i = names.index("dispatch.sh campaign-orchestrator --activity")
     assert names[i - 1] == "tk.sh lease acquire" and names[i + 1] == "tk.sh lease release"
     sig = [c for c in run.calls if c[0].endswith("campaign-signals.sh")]
     assert [c[1:4] for c in sig] == [["E-1", "--outcome", "closed"], ["E-2", "--outcome", "closed"]] and all("--record" in c for c in sig)

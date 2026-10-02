@@ -62,7 +62,7 @@ def stamp(path: Path, installed: str) -> str:
 
 
 
-def _collapsed_rungs(cfg: dict) -> list[str]:
+def _collapsed_strengths(cfg: dict) -> list[str]:
     """Ladder rungs that escalate to the same thing, because effort is all that separates
     them and the provider may not act on it.
 
@@ -80,22 +80,85 @@ def _collapsed_rungs(cfg: dict) -> list[str]:
     output and 39 -> 113 -> 299 thinking, so the instrument reads the effect where there is
     one. One provider and one prompt, hence a warning and not a refusal.
     """
-    tiers, ladder = cfg.get("tiers") or {}, cfg.get("ladder") or []
+    strengths = cfg.get("strengths") or {}
     out: list[str] = []
-    for lower, upper in zip(ladder, ladder[1:]):
-        a, b = tiers.get(lower) or {}, tiers.get(upper) or {}
-        if not a or not b:
-            continue
-        same = (a.get("provider"), a.get("model")) == (b.get("provider"), b.get("model"))
-        if same and a.get("provider") != "anthropic" and a.get("effort") != b.get("effort"):
+    # EVERY PAIR, not ladder adjacency. The ladder is gone, and all-pairs is both more
+    # coverage and less code: two strengths that differ only by `thinking` are a
+    # distinction-without-a-difference off Anthropic wherever they sit in a chain.
+    names = sorted(strengths)
+    for i, lower in enumerate(names):
+        for upper in names[i + 1:]:
+            a, b = strengths.get(lower) or {}, strengths.get(upper) or {}
+            if (a.get("provider"), a.get("model")) != (b.get("provider"), b.get("model")):
+                continue
+            if a.get("provider") == "anthropic" or a.get("thinking") == b.get("thinking"):
+                continue
+            using = sorted(
+                aid for aid, spec in (cfg.get("activities") or {}).items()
+                if {lower, upper} <= set(_all_chain_members(spec))
+            )
             out.append(
-                f"escalating {lower!r} -> {upper!r} changes only `effort` "
-                f"({a.get('effort')} -> {b.get('effort')}) on {a.get('provider')}/{a.get('model')}. "
-                f"Measured on one non-Anthropic provider, effort moved nothing outside the noise — "
-                f"so that rung may cost the same and deliver the same. Give the upper tier a "
-                f"different model, or drop the rung."
+                f"strengths {lower!r} and {upper!r} are the same model "
+                f"({a.get('provider')}/{a.get('model')}) and differ only by `thinking` "
+                f"({a.get('thinking')} vs {b.get('thinking')}). Measured on one non-Anthropic "
+                f"provider (2026-09-24), thinking moved nothing outside the noise — so a chain "
+                f"holding both may cost the same and deliver the same at each step"
+                + (f"; chained together by: {', '.join(using)}" if using else "")
+                + ". Give one of them a different model, or drop it."
             )
     return out
+
+
+def _all_chain_members(spec: dict) -> set[str]:
+    """Every strength an activity can reach, at any complexity."""
+    from .resolve import COMPLEXITIES
+
+    out: set[str] = set(spec.get("strengths") or [])
+    for label in COMPLEXITIES:
+        out |= set(((spec.get(label) or {}).get("strengths")) or [])
+    return out
+
+
+def _unenforced_budgets(cfg: dict) -> list[str]:
+    """Every (activity, complexity) that resolves no ceiling or no told budget.
+
+    AT CONFIG TIME, because a warning that arrives after the money is spent is not a
+    warning. Both are optional by design — the operator may decline a ceiling — but an
+    undeclared one must be visible, or "no ceiling" and "a ceiling nothing can check" become
+    indistinguishable in the records.
+    """
+    from .resolve import COMPLEXITIES, resolve_field
+
+    # ONLY THE CEILING WARNS, and once per activity. A missing `task_budget_tokens` is the
+    # shipped norm for every reading activity — under tiers only `worker` carried one — so
+    # warning on it would fire 30 times on the plugin's own config, and a check that cries
+    # wolf gets disabled and then catches nothing. A missing CEILING is different: it was
+    # mandatory on every tier, so its absence is new, and it is the difference between a
+    # bounded dispatch and an unbounded one.
+    out: list[str] = []
+    for aid, spec in sorted((cfg.get("activities") or {}).items()):
+        uncapped = [lb for lb in COMPLEXITIES if resolve_field(spec, lb, "max_budget_usd") is None]
+        if uncapped:
+            where = "every complexity" if len(uncapped) == len(COMPLEXITIES) else ", ".join(uncapped)
+            out.append(
+                f"activity {aid} declares no `max_budget_usd` at {where} — nothing will bound a "
+                f"dispatch's spend, and its record will read `ceiling_source: unset`. Deliberate "
+                f"is fine; silent is not"
+            )
+    return out
+
+
+def _unused_strengths(cfg: dict) -> list[str]:
+    """A strength no activity can reach — dead config, or a typo in a chain.
+
+    This replaces the ladder's "every tier must be placed" HARD error with a warning, which
+    is the right severity: `--strength` for a deliberate experiment is a legitimate use.
+    """
+    reachable: set[str] = set()
+    for spec in (cfg.get("activities") or {}).values():
+        reachable |= _all_chain_members(spec)
+    return [f"strength {name!r} is reachable from no activity — dead, or a typo in a chain"
+            for name in sorted(set(cfg.get("strengths") or {}) - reachable)]
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
@@ -182,40 +245,46 @@ def main(argv: list[str] | None = None) -> int:
     except ProjectError as exc:
         failures.append(str(exc))
 
-    # A tier override is a project running an A/B arm; it is shown so a reader of this
-    # output knows which agents are off the plugin's defaults, and named as an override
-    # so nobody mistakes it for the agent's own declaration.
+    # WHAT THE PROJECT PATCHED, said out loud. A project may patch any strength or activity
+    # — including what a security surface routes to — and the protection is these rows, not a
+    # refusal: an operator reading the check sees exactly what now runs on what, beside what
+    # the plugin ships. There is no `agent_tiers:` row any more because there is no such
+    # block: a project patches `activities:` itself, which is what these lines report.
     try:
-        moved = p.agent_tiers()
-        if moved:
-            print(f"agent_tiers: {', '.join(f'{k}->{v}' for k, v in sorted(moved.items()))}  (project overrides)")
-    except (ProjectError, ConfigError) as exc:
-        failures.append(str(exc))
-    # WHAT THE PROJECT REDEFINED, said out loud. A project may redefine any tier — the
-    # policy-forced one included — and the protection is this row, not a refusal: an
-    # operator reading the check sees exactly which tier now runs on what, beside what
-    # the plugin ships. `routing:` is the effective default and ladder with provenance;
-    # a policy-forced tier not last on a project ladder is legal and named.
-    try:
-        from .resolve import POLICY_FORCED_TIER, load_config, provenance
+        from .resolve import COMPLEXITIES, load_config, provenance
 
         cfg = load_config()
         prov = provenance(cfg)
-        for name in prov["tiers"]:
-            spec = cfg["tiers"][name]
+        for name in prov["strengths"]:
+            spec = cfg["strengths"][name]
             shipped = prov["shipped"].get(name)
-            was = f"plugin ships {shipped['provider']}/{shipped['model']}" if shipped else "a new tier; the plugin ships none"
-            forced = "  — THE POLICY-FORCED TIER: high-risk work lands here" if name == POLICY_FORCED_TIER else ""
-            print(f"models:  {name} = {spec['provider']}/{spec['model']} effort={spec['effort']} budget=${spec['max_budget_usd']}  (project redefinition; {was}){forced}")
+            was = f"plugin ships {shipped['provider']}/{shipped['model']}" if shipped else "a new strength; the plugin ships none"
+            print(f"models:  strength {name} = {spec['provider']}/{spec['model']} thinking={spec['thinking']}  (project patch; {was})")
+        for aid in prov["activities"]:
+            spec = cfg["activities"][aid]
+            chains = [f"{lb}:[{', '.join((spec.get(lb) or {}).get('strengths') or [])}]"
+                      for lb in COMPLEXITIES if (spec.get(lb) or {}).get("strengths")]
+            top = f"[{', '.join(spec.get('strengths') or [])}]" if spec.get("strengths") else "—"
+            print(f"models:  activity {aid} ({spec.get('agent')}) = {top} {' '.join(chains)}  (project patch)")
         for name in prov["providers"]:
-            print(f"models:  provider {name} = env [{', '.join(sorted((cfg['providers'][name].get('env') or {})))}]  (project {'redefinition' if name in ('anthropic', 'deepseek') else 'addition'})")
-        if prov["default_tier"] or prov["ladder"]:
-            src = "project" if prov["default_tier"] and prov["ladder"] else ("project default_tier, plugin ladder" if prov["default_tier"] else "plugin default_tier, project ladder")
-            print(f"routing: default_tier={cfg['default_tier']}  ladder=[{', '.join(cfg.get('ladder') or [])}]  ({src})")
-            ladder = cfg.get("ladder") or []
-            if ladder and ladder[-1] != POLICY_FORCED_TIER:
-                warnings.append(f"the policy-forced tier {POLICY_FORCED_TIER!r} is not last on the project's ladder [{', '.join(ladder)}] — high-risk work is forced to it, and escalation from it continues upward to {ladder[-1]!r}; allowed, and worth knowing")
-        warnings.extend(_collapsed_rungs(cfg))
+            print(f"models:  provider {name} = env [{', '.join(sorted((cfg['providers'][name].get('env') or {})))}]  (project {'patch' if name in ('anthropic', 'deepseek') else 'addition'})")
+        # A VERIFICATION ACTIVITY ROUTED OFF ANTHROPIC is visibility, not prevention — the
+        # same posture `merge_model_config` states. A cheaper lens is a legitimate experiment
+        # and a measured one; it should simply never be invisible.
+        for aid, spec in sorted((cfg.get("activities") or {}).items()):
+            if not aid.startswith("verify."):
+                continue
+            for name in sorted(_all_chain_members(spec)):
+                sspec = (cfg.get("strengths") or {}).get(name) or {}
+                if sspec.get("provider") not in (None, "anthropic"):
+                    warnings.append(
+                        f"{aid} can run at strength {name!r} on {sspec['provider']}/{sspec['model']} "
+                        f"— a verification lens off Anthropic. Allowed, and worth knowing: measure "
+                        f"its catch rate with `ab.sh … --lenses` before trusting it"
+                    )
+        warnings.extend(_collapsed_strengths(cfg))
+        warnings.extend(_unused_strengths(cfg))
+        warnings.extend(_unenforced_budgets(cfg))
     except (ProjectError, ConfigError) as exc:
         failures.append(str(exc))
 

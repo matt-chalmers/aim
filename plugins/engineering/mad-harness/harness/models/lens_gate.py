@@ -51,7 +51,23 @@ RUN = HARNESS / "verify" / "run.sh"
 DISPATCH = HARNESS / "models" / "dispatch.sh"
 TK = HARNESS / "tracker" / "tk.sh"
 
-LENSES = {"L1": "verifier", "L2": "verifier-tests", "L3": "verifier-spec", "L4": "verifier-security"}
+#: Lens id -> the ACTIVITY it performs. The agent comes from the activity's own config, so
+#: this no longer hardcodes a lens-id-to-agent-name mapping: the relationship between an
+#: activity id and an agent name is incidental, and nothing here may infer one from the other.
+#: The L-labels stay as the gate's internal ordering, which is all they ever were.
+LENS_ACTIVITY = {"L1": "verify.impl", "L2": "verify.tests", "L3": "verify.spec", "L4": "verify.security"}
+
+
+def lens_agent(lens: str) -> str:
+    """Which agent performs this lens, from the activity config — never from a name table."""
+    from .resolve import activity_spec
+
+    return str(activity_spec(LENS_ACTIVITY[lens])["agent"])
+
+
+#: Kept as a name for the many call sites that want "the agent for this lens"; it is derived
+#: rather than declared, so adding a lens activity cannot leave a stale second list behind.
+LENSES = {lens: lens_agent(lens) for lens in LENS_ACTIVITY}
 #: A lens that has produced nothing in this long is stuck.
 LENS_TIMEOUT = 2400
 SUITE_TIMEOUT = 1800
@@ -257,7 +273,8 @@ def run(
     # ⑤ dispatch, all at once
     jobs = []
     for lens in lenses:
-        argv = [str(DISPATCH), LENSES[lens], "--prompt-file", str(pdir / f"{lens.lower()}.md"), "--task", task,
+        argv = [str(DISPATCH), LENSES[lens], "--activity", LENS_ACTIVITY[lens],
+                "--prompt-file", str(pdir / f"{lens.lower()}.md"), "--task", task,
                 "--out", str(root / f"{lens.lower()}.result.md"), "--digest", "0"]
         if branch and lens in ("L2", "L3"):
             argv += ["--cwd", where]

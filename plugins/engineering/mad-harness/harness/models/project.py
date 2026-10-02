@@ -29,7 +29,7 @@ from typing import Any
 
 import yaml
 
-from .resolve import AGENTS_DIR, HARNESS, PLUGIN_ROOT, REPO, load_config
+from .resolve import HARNESS, PLUGIN_ROOT, REPO
 
 #: The consuming repository's own config. It lives in THAT repo, not beside the
 #: harness code — the harness is shared, the config is not.
@@ -351,45 +351,90 @@ class Project:
         return out
 
     def model_config(self) -> dict[str, Any]:
-        """The project's patch over tiers.yaml — `tiers:`, `providers:`, `default_tier:`,
-        `ladder:` — each present only when the project names it, validated for SHAPE here
+        """The project's patch over strengths.yaml — `strengths:`, `activities:`,
+        `providers:` — each present only when the project names it, validated for SHAPE here
         (a typo fails the config check, not a wave); the merged result is validated for
-        MEANING by `resolve._validate`. Two questions, kept apart: `agent_tiers` answers
-        which tier an agent runs on; this answers what a tier is.
+        MEANING by `resolve._validate`.
 
-        Why a project may do this at all: routing tiers at non-Anthropic models (OpenRouter,
-        DeepSeek, local) to cut cost and measure whether cheaper models hold up. Until
-        0.10.30 the only way was to patch tiers.yaml inside the plugin cache, which no
-        consumer can do. The owner accepts that a project can redefine `strategic`, the
-        policy-forced tier; the protection is visibility (the config check and every
-        dispatch record say so), not prevention.
+        ONE STRUCTURE, NOT TWO. A project patches the same blocks the plugin ships; there is
+        no parallel project-only block to shadow them from. `agent_tiers:` was that block and
+        it is gone — two schemas answering "which model runs this work" is the
+        second-source-of-truth shape this corpus treats as its most expensive defect, and it
+        made "plugin or project" look like a precedence rank when it is provenance.
+
+        Why a project may do this at all: routing work at non-Anthropic models (OpenRouter,
+        DeepSeek, local) to cut cost and to measure whether cheaper models hold up. Until
+        0.10.30 the only way was to patch the plugin cache, which no consumer can do. A
+        project may patch anything here, including what a security surface routes to; the
+        protection is visibility — the config check and every dispatch record say so — not
+        prevention.
         """
+        from .resolve import _ENV_REF, ACTIVITY_FIELDS, COMPLEXITIES
+
         out: dict[str, Any] = {}
-        tiers = self.raw.get("tiers")
-        if tiers is not None:
-            if not isinstance(tiers, dict):
-                raise ProjectError("tiers: must be a map of tier name -> {provider, model, effort, max_budget_usd} (any subset patches the plugin's)")
-            for name, patch in tiers.items():
+        for gone, why in (
+            ("tiers", "`tiers:` became `strengths:` in 0.12.0 — {provider, model, thinking} and "
+                      "nothing else. Its `max_budget_usd` and `task_budget_tokens` moved to "
+                      "`activities:`, where what the work is worth is stated"),
+            ("ladder", "`ladder:` is gone — escalation is each activity's own `strengths:` chain"),
+            ("default_tier", "`default_tier:` is gone and not replaced: every standard dispatch "
+                             "names its activity, an ad-hoc one passes `--strength`"),
+            ("default_strength", "there is no global default strength — see `default_tier:`"),
+            ("agent_tiers", "`agent_tiers:` is gone — patch `activities:` itself, the same block "
+                            "the plugin ships"),
+        ):
+            if gone in self.raw:
+                raise ProjectError(f"{gone}: {why}")
+
+        strengths = self.raw.get("strengths")
+        if strengths is not None:
+            if not isinstance(strengths, dict):
+                raise ProjectError("strengths: must be a map of name -> {provider, model, thinking} (any subset patches the plugin's)")
+            for name, patch in strengths.items():
                 if not isinstance(patch, dict):
-                    raise ProjectError(f"tiers.{name}: must be a map; a tier is patched per key, never replaced by a scalar")
-                if "price" in patch:
-                    # MOVED TO THE PROVIDER IN 0.11.0. A rate belongs to a model, and two
-                    # tiers on one model had to state it twice with nothing comparing them.
-                    raise ProjectError(
-                        f"tiers.{name}: `price` moved to the provider in 0.11.0 — a rate belongs "
-                        f"to a model, not to a role. Write it under "
-                        f"`providers.<provider>.models.<model>.price`."
-                    )
-                unknown = set(patch) - {"provider", "model", "effort", "max_budget_usd", "task_budget_tokens"}
+                    raise ProjectError(f"strengths.{name}: must be a map; a strength is patched per key, never replaced by a scalar")
+                unknown = set(patch) - {"provider", "model", "thinking"}
                 if unknown:
-                    raise ProjectError(f"tiers.{name}: unknown key(s) {', '.join(sorted(unknown))}")
-                # MODEL AND PROVIDER MOVE TOGETHER. A project pointing a tier at `qwen/...`
-                # while the provider silently stays `anthropic` dispatches to Anthropic
-                # with an unknown id and reads as a provider outage. Restating
-                # `provider: anthropic` is fine, and is the point.
+                    raise ProjectError(
+                        f"strengths.{name}: unknown key(s) {', '.join(sorted(unknown))}. A strength "
+                        f"is what RUNS the work — a ceiling or a token budget is what the work is "
+                        f"worth and belongs on the activity"
+                    )
+                # MODEL AND PROVIDER MOVE TOGETHER. A project pointing a strength at `qwen/...`
+                # while the provider silently stays `anthropic` dispatches to Anthropic with an
+                # unknown id and reads as a provider outage. Restating `anthropic` is fine.
                 if "model" in patch and "provider" not in patch:
-                    raise ProjectError(f"tiers.{name}: sets `model` without `provider` — the two move together; name the provider (restating `anthropic` is fine)")
-            out["tiers"] = {str(k): dict(v) for k, v in tiers.items()}
+                    raise ProjectError(f"strengths.{name}: sets `model` without `provider` — the two move together (restating `anthropic` is fine)")
+            out["strengths"] = {str(k): dict(v) for k, v in strengths.items()}
+
+        activities = self.raw.get("activities")
+        if activities is not None:
+            if not isinstance(activities, dict):
+                raise ProjectError("activities: must be a map of activity id -> its routing (any subset patches the plugin's)")
+            for aid, patch in activities.items():
+                if not isinstance(patch, dict):
+                    raise ProjectError(f"activities.{aid}: must be a map; an activity is patched per key, never replaced by a scalar")
+                unknown = set(patch) - {"agent", *ACTIVITY_FIELDS, *COMPLEXITIES}
+                if unknown:
+                    raise ProjectError(
+                        f"activities.{aid}: unknown key(s) {', '.join(sorted(unknown))}; expected "
+                        f"`agent`, {', '.join(ACTIVITY_FIELDS)}, or one of {', '.join(COMPLEXITIES)}"
+                    )
+                for label in COMPLEXITIES:
+                    bucket = patch.get(label)
+                    if bucket is None:
+                        continue
+                    if not isinstance(bucket, dict):
+                        raise ProjectError(f"activities.{aid}.{label}: must be a map of {', '.join(ACTIVITY_FIELDS)}")
+                    extra = set(bucket) - set(ACTIVITY_FIELDS)
+                    if extra:
+                        raise ProjectError(f"activities.{aid}.{label}: unknown key(s) {', '.join(sorted(extra))}")
+                for where, block in [(aid, patch)] + [(f"{aid}.{lb}", patch.get(lb) or {}) for lb in COMPLEXITIES]:
+                    chain = block.get("strengths")
+                    if chain is not None and (not isinstance(chain, list) or not chain or not all(isinstance(x, str) and x for x in chain)):
+                        raise ProjectError(f"activities.{where}.strengths: must be a non-empty ordered list of strength names, cheapest first")
+            out["activities"] = {str(k): dict(v) for k, v in activities.items()}
+
         providers = self.raw.get("providers")
         if providers is not None:
             if not isinstance(providers, dict):
@@ -400,10 +445,24 @@ class Project:
                 unknown = set(block) - {"env", "billing", "models"}
                 if unknown:
                     raise ProjectError(f"providers.{name}: unknown key(s) {', '.join(sorted(unknown))}")
+                if "billing" in block and block["billing"] not in ("metered", "subscription"):
+                    raise ProjectError(f"providers.{name}.billing: must be 'metered' or 'subscription', got {block['billing']!r}")
+                env = block.get("env")
+                if env is not None:
+                    if not isinstance(env, dict):
+                        raise ProjectError(f"providers.{name}.env: must be a map of variable -> value")
+                    for var, value in env.items():
+                        if "MODEL" in str(var).upper():
+                            raise ProjectError(f"providers.{name}.env.{var}: a provider must not name a model — the strength owns that")
+                        # TOKEN, KEY *AND SECRET*. strengths.yaml is plugin-owned and
+                        # reviewed, so this rule is the project layer's alone. A literal base
+                        # URL is not a secret and stays legal.
+                        if any(tok in str(var).upper() for tok in ("TOKEN", "KEY", "SECRET")):
+                            if not _ENV_REF.match(str(value or "").strip()):
+                                raise ProjectError(f"providers.{name}.env.{var}: a credential must be a ${{VAR}} reference, never a literal — harness.yaml is committed")
                 # `models` IS KEYED BY MODEL ID AND CHOOSES NOTHING — it states what this
-                # provider charges for models it serves, which is why it does not collide
-                # with the rule that a provider must never name a model (the tier owns
-                # WHICH model; this owns what that model costs).
+                # provider charges for models it serves, which is why it does not collide with
+                # the rule above (the strength owns WHICH model; this owns what it costs).
                 models = block.get("models")
                 if models is not None:
                     if not isinstance(models, dict):
@@ -421,27 +480,7 @@ class Project:
                                 _validate_price(mblock["price"], f"providers.{name}.models.{mid}")
                             except ValueError as exc:
                                 raise ProjectError(str(exc)) from exc
-                if "billing" in block and block["billing"] not in ("metered", "subscription"):
-                    raise ProjectError(f"providers.{name}.billing: must be 'metered' or 'subscription', got {block['billing']!r}")
-                if "env" in block and not isinstance(block["env"], dict):
-                    raise ProjectError(f"providers.{name}.env: must be a map of variable -> value")
-                # NO LITERAL CREDENTIAL IN A COMMITTED FILE. harness.yaml is tracked;
-                # tiers.yaml is plugin-owned and reviewed, so this rule is the project
-                # layer's alone. A literal base URL is not a secret and stays legal.
-                for var, value in (block.get("env") or {}).items():
-                    up = str(var).upper()
-                    if any(tok in up for tok in ("TOKEN", "KEY", "SECRET")) and not (isinstance(value, str) and value.strip().startswith("${") and value.strip().endswith("}")):
-                        raise ProjectError(f"providers.{name}.env.{var}: a credential must be a ${{VAR}} reference, never a literal — harness.yaml is committed")
             out["providers"] = {str(k): {kk: dict(vv) if isinstance(vv, dict) else vv for kk, vv in v.items()} for k, v in providers.items()}
-        if "default_tier" in self.raw:
-            if not isinstance(self.raw["default_tier"], str) or not self.raw["default_tier"]:
-                raise ProjectError("default_tier: must be a tier name")
-            out["default_tier"] = self.raw["default_tier"]
-        if "ladder" in self.raw:
-            ladder = self.raw["ladder"]
-            if not isinstance(ladder, list) or not all(isinstance(x, str) and x for x in ladder):
-                raise ProjectError("ladder: must be a list of tier names, weakest first")
-            out["ladder"] = list(ladder)
         return out
 
     def ports(self) -> dict[str, int]:
@@ -470,70 +509,6 @@ class Project:
             if not 1 <= port <= 65535:
                 raise ProjectError(f"ports.{name} is {port}; a TCP port is 1-65535")
             out[str(name)] = port
-        return out
-
-    def agent_tiers(
-        self, config: dict[str, Any] | None = None, agents_dir: Path | None = None
-    ) -> dict[str, str]:
-        """The `agent_tiers:` block — per-agent tier overrides, agent name -> tier name.
-
-        RENAMED from `tiers:` (0.10.30) before any consumer used it: `tiers:` now means what
-        it means in tiers.yaml — the DEFINITIONS a project may patch (`Project.model_config`)
-        — and this block answers the other question, which agent runs on which tier.
-
-        THE SWITCH FOR TIER-SPLITTING A LENS, and a switch rather than a default on
-        purpose. The field cost analysis (cost_control_orchestration.md, A3) ranked moving
-        `verifier-spec` and `verifier-security` off `strong`: both are largely
-        search-and-cross-reference, the survey work `analyst-survey` already runs on
-        `worker`, and the external evidence points the same way (SWE-bench Verified Mini:
-        Opus 4.1 High $1,599.90 at 54% against Sonnet 4.5 High $463.90 at 72% — 3.4x the
-        cost for 18 points worse). But a verification gate's catch rate is the one thing
-        that document says it did NOT measure, and it cannot be measured in the field
-        while the only way to move a lens's tier is to patch the plugin. So the plugin
-        keeps its default and the project flips the arm here, one A/B under
-        `make models-cost`, with every dispatch record saying which arm it ran on.
-
-        Validated here so a typo fails the config check, not a wave: every key must be an
-        agent the plugin ships and every value a tier tiers.yaml defines. Absent, or an
-        explicit `agent_tiers: {}`, means every agent keeps its own default. A high-risk
-        dispatch is still forced up whatever this block says — see `resolve.resolve`.
-
-        :param config: tiers.yaml already loaded, so a caller holding it does not read it
-            twice and a test can supply its own; None loads the real one
-        :param agents_dir: where the agents live; None means the plugin's own
-        """
-        raw = self.raw.get("agent_tiers")
-        if raw is None:
-            return {}
-        if not isinstance(raw, dict):
-            raise ProjectError(
-                f"agent_tiers must be a map of agent -> tier, got {type(raw).__name__}. "
-                f"For example: agent_tiers: {{verifier-spec: worker, verifier-security: worker}}"
-            )
-        if not raw:
-            return {}
-        cfg = config or load_config()
-        # LADDER ORDER, weakest first — the message reads that way, and a project may now
-        # supply its own ladder, so declaration order is no longer the truth of it.
-        known = list(cfg.get("ladder") or cfg["tiers"])
-        agents_dir = agents_dir or AGENTS_DIR
-        shipped = sorted(p.stem for p in agents_dir.glob("*.md"))
-        out: dict[str, str] = {}
-        for agent, tier in raw.items():
-            agent = str(agent)
-            if not (agents_dir / f"{agent}.md").is_file():
-                raise ProjectError(
-                    f"agent_tiers.{agent}: no such agent — the plugin ships {', '.join(shipped)}. "
-                    f"An override names an agent the dispatcher can route; it cannot "
-                    f"invent one."
-                )
-            if not isinstance(tier, str) or tier not in known:
-                raise ProjectError(
-                    f"agent_tiers.{agent} is {tier!r}, which is not a tier; known (weakest first): "
-                    f"{', '.join(known)}. Tiers are defined in the plugin's tiers.yaml, "
-                    f"and patched or added in this file's `tiers:` block."
-                )
-            out[agent] = tier
         return out
 
     def tracker(self) -> dict[str, Any]:

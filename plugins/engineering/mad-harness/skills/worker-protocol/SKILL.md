@@ -15,7 +15,7 @@ both paid for two copies of each on every dispatch.
 
 ## Your worktree is prepared for you — do not prepare it yourself
 
-The dispatcher runs `${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh --worker <n>`, which creates the
+The dispatcher runs `${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh --activity <id> --worker <n>`, which creates the
 worktree **and** runs `${CLAUDE_PLUGIN_ROOT}/harness/swarm/swarm-worktree-init.sh` inside it before you
 start. You open in a tree whose dependency directories are already restored and
 which carries its own `.swarm-env`. Do not re-run the init script.

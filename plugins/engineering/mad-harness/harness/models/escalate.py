@@ -30,10 +30,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any
 
 from .dispatch import Outcome
-from .resolve import ConfigError, load_config
 from .verdict import return_status
 
 #: A worker may ask for help explicitly. Cheapest possible signal, and the only
@@ -153,18 +151,16 @@ def _same_root(a: str, b: str) -> bool:
     return len(ta & tb) / len(ta | tb) >= 0.5
 
 
-def next_tier(current: str, config: dict[str, Any] | None = None) -> str | None:
-    """The next rung up, or None at the top."""
-    config = config or load_config()
-    ladder = config.get("ladder")
-    if not ladder:
-        raise ConfigError(
-            "tiers.yaml defines no `ladder`, so escalation has no direction"
-        )
-    if current not in ladder:
-        raise ConfigError(f"tier {current!r} is not on the ladder {ladder}")
-    i = ladder.index(current)
-    return ladder[i + 1] if i + 1 < len(ladder) else None
+# `next_tier` IS GONE (0.12.0). It walked `ladder:` — one global order over every tier — and
+# had no production caller, ever. Escalation is per activity now: `resolve.strength_chain`
+# returns the ordered strengths an activity may run at, and `plan_epic` walks it on
+# `ADEQUACY: ESCALATE` / `VERDICT: ESCALATE`. That is a real caller, which the ladder never
+# had, and "up from here" is defined by the work rather than by one ranking across every
+# model — a ranking nobody could justify once strengths span vendors.
+#
+# `classify` and `escalation_prompt` below are still unwired: sixty lines of measured policy
+# (the reasoning-vs-implementation split; a budget exhaustion deliberately NOT an escalation
+# trigger) that would be expensive to re-derive, kept rather than deleted. Filed.
 
 
 def escalation_prompt(original: str, attempts: list[Outcome]) -> str:
@@ -189,7 +185,7 @@ def escalation_prompt(original: str, attempts: list[Outcome]) -> str:
     for i, a in enumerate(attempts, start=1):
         parts += [
             f"### Attempt {i} — {a.resolved.provider}/{a.resolved.model} "
-            f"(tier {a.resolved.tier}), {a.turns} turns, ${a.cost_usd:.4f}",
+            f"(strength {a.resolved.strength}), {a.turns} turns, ${a.cost_usd:.4f}",
             "",
             a.text.strip() or "<no output>",
             "",

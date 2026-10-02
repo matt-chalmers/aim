@@ -50,7 +50,7 @@ def _sandboxed(monkeypatch, tmp_path):
 
 
 def test_a_budget_kill_is_a_recorded_outcome_with_its_spend_and_transcript():
-    out = dispatch("verifier", "x", runner=_runner(KILL))
+    out = dispatch("verifier", "x", activity="verify.impl", runner=_runner(KILL))
     assert not out.ok
     assert out.budget_exhausted and out.terminal == "budget"
     assert out.cost_usd == 1.53 and out.turns == 34, "the spend that caused the kill"
@@ -78,7 +78,7 @@ def test_the_sdk_loop_returns_a_terminal_errors_payload_instead_of_raising(monke
 
     monkeypatch.setattr("claude_agent_sdk.query", fake_query)
     monkeypatch.setattr(mod, "broker", lambda *a, **k: None)
-    r = resolve("verifier")
+    r = resolve("verifier", activity="verify.impl")
     payload = mod._run_sdk(r, "prompt", cwd=".", env={}, timeout=30)
     assert payload["subtype"] == "error_max_budget_usd" and payload["is_error"]
     assert payload["total_cost_usd"] == 1.53 and payload["num_turns"] == 34
@@ -92,7 +92,7 @@ def test_main_prints_the_partial_transcript_names_the_kill_and_exits_distinctly(
     monkeypatch.setattr(mod, "record", lambda *a, **k: True)
     pf = tmp_path / "p.txt"
     pf.write_text("do the thing")
-    rc = mod.main(["verifier", "--prompt-file", str(pf), "--task", "T-1"])
+    rc = mod.main(["verifier", "--activity", "verify.impl", "--prompt-file", str(pf), "--task", "T-1"])
     out, err = capsys.readouterr()
     assert rc == EXIT_BUDGET and rc not in (0, 1)
     assert "partial transcript, 2 step(s)" in out and "Reading the harvest document" in out
@@ -101,7 +101,7 @@ def test_main_prints_the_partial_transcript_names_the_kill_and_exits_distinctly(
 
 
 def test_cache_shares_are_measured_per_dispatch():
-    out = dispatch("verifier", "x", runner=_runner(KILL))
+    out = dispatch("verifier", "x", activity="verify.impl", runner=_runner(KILL))
     assert out.prompt_tokens == 3_796_000
     assert out.cache_hit_pct == 97.5 and out.cache_write_pct == 2.5
     t = out.telemetry()
@@ -110,7 +110,7 @@ def test_cache_shares_are_measured_per_dispatch():
 
 def test_an_empty_dispatch_has_no_cache_rate_rather_than_a_division_error():
     payload = {**KILL, "usage": {}}
-    out = dispatch("verifier", "x", runner=_runner(payload))
+    out = dispatch("verifier", "x", activity="verify.impl", runner=_runner(payload))
     assert out.prompt_tokens == 0 and out.cache_hit_pct is None and out.cache_write_pct is None
 
 
@@ -135,9 +135,9 @@ def test_an_api_error_result_is_not_success_and_a_closed_usage_window_is_named()
     $0. Read as success, an A/B series recorded 26 runs of it."""
     limited = {**KILL, "subtype": "success", "is_error": True, "total_cost_usd": 0.0, "num_turns": 1,
                "result": "You've hit your session limit · resets 2:20am", "terminal_reason": None}
-    out = dispatch("verifier", "x", runner=_runner(limited))
+    out = dispatch("verifier", "x", activity="verify.impl", runner=_runner(limited))
     assert not out.ok and out.terminal == "usage_limit"
     other = {**limited, "result": "API Error: 529 overloaded", "terminal_reason": "api_error"}
-    assert dispatch("verifier", "x", runner=_runner(other)).terminal == "api_error"
+    assert dispatch("verifier", "x", activity="verify.impl", runner=_runner(other)).terminal == "api_error"
     fine = {**limited, "is_error": False, "result": "PASS"}
-    assert dispatch("verifier", "x", runner=_runner(fine)).terminal == "success"
+    assert dispatch("verifier", "x", activity="verify.impl", runner=_runner(fine)).terminal == "success"

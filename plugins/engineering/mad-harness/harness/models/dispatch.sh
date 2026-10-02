@@ -2,7 +2,9 @@
 # Invoke one agent through the CLI boundary. Thin: the logic is an importable
 # module so the tests exercise it directly rather than through a subprocess.
 #
-#   harness/models/dispatch.sh <agent> --prompt-file <path> [--tier T] [--high-risk]
+#   harness/models/dispatch.sh <agent> --activity <id> --prompt-file <path> [--complexity C]
+#   harness/models/dispatch.sh <agent> --strength <s> --prompt-file <path>   # ad hoc, off the
+#                                                                            # standard boundaries
 #                              [--task ID] [--cwd WORKTREE] [--dry-run]
 #                              [--digest [N]] [--out PATH]
 #

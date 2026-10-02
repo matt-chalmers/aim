@@ -33,7 +33,7 @@ def test_the_dispatcher_hands_a_worker_the_project_but_not_its_own_directory(mon
     from models.resolve import resolve
 
     monkeypatch.setattr("models.levers._project_block", lambda: {})
-    env = mod.build_env(resolve("verifier"), base={"MAD_HARNESS_CALLER_PWD": "/the/dispatchers/cwd"})
+    env = mod.build_env(resolve("verifier", activity="verify.impl"), base={"MAD_HARNESS_CALLER_PWD": "/the/dispatchers/cwd"})
     assert "MAD_HARNESS_CALLER_PWD" not in env, "inherited, every wrapper the worker calls keeps it"
     assert env["MAD_HARNESS_REPO"] == str(mod.REPO)
 

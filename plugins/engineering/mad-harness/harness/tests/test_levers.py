@@ -84,7 +84,7 @@ def test_the_ttl_reaches_the_cli_environment_only_when_set(monkeypatch):
 
     monkeypatch.setattr("models.levers._project_block", lambda: {})
     monkeypatch.delenv("MAD_HARNESS_CACHE_TTL", raising=False)
-    r = resolve("verifier")
+    r = resolve("verifier", activity="verify.impl")
     assert "CLAUDE_CODE_PROMPT_CACHE_TTL" not in mod.build_env(r, base={})
     monkeypatch.setenv("MAD_HARNESS_CACHE_TTL", "5m")
     assert mod.build_env(r, base={})["CLAUDE_CODE_PROMPT_CACHE_TTL"] == "5m"
@@ -95,17 +95,17 @@ def test_the_static_prefix_reaches_the_sdk_as_the_preset_with_dynamic_sections_e
 
     monkeypatch.setattr("models.levers._project_block", lambda: {})
     monkeypatch.delenv("MAD_HARNESS_STATIC_PREFIX", raising=False)
-    sp = resolve("verifier").sdk_options(cwd=".").system_prompt
+    sp = resolve("verifier", activity="verify.impl").sdk_options(cwd=".").system_prompt
     assert "exclude_dynamic_sections" not in sp and sp["append"], "off is the preset plus the doctrine"
     monkeypatch.setenv("MAD_HARNESS_STATIC_PREFIX", "1")
-    sp = resolve("verifier").sdk_options(cwd=".").system_prompt
+    sp = resolve("verifier", activity="verify.impl").sdk_options(cwd=".").system_prompt
     assert sp["exclude_dynamic_sections"] is True and sp["preset"] == "claude_code" and sp["append"]
 
 
-def test_a_tier_task_budget_reaches_the_sdk_and_its_absence_is_none(monkeypatch):
+def test_an_activitys_task_budget_reaches_the_sdk_and_its_absence_is_none(monkeypatch):
     from models import resolve as mod
 
-    r = mod.resolve("verifier")
+    r = mod.resolve("verifier", activity="verify.impl")
     assert r.task_budget_tokens is None and r.sdk_options(cwd=".").task_budget is None
     with_budget = mod.Resolved(**{**r.__dict__, "task_budget_tokens": 400_000})
     assert with_budget.sdk_options(cwd=".").task_budget == {"total": 400_000}
@@ -120,7 +120,7 @@ def test_every_dispatch_event_says_which_levers_were_on_and_which_experiment(mon
     monkeypatch.setenv("MAD_HARNESS_EXPERIMENT", "static_prefix:on:3")
     payload = {"subtype": "success", "is_error": False, "result": "ok", "total_cost_usd": 0.1,
                "num_turns": 1, "duration_ms": 1, "session_id": "s", "usage": {}, "permission_denials": []}
-    t = dispatch("verifier", "x", runner=lambda *a, **k: payload).telemetry()
+    t = dispatch("verifier", "x", activity="verify.impl", runner=lambda *a, **k: payload).telemetry()
     assert t["experiment"] == "static_prefix:on:3"
     assert t["levers"] == {
         "cache_ttl": None, "static_prefix": True, "stagger_seconds": 0, "task_budget": None, "preload": (),
@@ -134,39 +134,42 @@ def test_the_rigs_preload_arm_adds_a_skill_to_the_system_prompt_in_full_and_a_mi
 
     monkeypatch.setattr("models.levers._project_block", lambda: {})
     monkeypatch.delenv("MAD_HARNESS_PRELOAD", raising=False)
-    base = mod.resolve("verifier").sdk_options(cwd=".").system_prompt["append"]
+    base = mod.resolve("verifier", activity="verify.impl").sdk_options(cwd=".").system_prompt["append"]
     assert "# Skill: spec-lifecycle" not in base and "# Skill: evidence-gathering" in base
     monkeypatch.setenv("MAD_HARNESS_PRELOAD", "spec-lifecycle")
-    out = mod.resolve("verifier").sdk_options(cwd=".").system_prompt["append"]
+    out = mod.resolve("verifier", activity="verify.impl").sdk_options(cwd=".").system_prompt["append"]
     assert "# Skill: spec-lifecycle" in out and "fold-in" in out, "the skill's body, not its frontmatter"
     assert not out.split("# Skill: spec-lifecycle")[1].lstrip().startswith("---")
     monkeypatch.setenv("MAD_HARNESS_PRELOAD", "no-such-skill")
     with pytest.raises(mod.ConfigError, match="no-such-skill"):
-        mod.resolve("verifier")
+        mod.resolve("verifier", activity="verify.impl")
 
 
-def test_the_projects_task_budget_beats_the_tier_and_the_env_beats_both(monkeypatch):
+def test_the_projects_task_budget_beats_the_activitys_and_the_env_beats_both(monkeypatch):
     from models import resolve as mod
 
     monkeypatch.delenv("MAD_HARNESS_TASK_BUDGET_TOKENS", raising=False)
     monkeypatch.setattr("models.levers._project_block", lambda: {})
-    assert mod._task_budget({"task_budget_tokens": 250_000}) == 250_000
-    assert mod._task_budget({}) is None
+    # `_task_budget` now takes the value the ACTIVITY resolved, not a tier spec: the told
+    # budget is a fact about the work, so the activity owns it.
+    assert mod._task_budget(250_000) == 250_000
+    assert mod._task_budget(None) is None
     monkeypatch.setattr("models.levers._project_block", lambda: {"task_budget_tokens": 900_000})
-    assert mod._task_budget({"task_budget_tokens": 250_000}) == 900_000
+    assert mod._task_budget(250_000) == 900_000
     monkeypatch.setenv("MAD_HARNESS_TASK_BUDGET_TOKENS", "123456")
-    assert mod._task_budget({"task_budget_tokens": 250_000}) == 123_456
+    assert mod._task_budget(250_000) == 123_456
 
 
-def test_the_worker_tier_carries_the_measured_budget_and_the_record_says_so(monkeypatch):
-    """0.10.4: cost per run -32% with the spreads apart. The tier default is the finding;
-    a dispatch record must show the budget that applied, not only whether one was flipped."""
+def test_the_writing_activities_carry_the_measured_budget_and_the_record_says_so(monkeypatch):
+    """0.10.4: cost per run -32% with the spreads apart. The default is the finding, and it
+    moved from the `worker` TIER to the writing ACTIVITIES without changing value — a dispatch
+    record must show the budget that applied, not only whether one was flipped."""
     from models import resolve as mod
 
     monkeypatch.delenv("MAD_HARNESS_TASK_BUDGET_TOKENS", raising=False)
     monkeypatch.setattr("models.levers._project_block", lambda: {})
-    r = mod.resolve("fullstack-engineer")
-    assert r.tier == "worker" and r.task_budget_tokens == 400_000
+    r = mod.resolve("fullstack-engineer", activity="work.implement")
+    assert r.strength == "mid" and r.task_budget_tokens == 400_000
     assert r.sdk_options(cwd=".").task_budget == {"total": 400_000}
     assert r.redacted()["task_budget_tokens"] == 400_000
 
@@ -186,7 +189,7 @@ def test_the_lean_catalog_names_exactly_the_plugins_skills_and_switches_off_clea
 
     monkeypatch.delenv("MAD_HARNESS_LEAN_CATALOG", raising=False)
     monkeypatch.setattr("models.levers._project_block", lambda: {})
-    r = mod.resolve("fullstack-engineer")
+    r = mod.resolve("fullstack-engineer", activity="work.implement")
     skills = r.sdk_options(cwd=".").skills
     shipped = sorted(d.name for d in (mod.PLUGIN_ROOT / "skills").iterdir() if (d / "SKILL.md").is_file())
     assert skills == [mod.qualified(n) for n in shipped] + mod.project_skills() and len(skills) >= 10
@@ -244,7 +247,7 @@ def test_an_agents_declared_doctrine_is_its_system_prompt_and_a_missing_skill_re
 
     monkeypatch.setattr("models.levers._project_block", lambda: {})
     monkeypatch.delenv("MAD_HARNESS_PRELOAD", raising=False)
-    r = mod.resolve("fullstack-engineer")
+    r = mod.resolve("fullstack-engineer", activity="work.implement")
     sp = r.sdk_options(cwd=".").system_prompt
     assert sp["type"] == "preset" and sp["preset"] == "claude_code"
     for name in ("test-doctrine", "worker-protocol", "evidence-gathering"):
@@ -253,7 +256,7 @@ def test_an_agents_declared_doctrine_is_its_system_prompt_and_a_missing_skill_re
     assert r.redacted()["doctrine_chars"] == len(r.doctrine) > 30_000
     # The rig's arm adds a skill the same way, once.
     monkeypatch.setenv("MAD_HARNESS_PRELOAD", "evidence-gathering,spec-lifecycle")
-    sp = mod.resolve("fullstack-engineer").sdk_options(cwd=".").system_prompt
+    sp = mod.resolve("fullstack-engineer", activity="work.implement").sdk_options(cwd=".").system_prompt
     assert sp["append"].count("# Skill: evidence-gathering") == 1 and "# Skill: spec-lifecycle" in sp["append"]
     # A declared skill that does not exist is a config error, not a silent omission.
     agents = tmp_path / "agents"

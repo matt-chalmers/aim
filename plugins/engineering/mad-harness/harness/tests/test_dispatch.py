@@ -37,6 +37,21 @@ RESULT = {
     },
     "permission_denials": [],
 }
+
+def _activity_of(agent: str) -> str:
+    """The first activity that names this agent — derived from config, never from the name.
+
+    A test that loops over every shipped agent needs an activity for each, and the binding
+    lives in `activities.<id>.agent`. Reading it here is the same rule the dispatcher follows.
+    """
+    from models.resolve import load_config
+
+    for aid, spec in load_config(merge_project=False)["activities"].items():
+        if spec.get("agent") == agent:
+            return aid
+    raise AssertionError(f"no activity names {agent!r}")
+
+
 def runner_returning(payload, *, noise="", returncode=0):
     """A stand-in for the SDK runner that records how it was called.
 
@@ -59,8 +74,10 @@ def runner_returning(payload, *, noise="", returncode=0):
 def a_resolved(**over):
     base = dict(
         agent="verifier",
-        tier="strong",
-        reason="agent default",
+        activity="work.implement",
+        complexity=None,
+        strength="strong",
+        strength_reason="activity",
         provider="anthropic",
         model="opus",
         effort="xhigh",
@@ -114,7 +131,7 @@ def test_dispatch_refuses_when_a_credential_is_unset(monkeypatch):
         ),
     )
     with pytest.raises(DispatchError, match="DEEPSEEK_API_KEY"):
-        dispatch("fullstack-engineer", "x", runner=runner_returning(RESULT))
+        dispatch("fullstack-engineer", "x", activity="work.implement", runner=runner_returning(RESULT))
 
 
 # --- the result must exist ----------------------------------------------------
@@ -161,7 +178,7 @@ def test_a_dispatch_that_produced_no_result_raises_rather_than_reading_as_empty(
 
 def test_successful_dispatch_captures_cost_and_tokens():
     run = runner_returning(RESULT)
-    out = dispatch("verifier", "prompt text", runner=run)
+    out = dispatch("verifier", "prompt text", activity="verify.impl", runner=run)
     assert out.ok
     assert out.text == "PASS · one clean commit"
     assert (out.cost_usd, out.turns, out.duration_ms) == (0.1252, 3, 7738)
@@ -182,7 +199,7 @@ def test_successful_dispatch_captures_cost_and_tokens():
 def test_an_errored_dispatch_is_not_ok(payload):
     """Budget exhaustion in particular returns a well-formed object with partial
     work; treating that as success would land half a task."""
-    assert not dispatch("verifier", "x", runner=runner_returning(payload)).ok
+    assert not dispatch("verifier", "x", activity="verify.impl", runner=runner_returning(payload)).ok
 
 
 def test_a_denied_tool_is_a_failure_even_though_the_cli_calls_it_success():
@@ -194,7 +211,7 @@ def test_a_denied_tool_is_a_failure_even_though_the_cli_calls_it_success():
     CLI's own success flag would launder that into a green dispatch.
     """
     denied = {**RESULT, "permission_denials": [{"tool_name": "Bash"}]}
-    out = dispatch("verifier", "x", runner=runner_returning(denied))
+    out = dispatch("verifier", "x", activity="verify.impl", runner=runner_returning(denied))
     assert not out.ok, "a dispatch that was denied a tool must never read as ok"
     assert out.permission_denials, "the caller needs to see WHICH tool was denied"
 
@@ -204,6 +221,7 @@ def test_telemetry_payload_carries_no_credential():
     out = dispatch(
         "verifier",
         "x",
+        activity=_activity_of("verifier"),
         runner=runner_returning(RESULT),
     )
     out = Outcome(
@@ -221,22 +239,25 @@ def test_telemetry_payload_carries_no_credential():
 
 def test_telemetry_records_the_routing_decision_not_just_the_cost():
     """Without tier and reason the series cannot answer "was cheap-first worth it"."""
-    t = dispatch("verifier", "x", runner=runner_returning(RESULT)).telemetry(
-        task="PROJ-x", attempt=2, escalated_from="worker"
+    t = dispatch("verifier", "x", activity="verify.impl", runner=runner_returning(RESULT)).telemetry(
+        task="PROJ-x", attempt=2, escalated_from="mid"
     )
     for key in (
         "task",
         "attempt",
         "escalated_from",
-        "tier",
-        "reason",
+        "activity",
+        "complexity",
+        "strength",
+        "strength_reason",
+        "strength_source",
         "provider",
         "model",
         "cost_usd",
         "turns",
     ):
         assert key in t, f"telemetry is missing {key}"
-    assert (t["attempt"], t["escalated_from"]) == (2, "worker")
+    assert (t["attempt"], t["escalated_from"]) == (2, "mid")
 
 
 # --- worktree isolation -------------------------------------------------------
@@ -262,12 +283,12 @@ def test_an_isolated_agent_refuses_to_run_in_the_primary_checkout(tmp_path):
     from models.dispatch import REPO
 
     with pytest.raises(DispatchError, match="primary checkout"):
-        dispatch("fullstack-engineer", "x", cwd=REPO, runner=runner_returning(RESULT))
+        dispatch("fullstack-engineer", "x", activity="work.implement", cwd=REPO, runner=runner_returning(RESULT))
 
 
 def test_an_isolated_agent_is_allowed_inside_a_worktree(tmp_path):
     out = dispatch(
-        "fullstack-engineer", "x", cwd=tmp_path, runner=runner_returning(RESULT)
+        "fullstack-engineer", "x", activity="work.implement", cwd=tmp_path, runner=runner_returning(RESULT)
     )
     assert out.ok
 
@@ -285,7 +306,7 @@ def test_a_writer_gets_edit_permission_and_command_grants():
     """
     from models.resolve import resolve
 
-    r = resolve("fullstack-engineer")
+    r = resolve("fullstack-engineer", activity="work.implement")
     assert r.permission_mode == "acceptEdits"
     o = r.sdk_options()
     assert o.permission_mode == "acceptEdits"
@@ -309,7 +330,7 @@ def test_a_read_only_lens_still_never_gets_to_write():
     pinned here is the boundary, not their absence."""
     from models.resolve import resolve
 
-    r = resolve("verifier")
+    r = resolve("verifier", activity="verify.impl")
     assert r.permission_mode == "default", "a lens never edits"
     assert not any("git:" in g for g in r.allowed_tools), "a lens never commits"
     assert not any(
@@ -381,7 +402,7 @@ def test_bypass_permissions_is_never_used():
     from models.resolve import resolve
 
     for agent in ("fullstack-engineer", "quality-engineer", "verifier"):
-        assert resolve(agent).sdk_options().permission_mode != "bypassPermissions"
+        assert resolve(agent, activity=_activity_of(agent)).sdk_options().permission_mode != "bypassPermissions"
 
 
 def test_the_grants_are_structured_data_not_a_hand_built_command_line():
@@ -400,7 +421,7 @@ def test_the_grants_are_structured_data_not_a_hand_built_command_line():
     """
     from models.resolve import resolve
 
-    o = resolve("fullstack-engineer").sdk_options()
+    o = resolve("fullstack-engineer", activity="work.implement").sdk_options()
     assert isinstance(o.allowed_tools, list) and o.allowed_tools
     assert all(isinstance(g, str) for g in o.allowed_tools)
 
@@ -478,11 +499,11 @@ def test_a_lens_is_given_the_brief_directory_and_a_writer_is_not():
     """
     from models.resolve import briefs_root, resolve
 
-    lens = resolve("verifier")
+    lens = resolve("verifier", activity="verify.impl")
     assert briefs_root() in lens.add_dirs
     assert briefs_root() in [str(d) for d in lens.sdk_options().add_dirs]
 
-    writer = resolve("fullstack-engineer")
+    writer = resolve("fullstack-engineer", activity="work.implement")
     assert briefs_root() not in writer.add_dirs, "a writer judges nothing and reads no brief"
 
 
@@ -495,11 +516,11 @@ def test_the_no_diff_lens_is_denied_the_diff_root_and_the_others_are_not():
 
     assert sees_no_diff("verifier-spec") and not sees_no_diff("verifier")
     deny = f"Read(//{diff_root().lstrip('/')}/**)"
-    spec = resolve("verifier-spec")
+    spec = resolve("verifier-spec", activity="verify.spec")
     assert deny in spec.disallowed_tools and deny in spec.sdk_options().disallowed_tools
     assert "Bash(git push:*)" in spec.disallowed_tools, "the deny is added to FORBIDDEN, not in place of it"
     for other in ("verifier", "verifier-tests", "verifier-security"):
-        assert deny not in resolve(other).disallowed_tools, other
+        assert deny not in resolve(other, activity=_activity_of(other)).disallowed_tools, other
 
 
 def test_a_lens_may_run_the_projects_test_command():
@@ -510,7 +531,7 @@ def test_a_lens_may_run_the_projects_test_command():
     """
     from models.resolve import resolve
 
-    lens = resolve("verifier")
+    lens = resolve("verifier", activity="verify.impl")
     assert lens.permission_mode == "default"
     assert any(g.startswith("Bash(") for g in lens.allowed_tools), lens.allowed_tools
     assert not any("git:" in g for g in lens.allowed_tools), "a lens does not commit"
@@ -522,7 +543,7 @@ def test_the_brief_directory_is_passed_as_a_directory_not_a_grant():
     this, so a lens whose brief sits under TMPDIR needs `add_dirs`."""
     from models.resolve import briefs_root, resolve
 
-    o = resolve("verifier").sdk_options()
+    o = resolve("verifier", activity="verify.impl").sdk_options()
     assert briefs_root() in [str(d) for d in o.add_dirs]
     assert not any(g.startswith("Read(") for g in o.allowed_tools)
 
@@ -577,7 +598,7 @@ def test_settings_are_not_inherited_from_the_developers_machine():
     """
     from models.resolve import resolve
 
-    o = resolve("verifier").sdk_options()
+    o = resolve("verifier", activity="verify.impl").sdk_options()
     assert o.setting_sources == ["project"], (
         "project settings are checked in and shared; user and local vary per machine"
     )
@@ -591,7 +612,7 @@ def test_the_plugin_is_loaded_by_path_since_user_settings_are_dropped():
     """
     from models.resolve import PLUGIN_ROOT, resolve
 
-    o = resolve("verifier").sdk_options()
+    o = resolve("verifier", activity="verify.impl").sdk_options()
     assert o.plugins == [{"type": "local", "path": str(PLUGIN_ROOT)}]
 
 
@@ -602,7 +623,7 @@ def test_no_agent_may_push_whatever_else_it_is_granted():
     from models.resolve import resolve
 
     for agent in ("fullstack-engineer", "verifier"):
-        r = resolve(agent)
+        r = resolve(agent, activity=_activity_of(agent))
         assert "Bash(git push:*)" in r.disallowed_tools, agent
         assert "Bash(git push:*)" in r.sdk_options().disallowed_tools, agent
 
@@ -618,7 +639,7 @@ def test_every_agent_can_read_the_harness_it_is_told_to_invoke():
     from models.resolve import HARNESS, REPO, resolve
 
     for agent in ("fullstack-engineer", "verifier", "planner"):
-        dirs = [str(d) for d in resolve(agent).sdk_options().add_dirs]
+        dirs = [str(d) for d in resolve(agent, activity=_activity_of(agent)).sdk_options().add_dirs]
         assert str(HARNESS) in dirs, agent
         # Every directory the prompt names must also be readable, or naming it just
         # invites a denial: measured when workers were told the project root and spent
@@ -661,7 +682,7 @@ def test_the_sandbox_is_enabled_with_the_escape_hatch_closed():
     """
     from models.resolve import resolve
 
-    sb = resolve("fullstack-engineer").sdk_options().sandbox
+    sb = resolve("fullstack-engineer", activity="work.implement").sdk_options().sandbox
     assert sb["enabled"] is True
     assert sb["autoAllowBashIfSandboxed"] is True
     assert sb["allowUnsandboxedCommands"] is False
@@ -686,7 +707,7 @@ def test_the_toolchain_cache_lives_inside_the_sandbox_boundary():
     # IN THE SANDBOX OPTION, not the settings: the SDK transport replaces the settings'
     # sandbox block with the option wholesale, so a policy written into settings never
     # reached the CLI.
-    allowed = resolve("fullstack-engineer").sdk_options().sandbox["filesystem"]["allowWrite"]
+    allowed = resolve("fullstack-engineer", activity="work.implement").sdk_options().sandbox["filesystem"]["allowWrite"]
     for var, path in caches.items():
         assert path in allowed, f"{var} points at {path}, which the sandbox does not allow"
         assert not path.startswith("~"), "must be absolute"
@@ -710,7 +731,7 @@ def test_the_sandbox_filesystem_policy_comes_from_the_declared_stacks():
     # IN THE SANDBOX OPTION, not the settings: the SDK transport replaces the settings'
     # sandbox block with the option wholesale, so a policy written into settings never
     # reached the CLI.
-    allowed = resolve("fullstack-engineer").sdk_options().sandbox["filesystem"]["allowWrite"]
+    allowed = resolve("fullstack-engineer", activity="work.implement").sdk_options().sandbox["filesystem"]["allowWrite"]
     for rel in declared:
         assert any(a.endswith(rel) for a in allowed), f"{rel} is not granted: {allowed}"
 
@@ -750,7 +771,7 @@ def test_an_operator_grant_cannot_defeat_a_deny_rule():
     something the queue can launder away."""
     from models.resolve import FORBIDDEN, resolve
 
-    o = resolve("fullstack-engineer").sdk_options()
+    o = resolve("fullstack-engineer", activity="work.implement").sdk_options()
     assert "Bash(git push:*)" in o.disallowed_tools
     assert "Bash(git push:*)" in FORBIDDEN
 
@@ -966,7 +987,7 @@ def test_what_a_child_must_not_inherit_is_gone_the_way_the_sdk_actually_builds_i
 
     monkeypatch.setenv("VIRTUAL_ENV", "/Users/someone/Envs/unrelated")
     monkeypatch.setenv("MAD_HARNESS_CALLER_PWD", "/the/dispatchers/cwd")
-    options_env = build_env(resolve("verifier"))
+    options_env = build_env(resolve("verifier", activity="verify.impl"))
     assert "VIRTUAL_ENV" not in options_env and "MAD_HARNESS_CALLER_PWD" not in options_env
     scrub_process_env()  # what _run_sdk does before the SDK spawns
     child_env = {**os.environ, **options_env}
@@ -997,11 +1018,11 @@ def test_an_orchestrator_may_push_and_reach_the_remote_and_the_stacks_index_and_
     inside the orchestrator's sandbox (measured: a nested worker died at `uv sync`)."""
     from models import resolve as mod
 
-    o = mod.resolve("campaign-orchestrator")
+    o = mod.resolve("campaign-orchestrator", activity="loop.orchestrate")
     assert o.disallowed_tools == () and "Bash(git:*)" in o.allowed_tools and "Bash(make:*)" in o.allowed_tools
     domains = o.sandbox["network"]["allowedDomains"]
     assert "github.com" in domains and "pypi.org" in domains and "files.pythonhosted.org" in domains
-    w = mod.resolve("fullstack-engineer")
+    w = mod.resolve("fullstack-engineer", activity="work.implement")
     assert "Bash(git push:*)" in w.disallowed_tools and "Bash(git:*)" not in w.allowed_tools
     assert "network" not in w.sandbox
 
@@ -1030,22 +1051,26 @@ def test_every_script_that_dispatches_runs_outside_the_orchestrators_sandbox():
     assert spawning <= listed, f"dispatching scripts missing from DISPATCHING_SCRIPTS: {sorted(spawning - listed)}"
     for rel in listed:
         assert (mod.HARNESS / rel).is_file(), f"{rel} is excluded but does not ship"
-    o = mod.resolve("campaign-orchestrator")
+    o = mod.resolve("campaign-orchestrator", activity="loop.orchestrate")
     excluded = o.sandbox["excludedCommands"]
     for rel in listed:
         assert f"{mod.HARNESS}/{rel}:*" in excluded and f"{mod.HARNESS.parent}//{mod.HARNESS.name}/{rel}:*" in excluded
-    assert "excludedCommands" not in mod.resolve("fullstack-engineer").sandbox
+    assert "excludedCommands" not in mod.resolve("fullstack-engineer", activity="work.implement").sandbox
 
 
-def test_an_orchestrators_ceiling_is_the_roles_not_its_tiers():
+def test_an_orchestrators_ceiling_is_its_activitys_not_a_special_case():
     """Measured: a headless lab epic stopped itself at $3.19 of the strong tier's $4.00
     with the epic open — the ceiling is per task and an orchestrator runs a whole epic."""
     from models import resolve as mod
 
-    o = mod.resolve("campaign-orchestrator")
-    v = mod.resolve("verifier")
-    assert o.tier == v.tier == "strong"
+    o = mod.resolve("campaign-orchestrator", activity="loop.orchestrate")
+    v = mod.resolve("verifier", activity="verify.impl")
+    assert o.strength == v.strength == "strong", "the same model; a different job"
     assert o.max_budget_usd == 25.0 and v.max_budget_usd == 4.0
+    # AND IT IS THE ACTIVITY THAT SAYS SO. Under tiers this needed a special-case
+    # `orchestrator:` block beside the tier table, keyed off agent frontmatter, because a
+    # tier's ceiling was per task and an orchestrator runs a whole epic. The ceiling living
+    # on the activity makes that an ordinary entry rather than an exception.
 
 
 def test_a_dispatch_killed_at_its_timeout_still_records_an_event_with_the_turns_seen(monkeypatch, tmp_path):
@@ -1070,7 +1095,7 @@ def test_a_dispatch_killed_at_its_timeout_still_records_an_event_with_the_turns_
         raise err
 
     with pytest.raises(mod.DispatchError, match="exceeded"):
-        mod.dispatch("verifier", "judge", runner=runner, task="T-1", timeout=5)
+        mod.dispatch("verifier", "judge", activity="verify.impl", runner=runner, task="T-1", timeout=5)
     assert len(recorded) == 1
     category, target, payload = recorded[0]
     assert category == "harness.dispatch" and target == "T-1"

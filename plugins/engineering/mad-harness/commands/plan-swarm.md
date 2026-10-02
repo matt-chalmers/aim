@@ -43,8 +43,8 @@ carries an `ARCHITECTURE:` note, reuse it rather than re-deriving it.
 ## 3. Dispatch the planner
 
 **Dispatch the `planner` agent through the harness boundary now:**
-`${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh planner --prompt-file <path>`. Naming it explicitly is what
-selects its tier; the boundary is what makes that tier actually apply.
+`${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh planner --activity plan.create --prompt-file <path>`. The
+activity is what selects its strength and its budget; the boundary is what makes them apply.
 
 Carry in the prompt string: the goal, the epic's current children (`${CLAUDE_PLUGIN_ROOT}/harness/tracker/tk.sh show`),
 any `ARCHITECTURE:` note, the lane-label vocabulary and concurrency caps, and the

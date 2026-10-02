@@ -43,7 +43,7 @@ import sys
 from pathlib import Path
 
 from . import verdict as verdict_mod
-from .resolve import HARNESS, REPO
+from .resolve import HARNESS, REPO, strength_chain
 from .steps import FAIL, INFO, OK, Raw, Result, execute, failure_detail, render, tail
 
 DISPATCH = HARNESS / "models" / "dispatch.sh"
@@ -61,7 +61,7 @@ DISPATCH_TIMEOUT = 3600
 # this) before the parser tolerated emphasis, as `verdict.VERDICT` already did.
 _EM = r"[*_`]*"
 ADEQUACY = re.compile(rf"^\s*{_EM}ADEQUACY{_EM}:?{_EM}\s*{_EM}(?P<v>ADEQUATE|INFERABLE|ABSENT|ESCALATE)(?![A-Za-z])", re.I | re.M)
-#: `VERDICT: ESCALATE — <why>` from an analyst run at a lighter tier: re-run at its declared tier.
+#: `VERDICT: ESCALATE — <why>` from an analyst at a lighter strength: re-run at the next one.
 AUDIT_PASS = re.compile(r"^\s*AUDIT:\s*PASS\b", re.I | re.M)
 ESCALATE = re.compile(rf"^\s*{_EM}(?:ADEQUACY|VERDICT){_EM}:?{_EM}\s*{_EM}ESCALATE(?![A-Za-z])[^\n]*", re.I | re.M)
 DECISION_LINE = re.compile(rf"^\s*{_EM}DECISION{_EM}:{_EM}\s*(?P<q>.+?)\s*$", re.M)
@@ -118,21 +118,32 @@ ONE_COMMAND = (
 )
 
 
-def _dispatch(agent: str, prompt: str, epic: str, out: Path, runner, cwd: str, dispatch_fn=None, tier: str | None = None) -> tuple[Raw, str]:
+def _dispatch(agent: str, prompt: str, epic: str, out: Path, runner, cwd: str, dispatch_fn=None,
+              activity: str | None = None, complexity: str | None = None,
+              strength: str | None = None) -> tuple[Raw, str]:
     """One fresh dispatch; the whole result at `out`. Returns (raw, result text).
-    `tier` overrides the agent's declared tier (`dispatch.sh --tier`) — the lever below."""
+
+    `activity` names the standard boundary this is (`dispatch.sh --activity`) and
+    `complexity` the epic's reading; together they resolve the strength, the ceiling and the
+    told budget from config. `strength` is the ESCALATION step — the next entry in the
+    activity's chain — and is the only thing here that takes rank 1.
+    """
     pfile = out.with_suffix(".prompt.md")
     pfile.parent.mkdir(parents=True, exist_ok=True)
     pfile.write_text(prompt.rstrip("\n") + "\n" + ONE_COMMAND)
     if dispatch_fn:
         try:
-            raw = dispatch_fn(agent, pfile, out, tier=tier)
+            raw = dispatch_fn(agent, pfile, out, activity=activity, complexity=complexity, strength=strength)
         except TypeError:
             raw = dispatch_fn(agent, pfile, out)
     else:
         argv = [str(DISPATCH), agent, "--prompt-file", str(pfile), "--task", epic, "--out", str(out), "--digest", "0"]
-        if tier:
-            argv += ["--tier", tier]
+        if activity:
+            argv += ["--activity", activity]
+        if complexity:
+            argv += ["--complexity", complexity]
+        if strength:
+            argv += ["--strength", strength]
         raw = execute(argv, cwd=cwd, timeout=DISPATCH_TIMEOUT, runner=runner)
     return raw, _read(str(out))
 
@@ -190,9 +201,9 @@ class Sequencer:
     # planner, audit, denied audit, revised planner, audit again, each Opus dispatch ~4
     # minutes in strict sequence — and $1.07 in 3.5 minutes building. A pre-step does NOT
     # get quicker for a smaller epic on its own: the architect ran 12 turns at ~23 s each,
-    # the planner 23 at ~15 s — per-turn thinking latency at the tier's fixed effort, times
+    # the planner 23 at ~15 s — per-turn thinking latency at the strength's fixed thinking, times
     # a reading procedure whose floor is the same however little there is to read. What
-    # moves it is (a) the effort — the tier, from the complexity card — and (b) not redoing
+    # moves it is (a) the thinking — the strength, from the complexity card — and (b) not redoing
     # a step that was done and whose inputs have not changed: a design staged while the
     # spec index reads REUSE is reused, and a plan is reused when the epic carries an
     # `AUDIT: PASS` for THIS task set (the fingerprint below) and the spec index reads
@@ -233,7 +244,7 @@ class Sequencer:
         is written down. Before the architect: from the epic's text and its tasks, which
         for an unplanned epic usually name nothing (→ deep). Before the audit: from the
         design and the plan as well, which name the modules and files the work touches.
-        Each is noted on the epic so the tier chosen is explained where the epic is read."""
+        Each is noted on the epic so the strength chosen is explained where the epic is read."""
         from . import complexity
 
         cache = getattr(self, "_cards", None)
@@ -251,30 +262,34 @@ class Sequencer:
         self.results.append(_note(self.epic, f"{card.render()} (before the {stage}, {_dt.date.today().isoformat()})", self.runner, self.cwd))
         return card
 
-    def tier_for(self, role: str) -> str | None:
-        """The tier a §3 stage runs at, from the complexity card — the `plan_tiers` lever
-        turns this on; off keeps every declared tier. The owner's rule: the architect
-        (sanity-check or design) at `strong` unless the surface is FLAGGED — unreadable
-        included, since the architect escalates itself when what it reads needs
-        `strategic`; the audit at `worker` only when the surface reads SIMPLE. The planner
-        is never moved — it writes the DAG."""
+    def complexity_for(self, stage: str) -> str | None:
+        """The complexity this stage's activity is routed at, from the epic's own card.
+
+        REPLACES `tier_for`, which returned the literal tier names "strong" and "worker" and
+        reached dispatch as `--tier` — PRECEDENCE RANK 1. That outranked the policy tier and
+        outranked a project's own override, so a project setting `agent_tiers: {architect: …}`
+        for an A/B was silently reverted and the arm read "no effect"; and the telemetry
+        reason was the string "explicit override", indistinguishable from an operator typing
+        `--tier`, so the measured -33% was attributed to a reason conflating two causes.
+        Now the stage passes a COMPLEXITY and the activity's own config decides what that
+        means — one rank, and the project's patch is a merge rather than something to beat.
+
+        The `plan_tiers` lever still turns the reading off wholesale, in which case the
+        activity resolves at its top level and nothing is demoted.
+        """
         from . import levers
 
         if not levers.lever("plan_tiers"):
             return None
-        if role in ("sanity-check", "design"):
-            return None if self.card("architect").flagged else "strong"
-        if role == "audit":
-            return "worker" if self.card("audit").simple else None
-        return None
+        return self.card("audit" if stage == "audit" else "architect").complexity
 
-    def escalation_line(self, tier: str | None, stage: str) -> str:
-        if not tier:
+    def escalation_line(self, complexity: str | None, stage: str) -> str:
+        if not complexity:
             return ""
         c = self.card('audit' if stage == 'audit' else 'architect')
-        return (f"TIER: you are running at `{tier}` — the epic's declared surface reads {c.reading} ({c.why()}); nothing it names is flagged. "
+        return (f"STRENGTH: the epic's declared surface reads {c.reading} ({c.why()}), so this stage is routed at its `{complexity}` strength. "
                 f"If what you read needs deeper deliberation than that — a cross-cutting change, a contract others depend on, a real trade-off — "
-                f"put `{'ADEQUACY' if stage == 'architect' else 'VERDICT'}: ESCALATE — <why>` first and stop; the stage is re-run at its full tier with your reason.\n")
+                f"put `{'ADEQUACY' if stage == 'architect' else 'VERDICT'}: ESCALATE — <why>` first and stop; the stage is re-run at the next strength in its chain with your reason.\n")
 
     def plan_fingerprint(self) -> str:
         """What the audit judged: the open tasks' ids, titles, descriptions and acceptance,
@@ -355,7 +370,7 @@ class Sequencer:
             prompt = (f"SURVEY epic {self.epic} — {self.title()}.\nRead `{TK} --readonly show {self.epic}` and its children, then sweep the corpus for everything that already constrains it. "
                       f"Return the SURVEY return contract: the ADEQUACY: verdict first, the AUTHORITATIVE SPEC, and a POINTER-ONLY SPEC INDEX.{delta}\n")
             out = self.out_dir / "survey.md"
-            raw, text = _dispatch("analyst-survey", prompt, self.epic, out, self.runner, self.cwd, self.dispatch_fn)
+            raw, text = _dispatch("analyst-survey", prompt, self.epic, out, self.runner, self.cwd, self.dispatch_fn, activity="spec.survey")
             if not self.judged("dispatch analyst-survey", raw, text, ADEQUACY, "ADEQUACY"):
                 return
             verdict = ADEQUACY.search(text).group("v").upper()
@@ -391,13 +406,13 @@ class Sequencer:
         prompt = (f"DRAFT the proposal for epic {self.epic} — {self.title()} — under the staging folder `{folder}` as `proposal.md`, `status: draft`, "
                   f"from the SURVEY at `{self.state.art('survey')}`. Every drafted criterion carries the doc and the quoted opening words it derives from; a criterion that cannot be cited goes under `## Open questions`. Assemble, never invent.\n")
         out = self.out_dir / "draft.md"
-        raw, text = _dispatch("spec-editor", prompt, self.epic, out, self.runner, self.cwd, self.dispatch_fn)
+        raw, text = _dispatch("spec-editor", prompt, self.epic, out, self.runner, self.cwd, self.dispatch_fn, activity="spec.draft")
         if not self.judged("dispatch spec-editor (draft)", raw, text, None):
             return
         self.results.append(Result("dispatch spec-editor (draft)", OK, f"full: {out}", raw))
         prompt = f"AUDIT the drafted proposal for epic {self.epic} at `{folder / 'proposal.md' if folder else '(see the epic)'}`. Return the AUDIT return contract with `VERDICT: PASS` or `VERDICT: FAIL` and, for a spec, an `ADEQUACY:` line.\n"
         out = self.out_dir / "draft-audit.md"
-        raw, text = _dispatch("analyst", prompt, self.epic, out, self.runner, self.cwd, self.dispatch_fn)
+        raw, text = _dispatch("analyst", prompt, self.epic, out, self.runner, self.cwd, self.dispatch_fn, activity="spec.audit")
         if not self.judged("dispatch analyst (audit the draft)", raw, text, verdict_mod.VERDICT):
             return
         v = verdict_mod.parse(text)
@@ -441,7 +456,7 @@ class Sequencer:
         prompt = (f"FOLD-IN ① for epic {self.epic}: apply the staged proposal at `{proposal}` to the corpus, guided by the SPEC INDEX at `{self.state.art('spec_index') or folder}`. "
                   f"Acceptance criteria land in the owning feature doc as unchecked criteria, verbatim; index rows where the corpus index needs them. Then set the proposal's `status: folded-in`.{inferences}")
         out = self.out_dir / "foldin.md"
-        raw, text = _dispatch("spec-editor", prompt, self.epic, out, self.runner, self.cwd, self.dispatch_fn)
+        raw, text = _dispatch("spec-editor", prompt, self.epic, out, self.runner, self.cwd, self.dispatch_fn, activity="spec.fold-in")
         if not self.judged("dispatch spec-editor (fold-in ①)", raw, text, None):
             return
         self.results.append(Result("dispatch spec-editor (fold-in ①)", OK, f"full: {out}", raw))
@@ -478,15 +493,23 @@ class Sequencer:
             self.state.done("stage", staged_design=staged)
             return
         view = self.render_view() if triage != "UNPLANNED" else None
-        tier = self.tier_for("sanity-check" if triage == "READY" else "design")
-        self._architect_at(triage, view, tier, escalated=None)
+        self._architect_at(triage, view, self.complexity_for("architect"), step=0, escalated=None)
 
-    def _architect_at(self, triage: str, view, tier: str | None, escalated: str | None) -> None:
+    def _activity_for(self, stage: str, triage: str = "") -> str:
+        return {"architect": "design.sanity-check" if triage == "READY" else "design.create",
+                "audit": "plan.audit"}[stage]
+
+    def _architect_at(self, triage: str, view, complexity: str | None, step: int, escalated: str | None) -> None:
+        activity = self._activity_for("architect", triage)
+        chain = strength_chain(activity, complexity)
+        # Step 0 lets the activity resolve its own head; a later step IS the escalation, and
+        # it is the only thing here that takes precedence rank 1.
+        strength = chain[step] if step else None
         base = (f"Epic {self.epic} — {self.title()}. The SPEC INDEX is at `{self.state.art('spec_index') or '(none staged; read the epic)'}`; the survey at `{self.state.art('survey') or '(reused)'}`. Start there; open what it points at.\n"
                 + (f"The epic's existing tasks are rendered, in full, at `{view}` — read that file; do not fetch them one by one, and never in a shell loop (a compound command is denied).\n" if view else ""))
-        base += self.escalation_line(tier, "architect")
+        base += self.escalation_line(complexity, "architect") if not step else ""
         if escalated:
-            base += f"ESCALATED from a lighter tier, which said: {escalated}\n"
+            base += f"ESCALATED from a lighter strength, which said: {escalated}\n"
         if triage == "READY":
             prompt = base + self.size_line("sanity-check") + ("SANITY-CHECK the existing design and tasks: 1) is the recorded or implied design still correct given everything that has landed since the tasks were written — check the feature docs and the ADRs, including ones written after these tasks; 2) has the ground moved underneath it — run `tk.sh memories` and look for a documented framework that is a veneer; 3) confirm, or flag the drift precisely. Begin your output with an `ARCHITECTURE:` block. "
                              "If you cannot proceed without inventing scope, put `ADEQUACY: ABSENT` first and stop. Put every open question on its own line as `DECISION: <question>`.\n")
@@ -494,23 +517,26 @@ class Sequencer:
             prompt = base + self.size_line("design") + ("DESIGN it: the recommended approach (modules, service functions, schema, API contract), rejected alternatives with reasons, the impact list, a draft decision record where the call is non-obvious. Begin your output with an `ARCHITECTURE:` block. "
                              "If you cannot design without inventing scope, put `ADEQUACY: ABSENT` first and stop. Put every open question on its own line as `DECISION: <question>`; put a missing requirement as `REQUIREMENT: <what is unspecified>`.\n")
         out = self.out_dir / "design.md"
-        raw, text = _dispatch("architect", prompt, self.epic, out, self.runner, self.cwd, self.dispatch_fn, tier=tier)
+        raw, text = _dispatch("architect", prompt, self.epic, out, self.runner, self.cwd, self.dispatch_fn,
+                              activity=activity, complexity=complexity, strength=strength)
         if not self.judged("dispatch architect", raw, text, None):
             return
         m = ADEQUACY.search(text)
         v = m.group("v").upper() if m else "ADEQUATE"
         if v == "ESCALATE":
             why = (ESCALATE.search(text).group(0).strip() if ESCALATE.search(text) else "no reason given")
-            if tier:
-                self.results.append(Result("dispatch architect", INFO, f"ESCALATE at tier {tier} — {why[:160]}; re-running at the declared tier", raw))
-                self.results.append(_note(self.epic, f"ESCALATED: architect {tier} → declared tier — {why[:200]}", self.runner, self.cwd))
-                self._architect_at(triage, view, None, escalated=why)
+            here = chain[step] if step < len(chain) else "?"
+            if step + 1 < len(chain):
+                nxt = chain[step + 1]
+                self.results.append(Result("dispatch architect", INFO, f"ESCALATE at strength {here} — {why[:160]}; re-running at {nxt}", raw))
+                self.results.append(_note(self.epic, f"ESCALATED: architect {here} → {nxt} — {why[:200]}", self.runner, self.cwd))
+                self._architect_at(triage, view, complexity, step=step + 1, escalated=why)
                 return
-            self.results.append(Result("dispatch architect", FAIL, f"ESCALATE at the declared tier — nothing above it. Read `{out}`; the architect could not proceed: {why[:160]}", raw))
-            self.results.append(_park(self.epic, f"the architect asked to escalate at its top tier: {why[:120]}", self.runner, self.cwd))
+            self.results.append(Result("dispatch architect", FAIL, f"ESCALATE at {here}, the top of `{activity}`'s chain — nothing above it. Read `{out}`; the architect could not proceed: {why[:160]}", raw))
+            self.results.append(_park(self.epic, f"the architect asked to escalate at the top of its chain: {why[:120]}", self.runner, self.cwd))
             self.stop = (EXIT_PARKED, "architect")
             return
-        self.results.append(Result("dispatch architect", OK if v != "ABSENT" else FAIL, f"{'sanity-check' if triage == 'READY' else 'design'}{f' at tier {tier}' if tier else ''} — ADEQUACY: {v}{' (disputed)' if m else ''}\nfull: {out}", raw))
+        self.results.append(Result("dispatch architect", OK if v != "ABSENT" else FAIL, f"{activity} at {chain[step] if step < len(chain) else '?'} — ADEQUACY: {v}{' (disputed)' if m else ''}\nfull: {out}", raw))
         note = execute([str(TK), "update", self.epic, "--append-notes-file", str(out)], cwd=self.cwd, runner=self.runner)
         self.results.append(Result(f"tk.sh update {self.epic} --append-notes-file", OK if note.ran and note.returncode == 0 else FAIL, "the architect's output, by file — never retyped" if note.ran and note.returncode == 0 else failure_detail(note), note))
         self.state.done("architect", design=out)
@@ -583,7 +609,7 @@ class Sequencer:
             prompt += f"\nThis is a REVISION. The audit of your previous plan FAILed; its findings are at `{findings}` — read them and revise the plan. Fresh dispatch: nothing of the previous conversation is here.\n"
         n = self.state.data["audit_attempts"]
         out = self.out_dir / (f"plan-{n + 1}.md" if n else "plan.md")
-        raw, text = _dispatch("planner", prompt, self.epic, out, self.runner, self.cwd, self.dispatch_fn)
+        raw, text = _dispatch("planner", prompt, self.epic, out, self.runner, self.cwd, self.dispatch_fn, activity="plan.create")
         if not self.judged("dispatch planner", raw, text, None):
             return
         if "```" not in text:
@@ -605,22 +631,32 @@ class Sequencer:
         prompt = self.size_line("audit") + f"AUDIT the plan for epic {self.epic} at `{plan}` — its task set, acceptance criteria and SURFACE: lines — against the standard.{view_line} Return the AUDIT return contract: `VERDICT: PASS` or `VERDICT: FAIL` first, findings tagged blocking|filed. A gap written down (an open question, a decision task, a stated deferral) is a PASS; the same gap silent is a FAIL.\n"
         n = self.state.data["audit_attempts"] + 1
         out = self.out_dir / f"audit-{n}.md"
-        tier = self.tier_for("audit")
-        prompt = self.escalation_line(tier, "audit") + prompt
-        raw, text = _dispatch("analyst", prompt, self.epic, out, self.runner, self.cwd, self.dispatch_fn, tier=tier)
-        if tier and raw.ran and raw.returncode == 0 and ESCALATE.search(text):
+        complexity = self.complexity_for("audit")
+        activity = self._activity_for("audit")
+        chain = strength_chain(activity, complexity)
+        prompt = self.escalation_line(complexity, "audit") + prompt
+        raw, text = _dispatch("analyst", prompt, self.epic, out, self.runner, self.cwd, self.dispatch_fn,
+                              activity=activity, complexity=complexity)
+        step = 0
+        while raw.ran and raw.returncode == 0 and ESCALATE.search(text) and step + 1 < len(chain):
             why = ESCALATE.search(text).group(0).strip()
-            self.results.append(Result("dispatch analyst (audit)", INFO, f"ESCALATE at tier {tier} — {why[:160]}; re-running at the declared tier", raw))
-            self.results.append(_note(self.epic, f"ESCALATED: audit {tier} → declared tier — {why[:200]}", self.runner, self.cwd))
-            out = self.out_dir / f"audit-{n}-escalated.md"
-            raw, text = _dispatch("analyst", f"ESCALATED from tier {tier}, which said: {why}\n" + prompt.replace(self.escalation_line(tier, "audit"), ""), self.epic, out, self.runner, self.cwd, self.dispatch_fn, tier=None)
-            tier = None
+            here, nxt = chain[step], chain[step + 1]
+            self.results.append(Result("dispatch analyst (audit)", INFO, f"ESCALATE at strength {here} — {why[:160]}; re-running at {nxt}", raw))
+            self.results.append(_note(self.epic, f"ESCALATED: audit {here} → {nxt} — {why[:200]}", self.runner, self.cwd))
+            step += 1
+            out = self.out_dir / f"audit-{n}-escalated-{step}.md"
+            raw, text = _dispatch(
+                "analyst",
+                f"ESCALATED from strength {here}, which said: {why}\n" + prompt.replace(self.escalation_line(complexity, "audit"), ""),
+                self.epic, out, self.runner, self.cwd, self.dispatch_fn,
+                activity=activity, complexity=complexity, strength=nxt,
+            )
         if not self.judged("dispatch analyst (audit)", raw, text, verdict_mod.VERDICT):
             return
         v = verdict_mod.parse(text)
         self.state.data["audit_attempts"] = n
         self.state.save()
-        self.results.append(Result(f"dispatch analyst (audit {n})", OK if v.status == verdict_mod.PASS else FAIL, f"{v.status}{f' at tier {tier}' if tier else ''} — {v.blocking} blocking, {v.filed} filed\nfull: {out}", raw))
+        self.results.append(Result(f"dispatch analyst (audit {n})", OK if v.status == verdict_mod.PASS else FAIL, f"{v.status} at {chain[step] if step < len(chain) else '?'} — {v.blocking} blocking, {v.filed} filed\nfull: {out}", raw))
         self.results.append(_note(self.epic, f"AUDIT: {v.status} {_dt.date.today().isoformat()} — {v.blocking} blocking, {v.filed} filed; plan {self.plan_fingerprint()}; see {out}", self.runner, self.cwd))
         if v.status == verdict_mod.PASS:
             self.state.done("audit", audit=out)

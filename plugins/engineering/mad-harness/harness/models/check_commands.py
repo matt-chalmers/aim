@@ -77,18 +77,17 @@ _NORMATIVE = (
     "swarm",
     "slug",
     "name",
-    # Which tier a lens runs on. Moving the lens that is about to judge a worker down
-    # to the cheap tier is a quieter version of switching it off, and it is the owner's
-    # A/B switch — see `Project.tiers`.
-    "agent_tiers",
-    # What a tier IS. An agent able to write a tier or a provider block could repoint the
-    # harness's endpoint, or route the lens about to judge it at a model of its choosing.
-    "tiers",
+    # WHICH STRENGTH AN ACTIVITY RUNS AT, and what a strength IS. Routing the lens that is
+    # about to judge a worker at a cheap model is a quieter version of switching it off; and
+    # an agent able to write a strength or a provider block could repoint the harness's
+    # endpoint entirely. These are the owner's A/B switches, not an agent's.
+    #
+    # `agent_tiers`, `tiers`, `default_tier` and `ladder` were here until 0.12.0; they are
+    # gone from the schema, and `Project.model_config` refuses each by name — so an agent
+    # writing one gets a config error rather than a silent no-op.
+    "activities",
+    "strengths",
     "providers",
-    # Where an undeclared agent lands, and which way escalation runs. An agent able to
-    # write either could route its own work down a tier — the same laundering shape.
-    "default_tier",
-    "ladder",
 )
 
 #: Command keys worth probing. `test_scoped` is the one workers actually use, so

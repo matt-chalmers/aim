@@ -6,7 +6,6 @@ skills:
   - evidence-gathering
   - spec-lifecycle
 model: claude-opus-5[1m]
-model_tier: strong
 effort: xhigh
 color: purple
 ---

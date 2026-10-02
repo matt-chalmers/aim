@@ -64,7 +64,7 @@ this skill's §4 before your next action.
 <!-- PINNED -->
 - **Never answer a `decision` task.** File it, `tk.sh park <epic> --reason …`, move on. `unpark` is the mirror.
 - **One epic at a time.** §3 → §4 waves → §5 close → §6 report → next. Never fan §3 across the queue.
-- **Every dispatch goes through `dispatch.sh --worker N`** into a worktree; never edit the primary checkout during a wave.
+- **Every dispatch goes through `dispatch.sh --activity <id> --worker N`** into a worktree; never edit the primary checkout during a wave.
 - **No close without the lens gate** — L1–L3 always, L4 when its trigger fires; unanimity to pass.
 - **Ask `resume-point.sh <id>` before dispatching any claimed task.** A branch with commits is MERGE/VERIFY/REATTACH, never FRESH.
 - **`tk.sh release` what you stop, `preserve-worktrees.sh` before you remove.** Uncommitted work is reported, never deleted.
@@ -267,7 +267,7 @@ only a dispatch whose answer is already on disk. Under the `plan_tiers` lever th
 run at strong or lower — the architect at strong unless the epic's declared surface is
 flagged (`COMPLEXITY:` note — a triggered area, a security path, a megafile, a contention
 edge among the paths its tasks name), the audit at worker when that surface reads simple —
-and a stage run lighter may `ESCALATE` once to its full tier.
+and a stage run lighter may `ESCALATE` to the next strength in its activity's chain.
 
 Exit 0 planned and applied · 4 parked (the report says on what, and which command un-parks
 it; **the tracker export and the staging folder are already committed and pushed** — record
@@ -546,9 +546,9 @@ the epic predated the flow and had nothing staged — and the **four health sign
 
 **And what it cost.** `make models-cost` (`${CLAUDE_PLUGIN_ROOT}/harness/checks/models-cost.sh`)
 reads the `harness.dispatch` series: cost, turns, cache rate, kills and `results%` per
-tier. Every agent in this loop goes through the dispatcher, so that figure IS the
+strength. Every agent in this loop goes through the dispatcher, so that figure IS the
 campaign's agent spend — it was 3% of it while the read-only agents went through the
-Agent tool. Report the total, the kills, and any tier whose fail% or escalations moved.
+Agent tool. Report the total, the kills, and any activity whose fail% or escalations moved.
 
 **The epic is not a log.** Wave and campaign narrative goes to
 the epic's staged `run-log.md`, not to the epic's notes. Only a pointer and current
@@ -642,7 +642,7 @@ prefix and re-reading this skill: under a dollar against ~$17 an epic of carried
 
 `MODE=auto` in a terminal cannot end its own session, so it continues and pays the
 carrying cost. **Unattended across epics, run it as `swarm/campaign.sh` instead**: one
-fresh `campaign-orchestrator` session per epic through the dispatcher, with a tier, a
+fresh `campaign-orchestrator` session per epic through the dispatcher, with a strength, a
 ceiling, a sandbox and a cost record, and the tracker as the only state that crosses the
 boundary. Measured before it shipped: from inside its sandbox the orchestrator ran this
 loop's pre-flight, tracker writes, a nested worker, the merge, the gate and the push with

@@ -24,7 +24,7 @@ def test_the_cli_lists_exactly_the_catalog_the_dispatcher_names(monkeypatch):
 
     monkeypatch.delenv("MAD_HARNESS_LEAN_CATALOG", raising=False)
     monkeypatch.setattr("models.levers._project_block", lambda: {})
-    r = resolve("fullstack-engineer")
+    r = resolve("fullstack-engineer", activity="work.implement")
     opts = r.sdk_options(cwd=str(PLUGIN_ROOT), env=build_env(r))
     expected = catalog_skills()
     assert opts.skills == expected

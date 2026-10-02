@@ -22,19 +22,19 @@ go stale the first time an agent changed shape.
 
 | agent | tier | declares |
 |---|---|---|
-| `analyst-survey` | worker | reader |
-| `analyst` | strong | reader |
-| `architect` | strategic | reader |
-| `campaign-orchestrator` | strong | writer |
-| `fidelity-auditor` | strong | reader |
-| `fullstack-engineer` | worker | writer · worktree |
-| `planner` | strong | reader |
-| `quality-engineer` | worker | writer · worktree |
-| `spec-editor` | worker | writer |
-| `verifier-security` | strong | reader |
-| `verifier-spec` | strong | reader |
-| `verifier-tests` | strong | reader |
-| `verifier` | strong | reader |
+| `analyst-survey` | — | reader |
+| `analyst` | — | reader |
+| `architect` | — | reader |
+| `campaign-orchestrator` | — | writer |
+| `fidelity-auditor` | — | reader |
+| `fullstack-engineer` | — | writer · worktree |
+| `planner` | — | reader |
+| `quality-engineer` | — | writer · worktree |
+| `spec-editor` | — | writer |
+| `verifier-security` | — | reader |
+| `verifier-spec` | — | reader |
+| `verifier-tests` | — | reader |
+| `verifier` | — | reader |
 
 <!-- /GENERATED:agents -->
 

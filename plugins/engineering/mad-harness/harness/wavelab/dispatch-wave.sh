@@ -101,7 +101,7 @@ JOBS="$SCRATCH/jobs.txt"; : > "$JOBS"
 N=0
 for TASK in $READY; do
   N=$((N+1))
-  printf '%q %q --task-prompt --prompt-extra %q --worker %q --task %q --lane backend\n' \
+  printf '%q %q --activity work.implement --task-prompt --prompt-extra %q --worker %q --task %q --lane backend\n' \
     "$HARNESS/models/dispatch.sh" fullstack-engineer "$EXTRA" "$N" "$TASK" >> "$JOBS"
 done
 

@@ -179,7 +179,7 @@ def repo_root() -> Path:
     over fixtures — needs the live answer, not the one from import time.
     """
     return _find_repo()
-TIERS_FILE = HARNESS / "models" / "tiers.yaml"
+STRENGTHS_FILE = HARNESS / "models" / "strengths.yaml"
 ENV_FILE = HARNESS / ".env"
 #: The plugin root — one level above the machinery. Agents, commands and skills
 #: ship here, so the checks that validate them look here first and fall back to a
@@ -194,8 +194,16 @@ def _prompts_dir(kind: str) -> Path:
 
 AGENTS_DIR = _prompts_dir("agents")
 
-#: The tier that high-risk work is forced to, regardless of the agent's default.
-POLICY_FORCED_TIER = "strategic"
+#: HIGH-RISK WORK IS READ AS `complex`, not forced to a named strength. Under tiers this was
+#: `POLICY_FORCED_TIER = "strategic"` — a second, parallel way of saying "use the deep one",
+#: which had to be kept on the ladder and could be outranked by anything above it. Reusing
+#: the complexity axis means one mechanism: a security surface reads complex, and the
+#: activity's own `complex:` bucket decides what that means for THAT work.
+HIGH_RISK_COMPLEXITY = "complex"
+#: The three readings an epic's surface can produce. Closed, so a typo in config fails the
+#: check rather than silently matching nothing. `models/complexity.py` maps its own
+#: `simple|unreadable|flagged` onto these — `unreadable` is `standard`, the honest middle.
+COMPLEXITIES = ("simple", "standard", "complex")
 #: WHO ENFORCES `max_budget_usd` ON A PRICED TIER: the harness, and nothing else.
 #:
 #: The CLI checks that flag against its own price table. For a model it does not know that
@@ -214,9 +222,12 @@ POLICY_FORCED_TIER = "strategic"
 UNMETERED_TURNS_ALLOWED = 3
 #: Model words that resolve differently per dispatch path; a tier must name a concrete id.
 MODEL_ALIASES = frozenset({"opus", "sonnet", "haiku", "fable", "inherit", "default"})
-#: The reason recorded when a project's `agent_tiers:` block moved the agent. Telemetry
-#: carries it verbatim, which is how an A/B series is split by arm.
-PROJECT_OVERRIDE = "project override (harness.yaml agent_tiers)"
+#: Why a strength was chosen. An ENUM, so reports group on it instead of parsing prose —
+#: under tiers, a complexity demotion and an operator typing `--tier` both recorded the
+#: string "explicit override", and the measured -33% was attributed to a reason that
+#: conflated two causes.
+REASON_EXPLICIT = "explicit"
+REASON_ACTIVITY = "activity"
 
 _ENV_REF = re.compile(r"^\$\{([A-Z_][A-Z0-9_]*)\}$")
 _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
@@ -231,22 +242,37 @@ class Resolved:
     """One dispatch's fully-resolved configuration."""
 
     agent: str
-    tier: str
-    reason: str
+    #: The named unit of work this dispatch IS — `verify.spec`, `design.create`. `None` for
+    #: an ad-hoc dispatch off the standard boundaries, which supplies its strength directly.
+    #: Nothing infers this from the agent name: the relationship between the two is
+    #: incidental, and an alias would work until an agent gained a second activity and then
+    #: keep resolving to the old one.
+    activity: str | None
+    #: `simple` | `standard` | `complex`, or None where no reading was available.
+    complexity: str | None
+    #: The named model configuration that runs it.
+    strength: str
+    #: Which rank of the precedence chain chose the strength: `explicit` | `activity`.
+    strength_reason: str
     provider: str
     model: str
+    #: The SDK's `effort`. Spelled `thinking:` in config, because that is what it buys.
     effort: str
-    max_budget_usd: float
+    #: OPTIONAL. `None` means no ceiling was declared for this activity and complexity —
+    #: a choice the operator made, warned about at config-check time and not enforced here.
+    #: Distinct from a ceiling that exists and cannot be checked; see `ceiling_source`.
+    max_budget_usd: float | None
     env: dict[str, str] = field(default_factory=dict)
     missing_env: tuple[str, ...] = ()
-    #: `plugin` when the tier is as tiers.yaml ships it, `project` when the consuming
-    #: project's harness.yaml redefined it. In every dispatch record, so a cost series
-    #: never silently mixes a project's `worker` with the plugin's.
-    tier_source: str = "plugin"
-    #: The tier's published rates, where it is not on Anthropic — see models/pricing.py.
-    #: Empty means the SDK's own cost figure is the record, which is right for Anthropic.
-    #: Per-Mtok rates for THIS tier's model, read from its provider's `models` map. Empty
-    #: on Anthropic, where the SDK's own figure is the vendor's accounting; required off it.
+    #: `plugin` when the strength is as strengths.yaml ships it, `project` when the
+    #: consuming project's harness.yaml patched it. In every dispatch record, so a cost
+    #: series never silently mixes a project's `mid` with the plugin's. PROVENANCE, not
+    #: precedence: a project patches the same block the plugin ships rather than shadowing
+    #: it from a parallel one.
+    strength_source: str = "plugin"
+    #: Per-Mtok rates for THIS strength's model, read from its provider's `models` map.
+    #: Empty on Anthropic, where the SDK's own figure is the vendor's accounting; required
+    #: off it — see models/pricing.py.
     price: dict[str, Any] = field(default_factory=dict)
     #: WHICH POCKET THIS DISPATCH SPENDS FROM: `metered` (billed per token, the default and
     #: the conservative reading) or `subscription` (drawn from a plan's allowance). Both are
@@ -372,13 +398,15 @@ class Resolved:
         """
         return {
             "agent": self.agent,
-            "tier": self.tier,
-            "reason": self.reason,
+            "activity": self.activity,
+            "complexity": self.complexity,
+            "strength": self.strength,
+            "strength_reason": self.strength_reason,
             "provider": self.provider,
             "model": self.model,
             "effort": self.effort,
             "max_budget_usd": self.max_budget_usd,
-            "tier_source": self.tier_source,
+            "strength_source": self.strength_source,
             "task_budget_tokens": self.task_budget_tokens,
             "doctrine_chars": len(self.doctrine),
             "env_names": sorted(self.env),
@@ -387,11 +415,13 @@ class Resolved:
 
     def __str__(self) -> str:
         env = ",".join(sorted(self.env)) or "-"
-        redefined = " (redefined by project)" if self.tier_source == "project" else ""
+        patched = " (patched by project)" if self.strength_source == "project" else ""
+        where = f"{self.activity}" + (f"/{self.complexity}" if self.complexity else "") if self.activity else "ad-hoc"
+        cap = f"${self.max_budget_usd}" if self.max_budget_usd is not None else "NO CEILING"
         return (
-            f"{self.agent} -> {self.tier}{redefined} ({self.reason}): "
-            f"{self.provider}/{self.model} effort={self.effort} "
-            f"budget=${self.max_budget_usd} env=[{env}]"
+            f"{self.agent} [{where}] -> {self.strength}{patched} ({self.strength_reason}): "
+            f"{self.provider}/{self.model} thinking={self.effort} "
+            f"budget={cap} env=[{env}]"
         )
 
 
@@ -439,40 +469,117 @@ def _read_config(path: Path) -> dict[str, Any]:
         raise ConfigError(f"{path} is not valid YAML: {exc}") from exc
 
 
-def _validate(config: dict[str, Any], where: str = "tiers.yaml") -> dict[str, Any]:
-    """Every structural check the tier config must pass — run on the MERGED config, since
+#: Keys an activity may carry at its top level. Everything but `agent` may also appear in a
+#: complexity bucket, where it wins.
+ACTIVITY_FIELDS = ("strengths", "max_budget_usd", "task_budget_tokens")
+
+
+def _removed(config: dict[str, Any], where: str) -> None:
+    """Keys that moved in 0.12.0, each refused by name with the block to write instead.
+
+    A config that kept loading while its routing was quietly ignored is the one outcome
+    worse than a stop — the same reasoning as the 0.11.0 `price` migration.
+    """
+    gone = {
+        "tiers": "`tiers:` became `strengths:` — a strength carries {provider, model, thinking} "
+                 "and NOTHING else. Its ceiling and token budget moved to `activities:`, where "
+                 "what the work is worth is stated, and the `ladder:` became each activity's "
+                 "own `strengths:` chain.",
+        "ladder": "`ladder:` is gone. Escalation is per activity now: `activities.<id>.strengths` "
+                  "is an ordered chain whose head runs, so 'up from here' is defined by the work "
+                  "rather than by one global order across every model.",
+        "default_tier": "`default_tier:` is gone and not replaced. Every standard dispatch names "
+                        "its activity; an ad-hoc one passes `--strength`. Nothing is guessed.",
+        "default_strength": "there is no global default strength — see `default_tier:` above.",
+        "agent_tiers": "`agent_tiers:` is gone. Patch `activities:` itself — a project uses the "
+                       "same block the plugin ships rather than a parallel one.",
+        "orchestrator": "the orchestrator's per-epic ceiling is `activities.loop.orchestrate."
+                        "max_budget_usd` now, like every other activity's.",
+    }
+    for key, why in gone.items():
+        if key in config:
+            raise ConfigError(f"{where}: {why}")
+
+
+def _validate(config: dict[str, Any], where: str = "strengths.yaml") -> dict[str, Any]:
+    """Every structural check the model config must pass — run on the MERGED config, since
     validating before the project's patch would judge a config nobody runs."""
-    tiers = config.get("tiers")
-    if not isinstance(tiers, dict) or not tiers:
-        raise ConfigError(f"{where} defines no tiers")
+    _removed(config, where)
+    strengths = config.get("strengths")
+    if not isinstance(strengths, dict) or not strengths:
+        raise ConfigError(f"{where} defines no strengths")
+    activities = config.get("activities")
+    if not isinstance(activities, dict) or not activities:
+        raise ConfigError(f"{where} defines no activities")
 
     providers = config.get("providers") or {}
     for name, block in providers.items():
         billing = (block or {}).get("billing")
         if billing is not None and billing not in ("metered", "subscription"):
             raise ConfigError(f"provider {name!r}: billing must be 'metered' or 'subscription', got {billing!r}")
-    default_tier = config.get("default_tier")
-    if default_tier not in tiers:
-        raise ConfigError(
-            f"default_tier {default_tier!r} is not one of {sorted(tiers)}"
-        )
 
-    for name, tier in tiers.items():
-        if not isinstance(tier, dict):
-            raise ConfigError(f"tier {name!r} must be a map of provider/model/effort/max_budget_usd")
-        for key in ("provider", "model", "effort", "max_budget_usd"):
-            if key not in tier:
-                raise ConfigError(f"tier {name!r} is missing {key!r}")
-        if tier["provider"] not in providers:
+    for name, spec in strengths.items():
+        if not isinstance(spec, dict):
+            raise ConfigError(f"strength {name!r} must be a map of provider/model/thinking")
+        for key in ("provider", "model", "thinking"):
+            if key not in spec:
+                raise ConfigError(f"strength {name!r} is missing {key!r}")
+        stray = set(spec) - {"provider", "model", "thinking"}
+        if stray:
             raise ConfigError(
-                f"tier {name!r} names provider {tier['provider']!r}, "
+                f"strength {name!r}: unknown key(s) {', '.join(sorted(stray))}. A strength is "
+                f"what RUNS the work; a ceiling or a token budget is what the work is worth and "
+                f"belongs on the activity"
+            )
+        if spec["provider"] not in providers:
+            raise ConfigError(
+                f"strength {name!r} names provider {spec['provider']!r}, "
                 f"which is not defined; known: {sorted(providers)}"
             )
-    if POLICY_FORCED_TIER not in tiers:
-        raise ConfigError(
-            f"the policy-forced tier {POLICY_FORCED_TIER!r} is not defined; "
-            "high-risk work would have nowhere to escalate to"
-        )
+
+    # ACTIVITIES: the vocabulary, the binding, and the per-field resolution, checked
+    # STATICALLY. An activity that resolves `strengths` for only two of the three complexity
+    # readings must fail here and not mid-wave on the third — the same reasoning as
+    # check-stack-commands.sh probing a declared command before a worker finds it rotted.
+    for aid, spec in activities.items():
+        if not isinstance(spec, dict):
+            raise ConfigError(f"activity {aid!r} must be a map")
+        if not spec.get("agent"):
+            raise ConfigError(f"activity {aid!r} declares no `agent` — nothing says who performs it")
+        buckets = {k: v for k, v in spec.items() if k in COMPLEXITIES}
+        stray = set(spec) - {"agent", *ACTIVITY_FIELDS, *COMPLEXITIES}
+        if stray:
+            raise ConfigError(
+                f"activity {aid!r}: unknown key(s) {', '.join(sorted(stray))}; "
+                f"expected `agent`, {', '.join(ACTIVITY_FIELDS)}, or one of {', '.join(COMPLEXITIES)}"
+            )
+        for label, bucket in buckets.items():
+            if not isinstance(bucket, dict):
+                raise ConfigError(f"activity {aid!r} bucket {label!r} must be a map")
+            extra = set(bucket) - set(ACTIVITY_FIELDS)
+            if extra:
+                raise ConfigError(
+                    f"activity {aid!r} bucket {label!r}: unknown key(s) {', '.join(sorted(extra))}"
+                )
+        for chain in [spec.get("strengths")] + [b.get("strengths") for b in buckets.values()]:
+            if chain is None:
+                continue
+            if not isinstance(chain, list) or not chain:
+                raise ConfigError(f"activity {aid!r}: `strengths` must be a non-empty ordered list")
+            ghosts = [x for x in chain if x not in strengths]
+            if ghosts:
+                raise ConfigError(
+                    f"activity {aid!r} names undefined strength(s) {', '.join(map(str, ghosts))}; "
+                    f"known: {sorted(strengths)}"
+                )
+        # EVERY reading must resolve a chain from somewhere. This is the mandatory half.
+        for label in COMPLEXITIES:
+            if not ((buckets.get(label) or {}).get("strengths") or spec.get("strengths")):
+                raise ConfigError(
+                    f"activity {aid!r} resolves no `strengths` at complexity {label!r}: declare it "
+                    f"on the activity, or in that bucket. There is no default for which model "
+                    f"runs a piece of work, so a dispatch that cannot resolve one is refused"
+                )
     # A PRICE IS A FACT ABOUT A MODEL AT A PROVIDER, NOT ABOUT A TIER. It lived on the tier
     # in 0.10.32-0.10.36, which made it a second source of truth the moment two tiers shared
     # a model — and the plugin's own `strong` and `strategic` ARE one model, so routing the
@@ -482,7 +589,7 @@ def _validate(config: dict[str, Any], where: str = "tiers.yaml") -> dict[str, An
     # is wrong with no symptom.
     #
     # This is not the rule below that a provider must not name a model. That rule is about
-    # CHOOSING the model, which the tier owns. A `models:` map is keyed BY model id and
+    # CHOOSING the model, which the strength owns. A `models:` map is keyed BY model id and
     # chooses nothing; it states what the provider charges for models it serves.
     from .pricing import validate as _validate_price
 
@@ -502,28 +609,21 @@ def _validate(config: dict[str, Any], where: str = "tiers.yaml") -> dict[str, An
                 except ValueError as exc:
                     raise ConfigError(str(exc)) from exc
 
-    for name, tier in tiers.items():
-        if "price" in tier:
-            raise ConfigError(
-                f"tier {name!r} declares `price`, which moved to the provider in 0.11.0 "
-                f"because a rate belongs to a model, not to a role — two tiers on one model "
-                f"had to state it twice and could disagree. Write it as:\n"
-                f"    providers:\n      {tier['provider']}:\n        models:\n"
-                f"          {tier['model']}:\n            price: {{...}}"
-            )
-        if tier["provider"] == "anthropic":
+    for name, spec in strengths.items():
+        if spec["provider"] == "anthropic":
             continue
-        priced = ((providers.get(tier["provider"]) or {}).get("models") or {}).get(tier["model"]) or {}
+        priced = ((providers.get(spec["provider"]) or {}).get("models") or {}).get(spec["model"]) or {}
         if not priced.get("price"):
             raise ConfigError(
-                f"tier {name!r} resolves to {tier['provider']}/{tier['model']}, which declares no "
-                f"`price`. The CLI would price its tokens from its own table (measured: $5.00/Mtok "
-                f"for DeepSeek against $0.66-1.32 published, ~10x end to end), and that number "
-                f"reaches every cost record and the ceiling. Declare the published rates under "
-                f"`providers.{tier['provider']}.models.{tier['model']}.price` — see models/pricing.py."
+                f"strength {name!r} resolves to {spec['provider']}/{spec['model']}, which declares "
+                f"no `price`. The CLI would price its tokens from its own table (measured: "
+                f"$5.00/Mtok for DeepSeek against $0.66-1.32 published, ~10x end to end), and that "
+                f"number reaches every cost record and the ceiling. Declare the published rates "
+                f"under `providers.{spec['provider']}.models.{spec['model']}.price` — see "
+                f"models/pricing.py."
             )
 
-    # THE TIER OWNS THE MODEL, and names it concretely. A provider env naming a model
+    # THE STRENGTH OWNS THE MODEL, and names it concretely. A provider env naming a model
     # (`ANTHROPIC_MODEL`) would be a second source of truth; a `${...}` model is one; and a
     # bare alias (`opus`) resolved to different generations on different dispatch paths
     # (measured — it invalidated a parity experiment). These were tests on tiers.yaml;
@@ -531,32 +631,19 @@ def _validate(config: dict[str, Any], where: str = "tiers.yaml") -> dict[str, An
     for name, spec in providers.items():
         for key in (spec or {}).get("env") or {}:
             if "MODEL" in str(key).upper():
-                raise ConfigError(f"provider {name!r} names a model in its env ({key}); the tier owns that")
-    for name, tier in tiers.items():
-        model = str(tier.get("model", ""))
+                raise ConfigError(f"provider {name!r} names a model in its env ({key}); the strength owns that")
+    for name, spec in strengths.items():
+        model = str(spec.get("model", ""))
         if not model or "${" in model:
-            raise ConfigError(f"tier {name!r} must name a concrete model, got {tier.get('model')!r}")
+            raise ConfigError(f"strength {name!r} must name a concrete model, got {spec.get('model')!r}")
         if model.lower() in MODEL_ALIASES:
-            raise ConfigError(f"tier {name!r} names the alias {model!r}; use a concrete model id so every dispatch path resolves it the same way")
-    # THE LADDER, ON THE MERGED CONFIG. escalate.next_tier raises on an off-ladder tier —
-    # at dispatch time, on the one path where a silent wrong direction is expensive. A
-    # project that adds a tier must place it; a ladder naming a ghost, or the same rung
-    # twice, or leaving the policy-forced tier off, fails here by name.
-    ladder = config.get("ladder")
-    if ladder is not None:
-        if not isinstance(ladder, list) or not ladder:
-            raise ConfigError(f"{where}: `ladder` must be a non-empty list of tier names, weakest first")
-        ghosts = [t for t in ladder if t not in tiers]
-        if ghosts:
-            raise ConfigError(f"ladder names tier(s) that do not exist: {', '.join(map(str, ghosts))}")
-        dupes = sorted({t for t in ladder if ladder.count(t) > 1})
-        if dupes:
-            raise ConfigError(f"ladder names tier(s) more than once: {', '.join(dupes)}")
-        missing = [t for t in tiers if t not in ladder]
-        if missing:
-            raise ConfigError(f"tier(s) defined but not on the ladder: {', '.join(missing)} — a tier that exists must be placed, or escalation cannot reason about it")
-        if POLICY_FORCED_TIER not in ladder:
-            raise ConfigError(f"the policy-forced tier {POLICY_FORCED_TIER!r} is not on the ladder")
+            raise ConfigError(f"strength {name!r} names the alias {model!r}; use a concrete model id so every dispatch path resolves it the same way")
+    # NO LADDER. It was a total order over every tier, enforced on every project config in
+    # service of `escalate.next_tier` — which had no production caller, ever. Worse, it
+    # forced a claim: `ladder: [flash, gpt5, elite]` asserts a cross-vendor ranking nobody
+    # can justify, and the "every tier must be placed" rule compelled that assertion for
+    # every strength added. Escalation is each activity's own `strengths` chain now, so "up
+    # from here" is defined by the work rather than by one global order.
     return config
 
 
@@ -579,31 +666,53 @@ def _project_model_config() -> dict[str, Any]:
 
 
 def merge_model_config(plugin: dict[str, Any], project: dict[str, Any]) -> dict[str, Any]:
-    """The project's patch over the plugin's defaults.
+    """The project's patch over the plugin's defaults. ONE STRUCTURE, not two.
 
-    MAPS PATCH, SCALARS AND LISTS REPLACE. `tiers` merge by tier name and, within a tier,
-    per key — a project supplying only `max_budget_usd` inherits provider, model and
-    effort, so a plugin upgrade that changes a budget still reaches consumers. `providers`
-    merge by name and, within one, `env` per key. `default_tier` (a scalar) and `ladder`
-    (an ordered list) are replaced wholesale when the project names them: a ladder merged
-    per index would route escalation somewhere nobody chose. `{**plugin, **project}` keeps
-    a redefined tier in its original position and appends new ones, which is what
-    `Project.agent_tiers`' "declaration order, weakest first" relies on.
+    A project does not get a parallel block to shadow the plugin's from. It patches the same
+    `strengths:` and `activities:` the plugin ships — which is why "plugin or project" is
+    PROVENANCE here and not a precedence rank. `agent_tiers:` was the old parallel block and
+    it is gone: two schemas answering "which model runs this work" is the second-source-of-
+    truth shape this corpus treats as its most expensive defect.
+
+    MAPS PATCH, LISTS REPLACE, and the patch goes as deep as the structure does:
+
+    * `strengths` by name, then per key — a project changing only `thinking` keeps the
+      provider and model, so a plugin upgrade still reaches it.
+    * `activities` by id, then per complexity bucket, then per key — a project changing one
+      bucket's `strengths` keeps that bucket's budget, its sibling buckets, and every other
+      activity. Same reasoning as a stack's `commands`: "fixing one rotted command does not
+      silently drop the five beside it".
+    * `providers` by name; within one, `env` per key and `models` per model id.
+    * A `strengths:` CHAIN is a list and replaces wholesale — merging two orderings per index
+      would route escalation somewhere nobody chose.
     """
     out: dict[str, Any] = dict(plugin)
-    # WHAT THE PROJECT TOUCHED, kept beside the result so every reader can say so: the
-    # config check prints it, `Resolved.tier_source` carries it into every dispatch
-    # record, and the A/B rig refuses to read a series that mixes the two as one sample.
-    # This replaces the guarantee being given up — a project may now redefine even the
-    # policy-forced tier; the protection is visibility, not prevention.
-    prov: dict[str, Any] = {"tiers": [], "providers": [], "default_tier": False, "ladder": False,
-                            "shipped": {name: dict(spec) for name, spec in (plugin.get("tiers") or {}).items()}}
-    if "tiers" in project:
-        merged = dict(plugin.get("tiers") or {})
-        for name, patch in (project["tiers"] or {}).items():
+    # WHAT THE PROJECT TOUCHED, kept beside the result so every reader can say so: the config
+    # check prints it, `Resolved.strength_source` carries it into every dispatch record, and
+    # the A/B rig refuses to read a series that mixes the two as one sample. A project may
+    # patch anything, including the activity a security surface routes to; the protection is
+    # visibility, not prevention.
+    prov: dict[str, Any] = {
+        "strengths": [], "activities": [], "providers": [],
+        "shipped": {name: dict(spec) for name, spec in (plugin.get("strengths") or {}).items()},
+    }
+    if "strengths" in project:
+        merged = dict(plugin.get("strengths") or {})
+        for name, patch in (project["strengths"] or {}).items():
             merged[name] = {**(merged.get(name) or {}), **(patch or {})}
-            prov["tiers"].append(name)
-        out["tiers"] = merged
+            prov["strengths"].append(name)
+        out["strengths"] = merged
+    if "activities" in project:
+        merged = {k: dict(v or {}) for k, v in (plugin.get("activities") or {}).items()}
+        for aid, patch in (project["activities"] or {}).items():
+            base = dict(merged.get(aid) or {})
+            patch = dict(patch or {})
+            for label in COMPLEXITIES:
+                if label in patch or label in base:
+                    patch[label] = {**(base.get(label) or {}), **(patch.get(label) or {})}
+            merged[aid] = {**base, **patch}
+            prov["activities"].append(aid)
+        out["activities"] = merged
     if "providers" in project:
         merged = dict(plugin.get("providers") or {})
         for name, patch in (project["providers"] or {}).items():
@@ -612,8 +721,7 @@ def merge_model_config(plugin: dict[str, Any], project: dict[str, Any]) -> dict[
             if "env" in patch or "env" in base:
                 patch["env"] = {**(base.get("env") or {}), **(patch.get("env") or {})}
             # `models` patches PER MODEL ID, and within one, per key — a project correcting
-            # one rate must not drop the others declared beside it, for the same reason a
-            # stack's `commands` merge rather than replace.
+            # one rate must not drop the others declared beside it.
             if "models" in patch or "models" in base:
                 models = {k: dict(v or {}) for k, v in (base.get("models") or {}).items()}
                 for mid, mpatch in (patch.get("models") or {}).items():
@@ -622,17 +730,13 @@ def merge_model_config(plugin: dict[str, Any], project: dict[str, Any]) -> dict[
             merged[name] = {**base, **patch}
             prov["providers"].append(name)
         out["providers"] = merged
-    for key in ("default_tier", "ladder"):
-        if key in project:
-            out[key] = project[key]
-            prov[key] = True
     out["provenance"] = prov
     return out
 
 
 def provenance(config: dict[str, Any]) -> dict[str, Any]:
-    """What a project redefined in this config, or nothing for the plugin's own."""
-    return config.get("provenance") or {"tiers": [], "providers": [], "default_tier": False, "ladder": False, "shipped": {}}
+    """What a project patched in this config, or nothing for the plugin's own."""
+    return config.get("provenance") or {"strengths": [], "activities": [], "providers": [], "shipped": {}}
 
 
 def load_config(path: Path | None = None, *, merge_project: bool = True) -> dict[str, Any]:
@@ -643,7 +747,7 @@ def load_config(path: Path | None = None, *, merge_project: bool = True) -> dict
     compares agent frontmatter against, because a project's deliberate redefinition is not
     drift. The same distinction `resolve(project_tiers={})` already draws for selection.
     """
-    path = path or TIERS_FILE
+    path = path or STRENGTHS_FILE
     config = _read_config(path)
     if merge_project:
         project = _project_model_config()
@@ -826,17 +930,19 @@ def qualified(agent: str) -> str:
     return f"{name}:{agent}" if name else agent
 
 
-def _task_budget(spec: dict[str, Any]) -> int | None:
-    """Env (the rig's per-arm value), else the project's `dispatch.task_budget_tokens`,
-    else the tier's `task_budget_tokens`. Measured: told its budget, a worker paced —
-    -32% per run with the spreads separated — so the worker tier carries a default; a
-    project whose tasks are larger than the lab's raises it in harness.yaml."""
+def _task_budget(resolved: Any) -> int | None:
+    """Env (the rig's per-arm value), else the value the activity resolved, else None.
+
+    Measured: told its budget, a worker paced — -32% per run with the spreads separated — so
+    the writing activities carry a default. `None` is a real answer, not a zero: nothing is
+    told, which `check-project-config.sh` warns about at config time.
+    """
     from .levers import lever
 
     override = lever("task_budget")
     if override:
         return int(override)
-    return int(spec["task_budget_tokens"]) if spec.get("task_budget_tokens") else None
+    return int(resolved) if resolved else None
 
 
 def permission_for(agent: str, agents_dir: Path | None = None) -> tuple[str, tuple[str, ...]]:
@@ -1182,81 +1288,133 @@ def sees_no_diff(agent: str, agents_dir: Path | None = None) -> bool:
     return str(agent_frontmatter(agent, agents_dir).get("evidence") or "").strip() == "no-diff"
 
 
-def project_tier_overrides(
-    config: dict[str, Any] | None = None, agents_dir: Path | None = None
-) -> dict[str, str]:
-    """The consuming project's `agent_tiers:` overrides, validated — `{}` where there is no
-    harness.yaml to read.
+def activity_spec(activity: str, config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The merged `activities:` entry for `activity`, or a refusal naming the known ids."""
+    config = config or load_config()
+    activities = config.get("activities") or {}
+    if activity not in activities:
+        raise ConfigError(
+            f"unknown activity {activity!r}; known: {', '.join(sorted(activities))}"
+        )
+    return activities[activity]
 
-    A missing config is the old behaviour, not an error: the block is optional and a
-    dry-run from outside any project resolved before it existed. A config that IS there
-    but malformed raises, because a misspelt agent or tier that fell through to the
-    agent default would leave an A/B arm silently running on the tier it meant to move
-    off — the series would read as "no effect" and the switch would never be trusted.
+
+def resolve_field(spec: dict[str, Any], complexity: str | None, field_name: str) -> Any:
+    """One field of an activity, SPECIFICITY WINS — the complexity bucket, else the activity.
+
+    Field by field, not block by block: a bucket that restates only `strengths` inherits the
+    activity's ceiling and token budget. Either location satisfies the requirement and
+    neither is privileged, so an activity may declare everything at its top level, everything
+    per bucket, or any mixture.
     """
-    # project.py imports this module, so the cycle stays lazy — the same way
-    # `dispatch.py` reaches `declared_skills`.
-    from .project import PROJECT_FILE, load
+    if complexity:
+        bucket = spec.get(complexity) or {}
+        if field_name in bucket and bucket[field_name] is not None:
+            return bucket[field_name]
+    return spec.get(field_name)
 
-    if not PROJECT_FILE.is_file():
-        return {}
-    return load().agent_tiers(config=config, agents_dir=agents_dir)
+
+def strength_chain(activity: str, complexity: str | None = None, config: dict[str, Any] | None = None) -> list[str]:
+    """The ordered strengths this activity may run at, at this complexity.
+
+    THE ESCALATION PATH, and it is per activity by design: "up from here" depends on what the
+    work is, not on which engine happens to be running it. Under `ladder:` there was one
+    global order over every tier, which forced a cross-vendor ranking nobody could justify —
+    and nothing ever walked it. `plan_epic` walks this.
+    """
+    config = config or load_config()
+    chain = resolve_field(activity_spec(activity, config), complexity, "strengths")
+    return list(chain or [])
 
 
 def resolve(
     agent: str,
     *,
-    override_tier: str | None = None,
+    activity: str | None = None,
+    complexity: str | None = None,
+    strength: str | None = None,
+    max_budget_usd: float | None = None,
+    task_budget_tokens: int | None = None,
     high_risk: bool = False,
-    project_tiers: dict[str, str] | None = None,
     config: dict[str, Any] | None = None,
     agents_dir: Path | None = None,
     environ: dict[str, str] | None = None,
 ) -> Resolved:
     """Apply the precedence chain and return the configuration to dispatch with.
 
-    :param override_tier: an explicit operator or escalation decision (rank 1)
-    :param high_risk: the task touches a security-sensitive surface (rank 2)
-    :param project_tiers: the project's per-agent overrides (rank 3); None reads them
-        from harness.yaml, `{}` asks for the plugin's own defaults regardless of it
+    TWO RANKS, and the project is not one of them:
+
+    1. `strength` — an explicit operator decision, or an escalation stepping along the chain.
+    2. the merged `activities[activity]` at this `complexity`, head of its `strengths` chain.
+
+    Whether the resolved entry came from the plugin or the project is PROVENANCE
+    (`strength_source`), recorded on every dispatch — not a rank. A project patches the same
+    block the plugin ships, so there is nothing to out-rank.
+
+    HIGH RISK IS NOT A RANK EITHER: it reads the surface as `complex` before rank 2 looks,
+    so one mechanism serves it and the activity's own `complex:` bucket decides what that
+    means for that work.
+
+    NOTHING IS GUESSED. A dispatch with no activity and no explicit strength is refused — the
+    ad-hoc path exists for work off the standard boundaries and it supplies its own facts.
+
+    :param activity: the standard activity this dispatch performs; None for ad hoc
+    :param complexity: `simple` | `standard` | `complex`, from the epic's surface
+    :param strength: rank 1, and the ad-hoc path's mandatory input
+    :param max_budget_usd: ad-hoc only — what an activity would have supplied
+    :param task_budget_tokens: ad-hoc only — likewise
     """
     config = config or load_config()
-    tiers = config["tiers"]
+    strengths = config["strengths"]
 
-    if override_tier is not None:
-        if override_tier not in tiers:
-            raise ConfigError(f"unknown tier {override_tier!r}; known: {sorted(tiers)}")
-        tier, reason = override_tier, "explicit override"
-    elif high_risk:
-        tier, reason = POLICY_FORCED_TIER, "policy: high-risk surface"
-    else:
-        if project_tiers is None:
-            project_tiers = project_tier_overrides(config=config, agents_dir=agents_dir)
-        declared = agent_frontmatter(agent, agents_dir).get("model_tier")
-        if agent in project_tiers:
-            # `Project.tiers` has validated the block by the time it gets here; the
-            # frontmatter is still read above so an agent that does not exist fails the
-            # same way it always has, and the tier is checked once more because this
-            # argument can also be handed in directly.
-            if project_tiers[agent] not in tiers:
-                raise ConfigError(
-                    f"project override routes {agent!r} to unknown tier "
-                    f"{project_tiers[agent]!r}; known: {sorted(tiers)}"
-                )
-            tier, reason = project_tiers[agent], PROJECT_OVERRIDE
-        elif declared is None:
-            tier, reason = config["default_tier"], "global default"
-        elif declared not in tiers:
+    if high_risk:
+        complexity = HIGH_RISK_COMPLEXITY
+    if complexity is not None and complexity not in COMPLEXITIES:
+        raise ConfigError(
+            f"unknown complexity {complexity!r}; known: {', '.join(COMPLEXITIES)}"
+        )
+
+    spec: dict[str, Any] = {}
+    if activity is not None:
+        spec = activity_spec(activity, config)
+        declared = spec.get("agent")
+        if declared and declared != agent:
+            # The binding is config's, and it is checked: an activity dispatched as the wrong
+            # agent is a caller bug that would otherwise run the wrong prompt at the right
+            # price. Nothing INFERS one from the other — this only refuses a contradiction.
             raise ConfigError(
-                f"agent {agent!r} declares model_tier {declared!r}, "
-                f"which is not defined; known: {sorted(tiers)}"
+                f"activity {activity!r} is performed by {declared!r}, not {agent!r}"
             )
-        else:
-            tier, reason = declared, "agent default"
 
-    spec = tiers[tier]
+    if strength is not None:
+        chosen, reason = strength, REASON_EXPLICIT
+    elif activity is not None:
+        chain = resolve_field(spec, complexity, "strengths")
+        if not chain:
+            raise ConfigError(
+                f"activity {activity!r} resolves no `strengths` at complexity "
+                f"{complexity or '(none given)'!r} — nothing says which model runs it"
+            )
+        chosen, reason = chain[0], REASON_ACTIVITY
+    else:
+        raise ConfigError(
+            "a dispatch must name either --activity (a standard boundary) or --strength "
+            "(an ad-hoc dispatch off them). There is no default: work that runs on a model "
+            "nobody chose for it is the thing this config exists to prevent."
+        )
+    if chosen not in strengths:
+        raise ConfigError(f"unknown strength {chosen!r}; known: {sorted(strengths)}")
+
+    # THE BUDGETS ARE OPTIONAL, and `None` is a real answer. An explicit argument wins (the
+    # ad-hoc path), else the activity resolves it, else nothing is enforced — reported by
+    # check-project-config.sh at config time, because a warning that arrives after the money
+    # is spent is not a warning.
+    ceiling = max_budget_usd if max_budget_usd is not None else resolve_field(spec, complexity, "max_budget_usd")
+    told = task_budget_tokens if task_budget_tokens is not None else resolve_field(spec, complexity, "task_budget_tokens")
+
+    sspec = strengths[chosen]
     providers = config.get("providers") or {}
-    env, missing = provider_env(spec["provider"], config, environ)
+    env, missing = provider_env(sspec["provider"], config, environ)
     mode, grants = permission_for(agent, agents_dir)
     orchestrator = is_orchestrator(agent, agents_dir)
     _sandbox, _settings = sandbox_for(
@@ -1265,23 +1423,20 @@ def resolve(
     )
     return Resolved(
         agent=agent,
-        tier=tier,
-        reason=reason,
-        tier_source="project" if tier in provenance(config)["tiers"] else "plugin",
-        # FROM THE PROVIDER'S MODEL, not the tier: one rate per model, stated once.
-        price=dict((((providers.get(spec["provider"]) or {}).get("models") or {})
-                    .get(spec["model"]) or {}).get("price") or {}),
-        billing=str((providers.get(spec["provider"]) or {}).get("billing") or "metered"),
-        provider=spec["provider"],
-        model=spec["model"],
-        effort=spec["effort"],
-        # The role's own ceiling, when it has one: an orchestrator's is per epic.
-        max_budget_usd=float(
-            (config.get("orchestrator") or {}).get("max_budget_usd", spec["max_budget_usd"])
-            if orchestrator
-            else spec["max_budget_usd"]
-        ),
-        task_budget_tokens=_task_budget(spec),
+        activity=activity,
+        complexity=complexity,
+        strength=chosen,
+        strength_reason=reason,
+        strength_source="project" if chosen in provenance(config)["strengths"] else "plugin",
+        # FROM THE PROVIDER'S MODEL, not the strength: one rate per model, stated once.
+        price=dict((((providers.get(sspec["provider"]) or {}).get("models") or {})
+                    .get(sspec["model"]) or {}).get("price") or {}),
+        billing=str((providers.get(sspec["provider"]) or {}).get("billing") or "metered"),
+        provider=sspec["provider"],
+        model=sspec["model"],
+        effort=sspec["thinking"],
+        max_budget_usd=float(ceiling) if ceiling is not None else None,
+        task_budget_tokens=_task_budget(told),
         doctrine=doctrine(agent, agents_dir, extra=tuple(_lever("preload", block={}))),
         env=env,
         missing_env=missing,

@@ -163,8 +163,9 @@ and read `n` rc files; sequential dispatch was the known lapse.
 The jobs file, one per line, no shell:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh <agent> --task-prompt --task <id> --worker <n> --lane <lane> --digest [--prompt-extra <file>]
-${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh <agent> --task-prompt --task <id> --worker <n> --lane <lane> --digest --resume <branch>   # REATTACH, or VERIFY that failed
+${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh <agent> --activity work.implement --task-prompt --task <id> --worker <n> --lane <lane> --digest [--prompt-extra <file>]
+${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh <agent> --activity work.implement --task-prompt --task <id> --worker <n> --lane <lane> --digest --resume <branch>   # REATTACH, or VERIFY that failed
+${CLAUDE_PLUGIN_ROOT}/harness/models/dispatch.sh quality-engineer --activity work.remediate --task-prompt --task <id> --worker <n> --lane <lane> --digest   # a test-shaped FAIL
 ```
 
 **`--digest`** prints the report's first lines and the path of the file holding all of it
@@ -173,8 +174,8 @@ on; the lenses read the diff through `brief.sh`, not the worker's account of it.
 on a campaign orchestrator: whole subagent results were the largest things in its context
 and were re-read on every later turn.
 
-**Why the boundary rather than the Agent tool.** It is what makes the model tier real:
-`tiers.yaml` decides the model, the effort and a hard `--max-budget-usd` ceiling per dispatch,
+**Why the boundary rather than the Agent tool.** It is what makes the routing real:
+`strengths.yaml` decides the model and the thinking, the activity decides the ceiling,
 and every call records its own cost, tokens and turns as a `harness.dispatch` event task
 (`make models-cost`). The Agent tool can express none of that.
 
@@ -198,7 +199,7 @@ did not happen, whatever the return text claims.
 anything; the ceiling cut it off. `dispatch.sh` records the spend it reached, prints the
 steps that arrived before the kill and then the error (never the error instead of them), and
 says `BUDGET EXHAUSTED` on stderr. Route it deliberately: run `resume-point.sh <id>` first —
-a kill mid-edit usually leaves REATTACH-able work — then either escalate the tier (the task
+a kill mid-edit usually leaves REATTACH-able work — then either escalate the strength (the task
 needed more than the ceiling) or split it (the task is too big), and never re-dispatch as-is.
 A pipe such as `dispatch.sh … | tail` returns `tail`'s status, so read the exit code from the
 rc file, not the pipeline.
@@ -450,5 +451,5 @@ wrote them down.
 
 **Cost proxy.** `make models-cost` reports real per-dispatch cost from the boundary's own
 telemetry. If a wave costs materially more than the same tasks under `/grind` without a quality
-gain, the model tier is the lever: the writer agent dominates token spend, so that is where an
+gain, the writing activity's strength is the lever: the writer dominates token spend, so that is where an
 experiment starts.
