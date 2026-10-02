@@ -18,3 +18,14 @@ __pycache__/
 # The independence reviews: valuable history for this repository, and noise for
 # anyone installing the plugin. Kept locally, never shipped.
 independence_check.md
+
+# Feature proposals: the argument for a change, written before it is built. Local for
+# now — not shipped to anyone installing the plugin, and not yet committed here either.
+proposals/
+
+# This repository's OWN prompts, for engineering the harness rather than using it. The
+# plugin's command surface is `commands/` at its root; `.claude/commands/` is where a
+# project keeps its own, which is why `resolve._prompts_dir` falls back to exactly here.
+# Ignored rather than merely untracked: distribution is a clone of this repo, so
+# `git add -A` is all it would take to ship four dev commands into every consumer's cache.
+.claude/

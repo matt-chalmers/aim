@@ -122,3 +122,71 @@ def test_trailing_punctuation_is_not_part_of_the_path(tmp_path):
 
 def test_the_shipped_plugin_names_nothing_that_does_not_exist():
     assert check_refs.missing(PLUGIN) == {}, "a script was renamed or removed; fix the prose"
+
+
+# --- and it must ship, not merely exist on the author's disk --------------------------
+#
+# The plugin is distributed as a clone of this repository, so what a consumer gets is what
+# git TRACKS. `Path.exists()` validated a different set: `proposals/`, `.claude/` and
+# `independence_check.md` are all present here and ignored, so a reference to one passed
+# locally and was a dead path in every installation.
+
+
+def _checkout(tmp_path: Path, skill_text: str, *, gitignore: str = "") -> Path:
+    """A plugin fixture that is a real checkout, so `git ls-files` has something to say."""
+    import subprocess
+
+    plugin = _plugin_fixture(tmp_path, skill_text)
+    if gitignore:
+        (plugin / ".gitignore").write_text(gitignore)
+    subprocess.run(("git", "init", "-q", str(plugin)), check=True)
+    subprocess.run(("git", "-C", str(plugin), "add", "-A"), check=True)
+    return plugin
+
+
+def test_a_referenced_path_that_exists_but_is_gitignored_is_reported_as_unshipped(tmp_path):
+    """The guard failing: present, referenced, and absent for every consumer."""
+    plugin = _checkout(
+        tmp_path,
+        "the spec is at ${CLAUDE_PLUGIN_ROOT}/proposals/guided-setup/spec.md\n",
+        gitignore="proposals/\n",
+    )
+    (plugin / "proposals" / "guided-setup").mkdir(parents=True)
+    (plugin / "proposals" / "guided-setup" / "spec.md").write_text("# spec\n")
+
+    assert check_refs.missing(plugin) == {}, "it exists, so the presence check is content"
+    bad = check_refs.unshipped(plugin)
+    assert list(bad) == ["proposals/guided-setup/spec.md"]
+    assert bad["proposals/guided-setup/spec.md"] == ["skills/x/SKILL.md:1"]
+
+
+def test_a_tracked_path_is_not_reported(tmp_path):
+    plugin = _checkout(tmp_path, "run ${CLAUDE_PLUGIN_ROOT}/harness/checks/check-record-size.sh\n")
+    assert check_refs.unshipped(plugin) == {}
+    assert "harness/checks" in check_refs.tracked(plugin), "a directory on the way to a tracked file counts"
+
+
+def test_outside_a_checkout_shipping_is_not_verified_rather_than_failed(tmp_path):
+    """An installed plugin cache may not be a checkout. Reporting all 47 references as
+    unshipped there would be the one conclusion this check must never reach wrongly."""
+    plugin = _plugin_fixture(tmp_path, "run ${CLAUDE_PLUGIN_ROOT}/harness/checks/check-record-size.sh\n")
+    assert check_refs.tracked(plugin) is None
+    assert check_refs.unshipped(plugin) == {}
+
+
+def test_the_shipped_plugin_references_nothing_it_does_not_ship():
+    assert check_refs.unshipped(PLUGIN) == {}, (
+        "prose an agent executes names a path that is present here and ignored — commit it "
+        "or stop referencing it"
+    )
+
+
+def test_main_consults_both_predicates_rather_than_keeping_its_own_copy(monkeypatch, capsys):
+    """`main` held its own copy of the presence test, so a change to `missing` would not
+    have reached `make refs`. One fact stated twice is the defect this corpus ranks
+    highest, and this is the test that would have caught it."""
+    monkeypatch.setattr(check_refs, "missing", lambda *a, **k: {})
+    monkeypatch.setattr(check_refs, "unshipped", lambda *a, **k: {"proposals/x.md": ["skills/x/SKILL.md:1"]})
+    assert check_refs.main() == 1
+    err = capsys.readouterr().err
+    assert "NOT TRACKED" in err and "proposals/x.md" in err and "skills/x/SKILL.md:1" in err
