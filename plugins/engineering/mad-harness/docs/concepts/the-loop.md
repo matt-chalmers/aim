@@ -17,7 +17,8 @@ whether it advances.
 
 The planning stages do not all run at their agent's full tier: the harness reads a
 complexity card first and may run the design and the audit lower, with the agent told it may
-escalate — see [agents and tiers](agents-and-tiers.md#a-stage-can-run-below-its-agents-tier).
+escalate along the chain — see
+[agents, activities and strengths](agents-and-activities.md#an-activity-may-run-below-its-usual-strength).
 
 `/campaign` iterates this over the epic queue, one epic per session — the boundary is
 where the orchestrator's context is cleared, for the reason in [cost](cost.md);

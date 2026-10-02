@@ -1,16 +1,16 @@
 # Providers and pricing
 
-A tier names a provider as well as a model, so any tier can be routed off Anthropic without
+A strength names a provider as well as a model, so any work can be routed off Anthropic without
 touching an agent. What that costs — and what it costs *you* to find out — is the subject of
 this page: a third-party endpoint breaks three assumptions the harness had baked in, and each
 one is now a declared fact rather than a guess.
 
-The short version: **the plugin ships Anthropic everywhere. Moving a tier elsewhere is a
+The short version: **the plugin ships Anthropic everywhere. Moving a strength elsewhere is a
 project's decision, it requires a declared price, and it is gated by a probe.**
 
 ## Quick start
 
-Route the `worker` tier at another provider, end to end.
+Route a writing activity at another provider, end to end.
 
 **1. Credentials.** Copy the template and fill it in. The file is gitignored; the tracked
 template is `harness/.env.example`.
@@ -24,16 +24,22 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com/anthropic
 DEEPSEEK_API_KEY=sk-…
 ```
 
-**2. Redefine the tier** in your repository's `harness.yaml`. Keys you leave out stay the
+**2. Declare a strength and point an activity at it** in your repository's `harness.yaml`.
+Keys you leave out stay the
 plugin's, so upgrades still reach you.
 
 ```yaml
-# The ROLE: which model, how hard it thinks, what it may spend.
-tiers:
-  worker:
+# WHAT RUNS IT: provider, model, thinking — and nothing else.
+strengths:
+  cheap:
     provider: deepseek
     model: deepseek-v4-pro        # a concrete id, never an alias
-    effort: high
+    thinking: high
+
+# WHAT THE WORK IS WORTH, and which strengths may run it.
+activities:
+  work.implement:
+    strengths: [cheap, strong]    # cheap first; `strong` is where ESCALATE goes
     max_budget_usd: 3.00
 
 # What that model COSTS, and which pocket pays.
@@ -61,10 +67,10 @@ harness/models/probe-compat.sh deepseek
 **4. Run something small and read the record back.**
 
 ```bash
-make models-cost        # rows never mix a priced tier with an SDK-priced one
+make models-cost        # rows never mix a priced strength with an SDK-priced one
 ```
 
-Every dispatch now records `provider`, `tier_source: project`, `cost_source: priced (…)`,
+Every dispatch now records `provider`, `strength_source: project`, `cost_source: priced (…)`,
 `billing` and `ceiling_source`. What each means: [cost](cost.md).
 
 ## Why a third-party endpoint is not just a different URL
@@ -106,8 +112,10 @@ Six probes, cheapest and most fundamental first, each naming what depends on it:
 | tool call (read) | a worker that cannot read a file cannot work | yes |
 | multi-turn tool loop | the failure mode is a worker that silently does nothing | yes |
 
-The model probed is the one a tier on that provider declares, so the probe exercises the
-real path rather than a parallel one that could pass while it fails.
+**Every model a strength routes at that provider is probed**, not just the first — a pass on
+one model says nothing about another, and the ceiling is metered from the model's own streamed
+accounting. `--model <id>` re-probes one. The models come from the strengths, so the probe
+exercises the real path rather than a parallel one that could pass while it fails.
 
 **Why one probe is advisory.** Streamed usage is what the ceiling is metered from; the final
 usage is what the cost record is built from. They are different payloads, and a provider can
@@ -128,9 +136,9 @@ not recognise, and the result is not an error — it is a number.
 > $0.66 off-peak / $1.32 peak. Measured again end to end: $0.1600 reported against $0.015494
 > of real cost, and $0.1105 against $0.011348 — **9.7–10.3×**.
 
-So any model a tier reaches off Anthropic **must** declare a `price`, and
-`check-project-config.sh` refuses a tier that resolves to one without — naming both the tier
-and the model. The cost is then computed from the token counts the probe certified.
+So any model a strength reaches off Anthropic **must** declare a `price`, and
+`check-project-config.sh` refuses a strength that resolves to one without — naming both the
+strength and the model. The cost is then computed from the token counts the probe certified.
 
 ```yaml
 providers:
@@ -155,7 +163,7 @@ rates for the same model and both validate, leaving every cost record and every 
 one of them wrong with no symptom.
 
 That is not in tension with the rule that a provider must never name a model: that rule is
-about *choosing* the model, which the tier owns. A `models:` map is keyed **by** model id and
+about *choosing* the model, which the strength owns. A `models:` map is keyed **by** model id and
 chooses nothing — it states what the provider charges for models it serves.
 
 **Peak windows are data, not a constant.** A provider that charges half rate outside stated
@@ -193,10 +201,10 @@ than one meaningless percentage.
 
 ## The ceiling
 
-<img src="../assets/ceiling-enforcement.svg" alt="Which enforcer checks max_budget_usd: the CLI on Anthropic, the harness on a priced tier, and the unenforceable case">
+<img src="../assets/ceiling-enforcement.svg" alt="Which enforcer checks max_budget_usd: the CLI on Anthropic, the harness on a priced strength, and the unenforceable case">
 
 `max_budget_usd` is a circuit breaker per dispatch. Who actually checks it depends on
-whether the harness can price the tier, and every event records the answer as
+whether the harness can price the strength, and every event records the answer as
 `ceiling_source`.
 
 ### `cli` — on Anthropic
@@ -204,7 +212,7 @@ whether the harness can price the tier, and every event records the answer as
 The SDK is given the ceiling and enforces it between API calls. Its figure is the vendor's
 own accounting, so this is correct and nothing else is needed.
 
-### `harness` — on a tier that declares a price
+### `harness` — on a strength that declares a price
 
 The CLI is given **no ceiling at all**. It would be checking the number against its own
 table for a model it does not know, so its kill would land at a real-dollar figure nobody
@@ -216,7 +224,7 @@ can state — and a threshold in an unknown currency is not a bound.
 > was denominated in the wrong currency.
 
 Instead, the dispatcher meters the stream it is already reading. Each message carries its
-own usage; summed at the tier's declared rates, that is the same number the record will
+own usage; summed at the strength's declared rates, that is the same number the record will
 show, which is what makes the ceiling mean what it says. Two measured properties of a real
 stream shape the implementation:
 
@@ -234,18 +242,19 @@ stream shape the implementation:
 
 ### `none` — priced, but nothing could meter it
 
-The tier declares a price, so the CLI was given no ceiling, and the provider streamed no
+The strength declares a price, so the CLI was given no ceiling, and the provider streamed no
 usage — nothing is enforcing anything. This is caught twice:
 
 1. `probe-compat.sh` reports it before a task is ever routed there (the advisory probe).
 2. At runtime, a dispatch that has run three turns without a single usage payload is
    **stopped**: `terminal: unenforceable_ceiling`. That is deliberately not `budget` —
-   nothing was exceeded. It is a configuration fault to fix, not a task to split or a tier
+   nothing was exceeded. It is a configuration fault to fix, not a task to split or a strength
    to escalate.
 
 ## Effort may not survive the trip
 
-`effort` is part of a tier — `high`, `xhigh`, `max` — and it is sent on every dispatch. That
+`thinking` is part of a strength — `high`, `xhigh`, `max` — and it is sent on every dispatch
+(as the SDK's `effort`). That
 does not mean the model on the other end acts on it.
 
 Measured 2026-09-24 against DeepSeek V4 Pro, one prompt, five runs per level:
@@ -267,17 +276,17 @@ so it reads the effect where there is one.
 
 ### Why that can break escalation silently
 
-The plugin's `strong` and `strategic` are **the same model**, `claude-opus-5[1m]`, differing
-only in effort. Effort *is* the step up. Point both at a provider that ignores the
-parameter and the top rung of the ladder becomes a no-op: a stage that escalated because it
-needed deeper deliberation is re-run with exactly what it already had, at the same price,
-and reports success. Nothing downstream can tell.
+The plugin's `strong` and `elite` are **the same model**, `claude-opus-5[1m]`, differing only
+in thinking. Thinking *is* the step up. Put both in one activity's chain at a provider that
+ignores the parameter and the escalation becomes a no-op: a stage that escalated because it
+needed deeper deliberation is re-run with exactly what it already had, at the same price, and
+reports success. Nothing downstream can tell.
 
-`check-project-config.sh` warns when two adjacent ladder rungs share a provider and model
-off Anthropic and differ only in effort. The fix is to give the upper rung a different
-model, or to drop the rung — not to raise its effort.
+`check-project-config.sh` warns for **every pair** of strengths that share a provider and
+model off Anthropic and differ only in `thinking`, naming the chains that hold both. The fix
+is to give one a different model, or to drop it — not to raise its thinking.
 
-One provider and one prompt, so this is a warning rather than a refusal. If you route a tier
+One provider and one prompt, so this is a warning rather than a refusal. If you route a strength
 at a provider you believe does honour effort, measure it: the probe above is fifteen cheap
 calls.
 
@@ -285,17 +294,17 @@ calls.
 
 | limitation | why | what to do |
 |---|---|---|
-| the ceiling is checked between turns | one enormous tool call can carry past it (measured 22× on a $0.005 ceiling) | set ceilings to "obviously too much for this tier's work"; use `task_budget_tokens` to pace |
+| the ceiling is checked between turns | one enormous tool call can carry past it (measured 22× on a $0.005 ceiling) | set ceilings to "obviously too much for this activity's work"; use `task_budget_tokens` to pace |
 | a metered ceiling reaches ~12% late | streamed usage carries no output count | treat the ceiling as a runaway stop, not a cap |
 | a `price` block can be wrong | nothing verifies your rates against the provider's invoice | reconcile `make models-cost` against a real bill once |
-| the probe certifies one model | it probes the model a tier on that provider declares | probe again after changing the model |
-| `effort` may be ignored | it is sent, but nothing confirms it was acted on — measured as no effect on one provider | do not build a ladder rung out of effort alone off Anthropic (above) |
-| thinking tokens may be unreported | one provider returned `thinking_tokens: 0` at every effort level | if its `output_tokens` also excludes them, a priced cost is an undercount; reconcile against a real invoice |
-| `model:` must be a concrete id | an alias resolves differently per dispatch path, silently | see [agents and tiers](agents-and-tiers.md) |
+| ~~the probe certifies one model~~ | **fixed in 0.12.0**: every model a strength routes at the provider is certified, because the ceiling is metered from each model's own streamed accounting | `--model <id>` re-probes one |
+| `thinking` may be ignored | it is sent, but nothing confirms it was acted on — measured as no effect on one provider | do not build a chain step out of thinking alone off Anthropic (above) |
+| thinking tokens may be unreported | one provider returned `thinking_tokens: 0` at every level | if its `output_tokens` also excludes them, a priced cost is an undercount; reconcile against a real invoice |
+| `model:` must be a concrete id | an alias resolves differently per dispatch path, silently | see [agents, activities and strengths](agents-and-activities.md) |
 
 ## What this measured
 
-A worker tier at DeepSeek V4 Pro against the plugin's Sonnet default, 2 runs per arm on the
+A writing strength at DeepSeek V4 Pro against the plugin's Sonnet default, 2 runs per arm on the
 seeded lab epic, judged by all four lenses: workers **$0.15/run metered against $1.56/run
 subscription (~10×)**, both arms green, and the same lens verdicts. At the wave level that
 is −22% of the subscription pocket, because the Opus lenses are ~76% of a run — on this
@@ -310,6 +319,6 @@ The full result, including what it did *not* show at n = 2: [upgrading](../upgra
 | | |
 |---|---|
 | [Cost](cost.md) | every field a dispatch records, the levers, where a campaign's money goes |
-| [Agents and tiers](agents-and-tiers.md) | what a tier is and how one is selected |
-| [harness.yaml](../reference/harness-yaml.md) | the `tiers`, `providers` and `price` blocks |
+| [Agents, activities and strengths](agents-and-activities.md) | what each is, and how a dispatch resolves one |
+| [harness.yaml](../reference/harness-yaml.md) | the `strengths`, `activities`, `providers` and `price` blocks |
 | [Measurement](../guides/measurement.md) | the A/B rig that sized the comparison above |

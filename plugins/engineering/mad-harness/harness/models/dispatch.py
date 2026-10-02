@@ -532,7 +532,7 @@ def build_env(r: Resolved, base: dict[str, str] | None = None) -> dict[str, str]
     """The subprocess environment: inherited, plus this provider's overrides.
 
     Provider credentials enter here and nowhere else. They are never written to
-    tiers.yaml, never rendered into a log line, and never reach a telemetry task
+    strengths.yaml, never rendered into a log line, and never reach a telemetry task
     — see Resolved.redacted().
     """
     env = dict(os.environ if base is None else base)
@@ -1164,10 +1164,10 @@ def main(argv: list[str] | None = None) -> int:
             task=args.task,
         )
     except (ConfigError, DispatchError, ProjectError) as exc:
-        # ProjectError: the project's `agent_tiers:` block names an agent or tier that does
-        # not exist. Routing on the agent's default instead would run the A/B on the
-        # wrong arm and record it as the right one — so it stops here, like any other
-        # config that cannot be dispatched.
+        # ProjectError: the project's `activities:` or `strengths:` patch is malformed, or
+        # names something that does not exist. Routing on something else instead would run
+        # the A/B on the wrong arm and record it as the right one — so it stops here, like
+        # any other config that cannot be dispatched.
         print(f"FAIL: {exc}", file=sys.stderr)
         return 2
 

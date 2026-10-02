@@ -80,7 +80,7 @@ tracker:
 ## Credentials
 
 Anthropic access comes from Claude Code's own auth — a subscription or an API key — and the
-harness adds nothing. It only needs a file of its own if you route a tier at another
+harness adds nothing. It only needs a file of its own if you route a strength at another
 provider:
 
 ```bash
@@ -110,5 +110,5 @@ harness/checks/check-stack-commands.sh    # probes declared commands, repairs wh
 harness/models/dispatch.sh verifier --prompt-file /dev/null --dry-run
 ```
 
-The dry run resolves tier, model, budget, permission mode, grants and sandbox settings
+The dry run resolves the activity, strength, model, budget, permission mode, grants and sandbox settings
 without spending anything. If it prints a plan, the installation is sound.

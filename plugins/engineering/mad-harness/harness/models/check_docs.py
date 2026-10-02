@@ -57,14 +57,27 @@ def _first_comment(path: Path) -> str:
 
 
 def agents_table() -> str:
-    rows = ["| agent | tier | declares |", "|---|---|---|"]
+    """Agent -> the activities that perform it, and what its frontmatter declares.
+
+    THE ACTIVITIES, not a tier. An agent stopped declaring its own strength in 0.12.0: the
+    activity it performs decides what runs it, which is what lets one agent serve two
+    activities at two strengths. The binding is read from the config, never from the name.
+    """
+    from .resolve import load_config
+
+    config = load_config(merge_project=False)
+    by_agent: dict[str, list[str]] = {}
+    for aid, spec in (config.get("activities") or {}).items():
+        by_agent.setdefault(str(spec.get("agent")), []).append(aid)
+
+    rows = ["| agent | performs | declares |", "|---|---|---|"]
     for f in sorted(AGENTS_DIR.glob("*.md")):
         fm = agent_frontmatter(f.stem)
-        tier = str(fm.get("model_tier") or "—")
+        acts = ", ".join(f"`{a}`" for a in by_agent.get(f.stem, [])) or "—"
         tools = str(fm.get("tools") or "")
         kind = "writer" if ("Edit" in tools or "Write" in tools) else "reader"
         iso = " · worktree" if fm.get("isolation") == "worktree" else ""
-        rows.append(f"| `{f.stem}` | {tier} | {kind}{iso} |")
+        rows.append(f"| `{f.stem}` | {acts} | {kind}{iso} |")
     return "\n".join(rows)
 
 
@@ -162,7 +175,7 @@ def llms_txt() -> str:
         "## Contracts (the machine-readable source of truth)",
         "",
         "- [harness/tracker/port.py](harness/tracker/port.py): the four tracker ports",
-        "- [harness/models/tiers.yaml](harness/models/tiers.yaml): model tiers",
+        "- [harness/models/strengths.yaml](harness/models/strengths.yaml): strengths and activities",
         "- [templates/harness.yaml.example](templates/harness.yaml.example): every config block, annotated",
         "- [harness/stacks/_template.yaml](harness/stacks/_template.yaml): the stack module schema",
         "",
@@ -245,7 +258,7 @@ def _diagrams(write: bool) -> list[str]:
 
     THE SOURCE IS THE D2, NOT THE SVG. A hand-edited SVG is unmaintainable — nobody edits
     path coordinates — so the generated file is checked against its source the same way
-    `model:`/`effort:` are checked against `tiers.yaml`.
+    `model:`/`effort:` are checked against the activity that dispatches the agent.
 
     d2 is a contributor dependency rather than a runtime one: absent, this reports that it
     cannot verify instead of silently passing, because a check that quietly does nothing is

@@ -46,7 +46,7 @@ def activities_of(agent: str, config: dict | None = None) -> list[str]:
 def sync(name: str) -> tuple[str, str] | None:
     """Stamp an agent's `model:`/`effort:` from its tier. Returns (before, after).
 
-    These two fields are DERIVED — fully determined by the agent's `model_tier:`
+    These two fields are DERIVED — fully determined by the activity that dispatches the agent
     and by strengths.yaml — but they are also the fields that EXECUTE on the native path:
     Claude Code reads them when an agent is run as `claude --agent <name>`. (The Agent
     tool path is refused for this plugin's agents by `swarm/guard-agent-tool.sh`, so

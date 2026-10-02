@@ -119,7 +119,7 @@ The plugin installs two, in `hooks/hooks.json`. Neither widens anything.
 
 | hook | does |
 |---|---|
-| `PreToolUse` on `Agent` / `Task` — `swarm/guard-agent-tool.sh` | refuses `Agent(subagent_type: <plugin>:<agent>)` and prints the `dispatch.sh` form: the tier, the ceiling, the sandbox and the cost record exist only on that path, and 67.2M tokens went through the Agent tool without them in five field sessions |
+| `PreToolUse` on `Agent` / `Task` — `swarm/guard-agent-tool.sh` | refuses `Agent(subagent_type: <plugin>:<agent>)` and prints the `dispatch.sh` form: the strength, the ceiling, the sandbox and the cost record exist only on that path, and 67.2M tokens went through the Agent tool without them in five field sessions |
 | `PreToolUse` on `Bash` — `swarm/allow-prefixed-wrapper.py` | in a dispatched session, allows a harness wrapper called with an env-assignment prefix — the commonest denial (~50 of 76 in one series), innocuous under the sandbox because the wrapper sets its own environment; one simple call only, never a pipe, a substitution or `git push` |
 | `SessionStart` on `startup` / `compact` / `resume` — `swarm/pinned.sh` | prints the orchestrator card, and the campaign's pinned state (claims, merge slot, worktrees, the loop's rules — from disk, never memory) when one is in flight, naming every id the compaction summary dropped |
 

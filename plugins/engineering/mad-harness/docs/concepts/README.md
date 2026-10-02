@@ -8,9 +8,9 @@ word is doing more work than you expected.
 |---|---|
 | [Architecture](architecture.md) | the two halves, and where a new rule belongs |
 | [The loop](the-loop.md) | how a requirement becomes merged code |
-| [Agents and tiers](agents-and-tiers.md) | who does the work, on which model, at what cost |
+| [Agents, activities and strengths](agents-and-activities.md) | who does the work, what the work is, what runs it, and what it may spend |
 | [Tasks and tracking](tasks-and-tracking.md) | records, the DAG, waves, and swappable backends |
 | [Verification](verification.md) | four lenses, and why they must not see the same evidence |
 | [Permissions](permissions.md) | the sandbox, the small allowlist, and the operator queue |
 | [Cost](cost.md) | what every dispatch records, the levers and what each measured, and where the money is |
-| [Providers and pricing](providers.md) | routing a tier off Anthropic: the probe, declared rates, pockets, and who enforces the ceiling |
+| [Providers and pricing](providers.md) | routing a strength off Anthropic: the probe, declared rates, pockets, and who enforces the ceiling |

@@ -27,7 +27,7 @@ Terms are grouped by what you are doing when you meet them.
 
 | term | is |
 |---|---|
-| **agent** | *who* does the work — a markdown definition naming its tier, tools, isolation and doctrine. [Agents](reference/agents.md) |
+| **agent** | *who* does the work — a markdown definition naming its tools, isolation and doctrine. It no longer names what runs it: the activity does. [Agents](reference/agents.md) |
 | **command** | *what* to do now — a slash command an operator types. [Commands](reference/commands.md) |
 | **skill** | *how* that kind of work is done well. Loaded per agent, so doctrine an agent never needs costs it nothing. [Skills](reference/skills.md) |
 | **doctrine** | every skill an agent declares, assembled into its system prompt on every dispatch. Not a switch: a declared skill that cannot be found refuses the dispatch |
@@ -39,14 +39,16 @@ Terms are grouped by what you are doing when you meet them.
 
 | term | is |
 |---|---|
-| **tier** | required model capability — `worker`, `strong`, `strategic`. An agent names a tier, never a model — [agents and tiers](concepts/agents-and-tiers.md) |
-| **selection** | which tier an agent runs on, by first match over five sources |
-| **definition** | what that tier *is* — provider, model, effort, ceiling, price. A project patches it per key — [dispatch](reference/dispatch.md#tier-resolution) |
-| **ladder** | the escalation order, weakest first. Where a tier goes when work needs more than it has — a rung whose only difference is `effort` may be a no-op off Anthropic |
-| **dispatch** | one agent invocation through the boundary: a tier, a ceiling, a sandbox, a permission profile, its doctrine, and one telemetry event — [dispatch](reference/dispatch.md) |
-| **ceiling** | `max_budget_usd`, a circuit breaker per dispatch. Not a hard cap — [cost](concepts/cost.md#ceilings) |
+| **activity** | the named unit of dispatched work — `verify.spec`, `design.create`. The thing with a model, a ceiling and a cost record, and the key everything routes on — [agents, activities and strengths](concepts/agents-and-activities.md) |
+| **strength** | a named model configuration: provider, model, thinking, and nothing else. `mid`, `strong`, `elite` ship. Replaced `tier` in 0.12.0, which also carried a ceiling and an ordering that were facts about the work |
+| **complexity** | `simple` \| `standard` \| `complex`, read from an epic's own surface. An activity may declare a different chain or budget per reading; `standard` is where "cannot tell" lands |
+| **chain** | an activity's ordered `strengths`. Its head runs; the rest are where an explicit `ESCALATE` goes. Per activity, because "up from here" depends on the work rather than on the engine |
+| **provenance** | whether a resolved strength came from the plugin or the project (`strength_source`). A project patches the same block the plugin ships, so this is not a precedence rank — [dispatch](reference/dispatch.md#strength-resolution) |
+| **~~ladder~~** | *removed in 0.12.0.* A single global order over every tier, validated on every config in service of a function that had no caller — and it forced a cross-vendor ranking nobody can justify. See **chain** |
+| **dispatch** | one agent invocation through the boundary: an activity, a strength, a ceiling, a sandbox, a permission profile, its doctrine, and one telemetry event — [dispatch](reference/dispatch.md) |
+| **ceiling** | `max_budget_usd`, a circuit breaker per dispatch, declared by the activity and optional. Not a hard cap — [cost](concepts/cost.md#ceilings) |
 | **told budget** | `task_budget_tokens`, the budget the model is *told* it has, so it paces. The ceiling is the one it never sees |
-| **provider** | where a tier's model is served from. Anything reached through the Anthropic-compatible path — [providers](concepts/providers.md) |
+| **provider** | where a strength's model is served from. Anything reached through the Anthropic-compatible path — [providers](concepts/providers.md) |
 | **pocket** | which account a dispatch spends from — `metered` (invoiced) or `subscription` (a plan's allowance). Both real, never summed |
 | **lever** | a measured switch affecting cost, recorded on every dispatch, off until an A/B sized it — [cost](concepts/cost.md#the-levers) |
 | **arm** | one side of an A/B comparison — the lever off, and the lever on — [measurement](guides/measurement.md) |
@@ -83,7 +85,7 @@ This one collides, so it is worth stating plainly:
 |---|---|---|
 | **orchestrator card** | the loop's own rules, mirrored byte-identical into every command | any session running a command |
 | **technology card** | a lane's stack and framework facts, injected into a dispatch | the agent doing that lane's work |
-| **complexity card** | a reading of one epic's surface, used to decide whether a planning stage can run at a lower tier | the tier decision, before the stage runs |
+| **complexity card** | a reading of one epic's surface, used to pick which complexity bucket a planning activity resolves at | the routing, before the stage runs |
 
 None of them is the others. If a sentence says "the card", the surrounding section says which.
 

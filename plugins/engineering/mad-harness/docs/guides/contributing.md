@@ -18,7 +18,7 @@ make conformance  # the tracker contract against every backend's real binary (~1
 | `harness/tracker/` | `make conformance` |
 | dispatch, permissions, the tracker | `harness/wavelab/` — see [end to end](#testing-end-to-end) |
 | `docs/assets/src/*.d2` | `harness/checks/check-docs.sh --write` |
-| an agent's `model_tier` | `harness/checks/check-model-config.sh` |
+| `harness/models/strengths.yaml` (a strength, or an activity) | `harness/checks/check-model-config.sh` |
 | a cost lever's default | `harness/wavelab/ab.sh <lever>` — a default moves only on numbers whose spreads separate |
 | `harness/orchestrator-card.md` | `harness/checks/check-orchestrator-card.sh --write` — every command carries it |
 
@@ -26,13 +26,13 @@ make conformance  # the tracker contract against every backend's real binary (~1
 
 ## Add an agent
 
-**1.** Create `agents/<name>.md`:
+**1.** Create `agents/<name>.md`. It declares what it IS; an **activity** decides what runs
+it, so there is no `model_tier:` — see step 3.
 
 ```markdown
 ---
 description: <when the orchestrator should reach for this>
 tools: Read, Grep, Glob, Bash, Skill          # Edit|Write here makes it a WRITER
-model_tier: strong                            # worker | strong | strategic
 skills: [evidence-gathering]
 isolation: worktree                           # writers only
 ---
@@ -40,17 +40,28 @@ isolation: worktree                           # writers only
 <the prompt body>
 ```
 
-**2.** Verify:
+**2.** Declare the activity it performs, in `harness/models/strengths.yaml`. Without one,
+nothing can dispatch it on a standard boundary and `check-model-config.sh` says so:
+
+```yaml
+activities:
+  <area>.<activity>:
+    agent: <name>
+    strengths: [strong, elite]     # the chain; its head runs
+    max_budget_usd: 4.00
+```
+
+**3.** Verify:
 
 ```bash
 harness/checks/check-model-config.sh
 harness/checks/check-skills.sh
 ```
 
-**3.** Dry-run it — this resolves routing and permissions without spending anything:
+**4.** Dry-run it — this resolves routing and permissions without spending anything:
 
 ```bash
-harness/models/dispatch.sh <name> --prompt-file /tmp/x.txt --dry-run
+harness/models/dispatch.sh <name> --activity <area>.<activity> --prompt-file /tmp/x.txt --dry-run
 ```
 
 | constraint | enforced by | why |
@@ -58,7 +69,7 @@ harness/models/dispatch.sh <name> --prompt-file /tmp/x.txt --dry-run
 | names no technology | `test_no_agent_names_a_technology` | an agent naming a toolchain cannot serve a project using another; the failure is confident wrong advice, not an error |
 | cites code by symbol, not line | `check-line-pins.sh` | a symbol survives edits above it |
 | `tools` decides writer/reader | `permission_for()` | nothing keys off the agent's name — a name list goes stale the first time an agent changes shape |
-| declared tier exists | `check-model-config.sh` | two readers of the tier must not drift |
+| an activity names it | `check-model-config.sh` | an agent nothing can dispatch is dead weight, and the frontmatter mirror and the boundary must not drift |
 
 ---
 
@@ -177,22 +188,26 @@ result admissible, and the three ways one is not: [measurement](measurement.md).
 
 A provider is reached through Claude Code's Anthropic-compatible path (`ANTHROPIC_BASE_URL`
 + `ANTHROPIC_AUTH_TOKEN`); no client library is involved. A project adds one in its own
-`harness.yaml`; the plugin's own defaults live in `models/tiers.yaml`.
+`harness.yaml`; the plugin's own defaults live in `models/strengths.yaml`.
 
 **1.** The provider block: `providers: {<name>: {env: {ANTHROPIC_BASE_URL: <url>,
 ANTHROPIC_AUTH_TOKEN: "${<NAME>_API_KEY}"}}}`. A credential is a `${VAR}` reference — the file
-is committed — and no `*MODEL*` key: the tier owns the model.
-**2.** The tier that reaches it: `tiers: {<tier>: {provider: <name>, model: <concrete id>}}` —
-`model` and `provider` together, always; a new tier goes on `ladder:` too. **Off Anthropic
-the tier must also declare `price:`**, or the config check refuses it by name: the CLI would
-price a model it does not recognise from its own table, and the resulting number is
-plausible rather than absent. Declare `billing:` on the provider too, if the pocket differs.
+is committed — and no `*MODEL*` key: the strength owns the model.
+**2.** The strength that reaches it: `strengths: {<name>: {provider: <name>, model: <concrete
+id>, thinking: <level>}}` — `model` and `provider` together, always. **Off Anthropic the
+provider must declare that model's `price:`**, or the config check refuses the strength by
+name: the CLI would price a model it does not recognise from its own table, and the resulting
+number is plausible rather than absent. Declare `billing:` on the provider too, if the pocket
+differs.
+**2b.** The activity that routes at it: `activities: {<id>: {strengths: [<name>, …]}}`. A
+strength no activity can reach is reported as dead.
 **3.** The `.env` entry in `harness/.env` (`harness/.env.example` has the shape).
 **4.** `models/probe-compat.sh <name>` before anything real is routed there — it runs the
-CLI's tool loop against the endpoint and says what broke. It runs `claude -p` unsandboxed,
-so it cannot tell you a sandboxed worker reaches the endpoint; the lab can.
-**5.** `check-project-config.sh` prints the redefinition beside what the plugin ships;
-`dispatch.sh <agent> --dry-run` shows the provider the tier now resolves to.
+CLI's tool loop against **every model a strength routes at that provider** and says what
+broke; `--model <id>` re-probes one. It runs `claude -p` unsandboxed, so it cannot tell you a
+sandboxed worker reaches the endpoint; the lab can.
+**5.** `check-project-config.sh` prints the patch beside what the plugin ships;
+`dispatch.sh <agent> --activity <id> --dry-run` shows the provider it now resolves to.
 **6.** Read one real dispatch back before trusting a series from it: `cost_source` should say
 `priced (…)` with your rates, and `ceiling_source` should say `harness`. `none` there means
 nothing is enforcing the ceiling — the mechanism, and what to do about it, is in

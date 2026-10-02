@@ -10,7 +10,7 @@ WHY IT IS GENERATED AND DRIFT IS A FAILURE. A file in the corpus that looks auth
 becomes a second source of truth the moment somebody edits it — the failure this
 repository calls its most expensive defect class. Two precedents already handle this
 shape rather than a third being invented: `worker.py` stamps `.swarm-env` "Do not
-hand-edit", and `model:`/`effort:` are generated from tiers.yaml with
+hand-edit", and `model:`/`effort:` are generated from the activity config with
 `check-model-config.sh` failing on drift. `--check` is that, for this.
 
 BACKEND-AGNOSTIC BY CONSTRUCTION. It reads through the port, so it works against whatever

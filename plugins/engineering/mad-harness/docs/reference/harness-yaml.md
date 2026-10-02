@@ -15,12 +15,10 @@ The one file that makes the harness fit your repository. Written by
 | `beads` | the id prefix the task-hygiene checks build their patterns from | yes, on the beads backend |
 | `swarm` | wave sizing and worker resources | no |
 | `ports` | every TCP port your servers bind, by name — the pre-flight probes them | no |
-| `dispatch` | cost levers, each a measured switch: `cache_ttl`, `static_prefix`, `stagger_seconds`, `task_budget_tokens`, `lean_catalog`, `plan_tiers` — see [`models/levers.py`](../../harness/models/levers.py) | no (`task_budget_tokens` defaults from the tier, `lean_catalog` and `plan_tiers` on; the rest off) |
-| `agent_tiers` | per-agent tier overrides, agent → tier — **selection**, see [Model config](#model-config) | no |
-| `tiers` | the tier DEFINITIONS, patched over the plugin's — **definition**, see [Model config](#model-config) | no |
+| `dispatch` | cost levers, each a measured switch: `cache_ttl`, `static_prefix`, `stagger_seconds`, `task_budget_tokens`, `lean_catalog`, `plan_tiers` — see [`models/levers.py`](../../harness/models/levers.py) | no (`task_budget_tokens` defaults from the activity, `lean_catalog` and `plan_tiers` on; the rest off) |
+| `strengths` | the model axis, patched per key over the plugin's: `provider`, `model`, `thinking` — see [Model config](#model-config) | no |
+| `activities` | the work axis, patched per key and per complexity bucket: which agent, which strengths, what it may spend — see [Model config](#model-config) | no |
 | `providers` | the provider set: endpoint, credential, `billing`, and each model's `price` — see [Model config](#model-config) | no |
-| `default_tier` | where an agent declaring no `model_tier:` lands — replaces the plugin's outright | no |
-| `ladder` | escalation order, weakest first — replaces the plugin's outright, never interleaved; every defined tier must be on it | no |
 | `paths` | docs, staging, archive — **omit any your project lacks** | yes |
 | `domain` | your domain vocabulary — prompts are guarded against naming it | no |
 | `lanes` | concurrency per lane, measured on your hardware | no |
@@ -36,82 +34,80 @@ Full annotated example: [`templates/harness.yaml.example`](../../templates/harne
 
 ## Model config
 
-Five blocks decide which model runs an agent and what it costs. They answer two questions
-that are deliberately kept apart — **which tier** an agent runs on, and **what that tier
-is** — because conflating them is how a project ends up unable to change a model without
-editing an agent.
+Three blocks decide what runs a piece of work and what that work is worth. They are kept
+apart because conflating them is how a project ends up unable to change a model without
+editing an agent — and because a ceiling and an ordering were never facts about an engine.
 
-| block | answers | shape |
+| block | owns | shape |
 |---|---|---|
-| `agent_tiers` | *which tier* — per agent | `agent: tier` |
-| `default_tier` | *which tier* — when an agent declares none | a tier name |
-| `tiers` | *what a tier is* | patched per key over the plugin's |
-| `providers` | how a provider is reached, which pocket pays, and what its models cost | patched per name, and `models` per model id |
-| `ladder` | where escalation goes next | an ordered list, weakest first |
+| `strengths` | **what runs the work** — provider, model, thinking, and nothing else | patched per name, then per key |
+| `activities` | **what the work is** — its agent, its chain, its ceiling, its told budget | patched per id, then per complexity bucket, then per key |
+| `providers` | how a provider is reached, which pocket pays, and what its models cost | patched per name; `env` per key and `models` per model id |
 
-**Patch, do not replace — for `tiers` and `providers`.** Keys you leave out stay the
-plugin's, so an upgrade that retunes a ceiling or moves a model still reaches you. `model`
-and `provider` move together: naming one without the other is refused rather than silently
-half-applied.
-
-**Replace outright — for `default_tier` and `ladder`.** A partially-overridden escalation
-order is not a meaningful object, so these substitute the plugin's entirely; every tier you
-define must appear on the ladder.
-
-**A rung must be a real step.** The plugin's `strong` and `strategic` are the same model and
-differ only in `effort`, which works because Anthropic acts on it. Off Anthropic that is not
-guaranteed — measured as no effect on one provider — and such a rung escalates to something
-identical at the same price. `check-project-config.sh` warns; the fix is a different model on
-the upper rung, or one fewer rung. See [providers](../concepts/providers.md#effort-may-not-survive-the-trip).
+**Patch, do not replace.** Keys you leave out stay the plugin's, so an upgrade that retunes a
+ceiling still reaches you. A project uses the **same blocks the plugin ships** — there is no
+parallel project-only block, which is why "plugin or project" is provenance
+(`strength_source`) rather than a precedence rank. `model` and `provider` move together:
+naming one without the other is refused rather than silently half-applied. A `strengths` chain
+is a list and replaces wholesale — merging two orderings per index would route escalation
+somewhere nobody chose.
 
 ```yaml
-# WHICH TIER an agent runs on.
-agent_tiers:
-  verifier-spec: worker      # tier-split one lens to measure its catch rate lower down
+strengths:
+  cheap:
+    provider: openrouter
+    model: qwen/qwen3-coder-plus     # a concrete id, never an alias
+    thinking: medium
 
-default_tier: strong
+activities:
+  work.implement:
+    strengths: [cheap, strong]       # the chain; its head runs, the rest are where ESCALATE goes
+    max_budget_usd: 6.00             # what THIS WORK is worth, whatever model runs it
+    task_budget_tokens: 600000
+    complex:                         # a bucket overrides only what it restates
+      strengths: [strong]
+      max_budget_usd: 10.00
 
-# WHAT A TIER IS — the ROLE. Only the keys you state; the rest stay the plugin's.
-tiers:
-  worker:
-    max_budget_usd: 6.00     # this project's tasks carry more to read than the lab's
-  strategic:
-    provider: deepseek       # provider and model move together
-    model: deepseek-v4-pro
-
-# HOW A PROVIDER IS REACHED, which pocket pays, and WHAT ITS MODELS COST.
 providers:
   anthropic:
-    billing: subscription    # a plan's allowance; `metered` is the default
-  deepseek:
+    billing: subscription            # a plan's allowance; `metered` is the default
+  openrouter:
     env:
-      ANTHROPIC_BASE_URL: ${DEEPSEEK_BASE_URL}
-      ANTHROPIC_AUTH_TOKEN: ${DEEPSEEK_API_KEY}
+      ANTHROPIC_BASE_URL: https://openrouter.ai/api
+      ANTHROPIC_AUTH_TOKEN: ${OPENROUTER_API_KEY}
     models:
-      deepseek-v4-pro:
-        price:               # REQUIRED off Anthropic — see concepts/providers.md
-          input_per_mtok: 1.32
-          output_per_mtok: 3.96
-
-ladder: [worker, strong, strategic]
+      qwen/qwen3-coder-plus:
+        price:                       # REQUIRED off Anthropic
+          input_per_mtok: 1.00
+          output_per_mtok: 5.00
 ```
 
-Three rules this block is checked against, each by `check-project-config.sh`:
+**Resolution is per field, specificity wins.** For an activity at a complexity: the bucket's
+value, else the activity's. `strengths` is **mandatory** — a dispatch that cannot resolve one
+is refused, because there is no sane default for which model runs work — and it is checked
+statically, so an activity covering two of the three readings fails the config check rather
+than failing mid-wave on the third. The two budgets are optional and warn at config time; an
+absent ceiling records `ceiling_source: unset`, distinct from one that cannot be checked.
+
+Four rules this block is checked against, each by `check-project-config.sh`:
 
 1. **A credential is a `${VAR}` reference, never a value.** `harness.yaml` is committed. The
-   reference is resolved from the environment (or `harness/.env`) at dispatch time and never
-   written to a record, a task or telemetry — `env_names` carries names only.
-2. **A model reached off Anthropic declares a `price`**, under its provider — a rate is a
-   fact about a model, not about a role, and two tiers on one model would otherwise state
-   it twice and be free to disagree. Without one the CLI's own table prices a model it does
-   not recognise, and every cost series carries a plausible fiction. Why, and what the block
-   contains: [providers](../concepts/providers.md).
+   reference resolves from the environment (or `harness/.env`) at dispatch time and never
+   reaches a record, a task or telemetry — `env_names` carries names only. `TOKEN`, `KEY` and
+   `SECRET` in a variable name all trigger it.
+2. **A model reached off Anthropic declares a `price`**, under its provider — a rate is a fact
+   about a model, not about a role, and two strengths on one model would otherwise state it
+   twice and be free to disagree. See [providers](../concepts/providers.md).
 3. **`model:` is a concrete id, never an alias.** `opus` resolved to two different model
    generations on two dispatch paths in the same session, which invalidated a whole parity
    experiment before anyone noticed.
+4. **A strength no activity can reach is reported**, and so is a pair of strengths that share
+   a model off Anthropic and differ only in `thinking` — measured on one provider, thinking
+   moved nothing outside the noise, so such a pair may cost the same and deliver the same.
 
-Precedence between selection sources, and what each dispatch records about the decision:
-[dispatch](dispatch.md#tier-resolution).
+Precedence, and what each dispatch records about the decision:
+[dispatch](dispatch.md#strength-resolution). The concepts:
+[agents, activities and strengths](../concepts/agents-and-activities.md).
 
 ## `permissions` — normative, and agent-unwritable
 

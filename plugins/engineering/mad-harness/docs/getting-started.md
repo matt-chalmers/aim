@@ -121,7 +121,7 @@ What happens, in order:
 ```bash
 git log --oneline --graph -10          # one merge per task
 harness/tracker/tk.sh list             # tasks closed with reasons
-make models-cost                       # what each agent and tier cost — see concepts/cost.md
+make models-cost                       # what each agent and activity cost — see concepts/cost.md
 ```
 
 If a dispatch reports not-ok, read **stderr**, not stdout — denials are printed there. See

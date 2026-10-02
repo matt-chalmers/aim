@@ -1,7 +1,8 @@
 # Agents
 
-Twelve agents in [`agents/`](../../agents/). Each is a markdown file: frontmatter declares
-what it is, the body is its prompt.
+Every agent in [`agents/`](../../agents/). Each is a markdown file: frontmatter declares
+what it is, the body is its prompt — and an **activity** decides what runs it, which is why
+no agent names a model or a strength.
 
 ## Frontmatter contract
 
@@ -9,32 +10,36 @@ what it is, the body is its prompt.
 |---|---|
 | `description` | when the orchestrator should reach for it |
 | `tools` | the tool set. **Containing `Edit` or `Write` makes it a writer** — that is how the harness classifies it, not a name list |
-| `model_tier` | `worker`, `strong` or `strategic`; never a model name |
 | `skills` | the doctrine the agent declares — delivered, in full, as part of its system prompt on every dispatch (the CLI does not preload frontmatter skills on the `--agent` path, so the harness does); a declared skill that cannot be found refuses the dispatch |
 | `isolation` | `worktree` means it must never run in the primary checkout — dispatch refuses |
 
 Everything the harness decides about an agent derives from those fields. A name list would
 go stale the first time an agent changed shape.
 
+`model_tier` was here until 0.12.0. An agent no longer picks what runs it: the
+[activity](../concepts/agents-and-activities.md) it performs does, so one agent can serve two
+activities at two strengths — the architect's sanity-check and its full design. `model:` and
+`effort:` are still present and still generated, for the native `claude --agent` path only.
+
 ## The roster
 
 <!-- GENERATED:agents — do not hand-edit; run harness/checks/check-docs.sh --write -->
 
-| agent | tier | declares |
+| agent | performs | declares |
 |---|---|---|
-| `analyst-survey` | — | reader |
-| `analyst` | — | reader |
-| `architect` | — | reader |
-| `campaign-orchestrator` | — | writer |
-| `fidelity-auditor` | — | reader |
-| `fullstack-engineer` | — | writer · worktree |
-| `planner` | — | reader |
-| `quality-engineer` | — | writer · worktree |
-| `spec-editor` | — | writer |
-| `verifier-security` | — | reader |
-| `verifier-spec` | — | reader |
-| `verifier-tests` | — | reader |
-| `verifier` | — | reader |
+| `analyst-survey` | `spec.survey` | reader |
+| `analyst` | `spec.audit`, `plan.audit` | reader |
+| `architect` | `design.sanity-check`, `design.create` | reader |
+| `campaign-orchestrator` | `loop.orchestrate` | writer |
+| `fidelity-auditor` | `work.fidelity` | reader |
+| `fullstack-engineer` | `work.implement` | writer · worktree |
+| `planner` | `plan.create` | reader |
+| `quality-engineer` | `work.remediate` | writer · worktree |
+| `spec-editor` | `spec.draft`, `spec.fold-in` | writer |
+| `verifier-security` | `verify.security` | reader |
+| `verifier-spec` | `verify.spec` | reader |
+| `verifier-tests` | `verify.tests` | reader |
+| `verifier` | `verify.impl` | reader |
 
 <!-- /GENERATED:agents -->
 

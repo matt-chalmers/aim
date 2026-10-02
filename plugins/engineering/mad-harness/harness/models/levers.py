@@ -14,7 +14,7 @@ has decided), then the default.
     cache_ttl        MAD_HARNESS_CACHE_TTL      dispatch.cache_ttl      unset (the CLI's rule)
     static_prefix    MAD_HARNESS_STATIC_PREFIX  dispatch.static_prefix  false
     stagger_seconds  MAD_HARNESS_STAGGER_SECONDS dispatch.stagger_seconds 0
-    task_budget      MAD_HARNESS_TASK_BUDGET_TOKENS  dispatch.task_budget_tokens, else tiers.yaml <tier>.task_budget_tokens
+    task_budget      MAD_HARNESS_TASK_BUDGET_TOKENS  dispatch.task_budget_tokens, else the activity's own
     preload          MAD_HARNESS_PRELOAD        —  (agents/<name>.md skills:)  none
     lean_catalog     MAD_HARNESS_LEAN_CATALOG   dispatch.lean_catalog   true  (the exception — see below)
     plan_tiers       MAD_HARNESS_PLAN_TIERS     dispatch.plan_tiers     true — §3 at strong or lower with escalation (the owner's decision; see the default below)

@@ -8,15 +8,17 @@ rules that decide where the money goes.
 ## What a dispatch records
 
 `models/dispatch.py::Outcome.telemetry` appends one event per dispatch through the
-telemetry port. Beside the identity fields (`agent`, `tier`, `reason`, `model`, `effort`,
+telemetry port. Beside the identity fields (`agent`, `activity`, `complexity`,
+`strength`, `strength_reason`, `model`, `effort`,
 `max_budget_usd`, `task_budget_tokens`, `task`, `attempt`, `escalated_from`):
 
 | field | is |
 |---|---|
 | `billing` | which pocket paid — `metered` or `subscription`. Both are real money and the reports total them apart; see [providers](providers.md) |
-| `cost_source` | `sdk` (Claude Code's own figure) or `priced (…)` (computed from the tier's declared rates). `make models-cost` never shares a row between the two and `ab-report.sh` flags an arm that mixes them; why they cannot be mixed is in [providers](providers.md) |
+| `cost_source` | `sdk` (Claude Code's own figure) or `priced (…)` (computed from the strength's declared rates). `make models-cost` never shares a row between the two and `ab-report.sh` flags an arm that mixes them; why they cannot be mixed is in [providers](providers.md) |
 | `ceiling_source` | which enforcer actually checked `max_budget_usd` — `cli`, `harness`, or `none`. See [Ceilings](#ceilings) |
-| `tier_source` | `plugin` when the tier is as `tiers.yaml` ships it, `project` when the consuming project's `harness.yaml` redefined it. `make models-cost` never shares a row between the two and `ab-report.sh` refuses an arm that mixes them — a series run under a project's tiers is not comparable with one run under the plugin's, and one run under a project `ladder` is not comparable with one under the plugin's either |
+| `strength_source` | `plugin` when the strength is as `strengths.yaml` ships it, `project` when the consuming project's `harness.yaml` patched it. PROVENANCE, not precedence — a project patches the same block the plugin ships. `make models-cost` never shares a row between the two and `ab-report.sh` refuses an arm that mixes them: a series run under a project's patch is not comparable with one run under the plugin's |
+| `activity`, `complexity` | the named unit of work this dispatch was, and the reading it was routed at. `activity: null` is an ad-hoc dispatch off the standard boundaries — which is what keeps it out of the per-activity series rather than polluting one |
 | `cost_usd`, `turns`, `duration_ms` | the SDK's own accounting — a client-side estimate, not billing |
 | `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens` | the four token classes |
 | `cache_hit_pct`, `cache_write_pct` | shares of everything the dispatch sent; a cold start shows low hit, a resumed agent ~0 |
@@ -32,13 +34,13 @@ found. `env_names` carries variable names and never values.
 ## Reading it back
 
 ```bash
-make models-cost                         # per agent and tier: n, cost, turns, fail%, escalations,
+make models-cost                         # per agent, activity and strength: n, cost, turns, fail%,
                                          #   kills, cache%, write%, results%, large, breaks
 harness/wavelab/ab-report.sh <lever>     # an A/B series: medians, IQRs, whether the spreads separate
 harness/checks/session-cost.sh <id>      # one session's context curve, in tokens — the orchestrator's side
 ```
 
-`results%` is the share of a tier's prompt that was its own tool results. Two field workers
+`results%` is the share of a dispatch's prompt that was its own tool results. Two field workers
 ran at 28%; the lab's run at ~7%. `breaks` counts prefix re-writes: in one field
 orchestrator session, four idle gaps of over an hour each made the next request re-write
 its 700–920k-token context at the write rate — 3.5M tokens, plus a 700k mutation break —
@@ -58,13 +60,13 @@ and each move is its own patch release with the measurement in
 | `cache_ttl` | null — 5 runs/arm, cost per run $1.38 vs $1.39; the 5-minute TTL caused no expiry misses in a continuously turning worker | unset (the CLI's rule); set `5m` if your test commands finish inside five minutes | 0.10.2 |
 | `static_prefix` | null alone — $5.98 vs $6.24 per 8-worker wave; the shareable prefix is already shared, and what a worker writes to cache is ~1k tokens per turn of new context, not the prefix | off | 0.10.2 |
 | `stagger_seconds` | ≈$0.09 per 8-worker wave — it fixes only the simultaneous-start race, where 1 in 8 finds nothing cached | 0; harmless to set `8` on wide waves | 0.10.4 |
-| `task_budget_tokens` | **−32% cost per run, spreads apart** — a worker told its budget paces; one that is not is cut off from behind by the ceiling it never sees | worker tier 400,000; raise per project | 0.10.4 |
+| `task_budget_tokens` | **−32% cost per run, spreads apart** — a worker told its budget paces; one that is not is cut off from behind by the ceiling it never sees | the writing activities 400,000; raise per activity | 0.10.4 |
 | `preload` (a candidate skill in the writers' system prompt) | **−24% cost per run, output −36%, spreads apart** — writers given `evidence-gathering` make fewer, larger tool calls | the writers declare it, and a declaration is delivered | 0.10.5 |
 | `lean_catalog` | request-level, deterministic: a worker's first request 26,130 → 22,743 tokens with 17 bundled CLI skills and 10 orchestrator commands out of its Skill catalog; with cloud connectors off, 21,028 | **on** — the exception: it removes rather than changes | 0.10.8 |
-| `plan_tiers` | **−33% cost per §3, spreads separate** (3 runs/arm, full §3 on the lab epic): sanity-check strategic→strong −23% time/−14% cost, audit strong→worker −56% time/−71% cost; planner and survey untouched; total time overlaps at n=3. Audit catch rate at worker and the escalation path are not yet measured | **on** — moved on the owner's decision, then sized | 0.10.29 |
+| `plan_tiers` | **−33% cost per §3, spreads separate** (3 runs/arm, full §3 on the lab epic): the design at `strong` rather than `elite` −23% time/−14% cost, the audit at `mid` rather than `strong` −56% time/−71% cost; planner and survey untouched; total time overlaps at n=3. The audit's catch rate at `mid` and the escalation path are not yet measured | **on** — moved on the owner's decision, then sized. Since 0.12.0 it passes a COMPLEXITY and the activity's own buckets decide, rather than naming a tier at precedence rank 1 | 0.10.29 |
 | *(not a lever)* the declared doctrine | measured as a switch first: +61% cost per run ($2.35 → $3.78), spreads apart — and the arm that carried it ran mutation testing in 22% of sessions against 6%, while a headless epic without it failed L2 for decorative assertions. ~$0.16 of the +$0.59 per dispatch is carriage; the rest is the doctrine being *followed*. So it is no longer a switch: every skill an agent declares is in its system prompt on every dispatch, and the rig judges arms with the lenses (`--lenses`) so "cheaper by doing less" reads as a lower first-pass rate | always | 0.10.18 |
-| *(not a lever)* a worker tier off Anthropic | 2 runs/arm, wave 1 of the lab epic, judged: DeepSeek V4 Pro workers **$0.15/run metered against Sonnet's $1.56/run subscription (~10×)**, both arms GREEN, and the same lens verdicts — L1/L3/L4 4/4 in both, L2 failing 7 of 8 tasks across the series for the same unpinned character class. At the wave level that is **−22% of the subscription pocket** and $0.15 of new invoiced spend, because the Opus lenses are ~76% of a run: judging costs more than doing. **+14% wall-clock, spreads separate.** n = 2: direction, not size | the plugin ships Anthropic; redefining `tiers.worker` is the project's call | 0.10.33 |
-| `agent_tiers:` (per-agent override) | a switch for tier-splitting a lens; a gate's catch rate is measured in the field before its tier moves for everyone | off | 0.10.10 |
+| *(not a lever)* a writing strength off Anthropic | 2 runs/arm, wave 1 of the lab epic, judged: DeepSeek V4 Pro workers **$0.15/run metered against Sonnet's $1.56/run subscription (~10×)**, both arms GREEN, and the same lens verdicts — L1/L3/L4 4/4 in both, L2 failing 7 of 8 tasks across the series for the same unpinned character class. At the wave level that is **−22% of the subscription pocket** and $0.15 of new invoiced spend, because the Opus lenses are ~76% of a run: judging costs more than doing. **+14% wall-clock, spreads separate.** n = 2: direction, not size | the plugin ships Anthropic; patching `strengths:` and pointing an activity at it is the project's call | 0.10.33 |
+| *(not a lever)* a project's `activities:` patch | the switch for routing one lens at a cheaper strength; a gate's catch rate is measured in the field before any default moves for everyone. Replaced `agent_tiers:` in 0.12.0, which was a parallel block answering the same question in a different shape | off | 0.10.10 |
 
 Measured in [`harness/wavelab/`](../../harness/wavelab/README.md): the same seeded epic,
 N runs per arm, fresh repositories, frozen plugin code, every dispatch tagged `lever:arm:run`.
@@ -145,10 +147,10 @@ budget wraps up, and one that does not is cut off from behind by a ceiling it ne
 **It is not a hard cap.** Spend is checked *between* calls, so one expensive call can carry
 a dispatch past it — measured, a $0.005 ceiling produced a $0.1118 dispatch, 22× over. It
 reliably stops a runaway *loop*; it does not bound a single large call. Set ceilings to
-"obviously too much for this tier's work", not to a figure you intend to hold anyone to.
+"obviously too much for this activity's work", not to a figure you intend to hold anyone to.
 
 **It does not trigger escalation.** Budget exhaustion means the work exceeded its ceiling,
-not that the model was too weak. Re-running on a costlier tier turns a visible limit into a
+not that the model was too weak. Re-running on a costlier strength turns a visible limit into a
 bigger bill. Raise the ceiling or split the task.
 
 **It does not roll anything back.** A writer stopped mid-task leaves partial edits in its
@@ -165,10 +167,23 @@ trace.
 ### Who enforces it
 
 `ceiling_source` on every event records the answer, because it is not always the same
-component. On Anthropic the SDK enforces the ceiling against its own accounting. On a tier
-that declares a `price` the harness meters the stream itself, because the SDK would be
-pricing a model it does not recognise. And `none` — a priced tier whose provider streamed no
-usage — is stopped rather than allowed to run uncapped.
+component — and there are four:
+
+| `ceiling_source` | means |
+|---|---|
+| `cli` | Anthropic: the SDK enforces against its own accounting, which is the vendor's |
+| `harness` | a priced strength: the harness meters the stream, because the SDK would be pricing a model it does not recognise |
+| `unset` | **no ceiling was declared** for this activity and complexity. Nothing to enforce, by the operator's choice — warned at config-check time |
+| `none` | a ceiling exists and nothing could check it: the `unenforceable_ceiling` fault |
+
+The last two must not share a value. An absent ceiling is a **choice**; an unenforceable one
+is a **fault**, and conflating them would hide the fault inside the choice — a priced activity
+deliberately left uncapped would stop itself after three unmetered turns and read as a
+provider defect.
+
+Since 0.12.0 a ceiling is optional, which is new: every tier used to carry one. It resolves
+from the activity, per complexity, and `check-project-config.sh` names every (activity,
+complexity) that has none.
 
 The full mechanism, the measurements behind it, and the failure it was built to end:
 **[providers](providers.md)**.

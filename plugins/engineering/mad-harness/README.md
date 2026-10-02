@@ -56,20 +56,23 @@ the stack module set to grow — that is the designed extension point.
 
 ## What it does
 
-### Model tiering and a dispatch boundary
+### Routing by activity, through one boundary
 
-`worker` / `strong` / `strategic` map to concrete models. An agent declares the tier its
-work needs, never a model, so changing provider is one edit and high-risk work is forced up
-regardless of an agent's default. Every agent runs through the Agent SDK with a per-dispatch
-model, effort, ceiling, sandbox, permission profile and doctrine — and one telemetry event.
-A hook refuses the Agent tool for the plugin's own agents, so there is no second path an
-agent can run on — no dispatch without a ceiling, a sandbox and a cost record.
+Work is named — `verify.spec`, `design.create`, `work.implement` — and each **activity** says
+what it may spend and which **strengths** may run it, cheapest first. A strength is just
+`{provider, model, thinking}`, stated once. So "make the spec lens cheaper" is one line, and
+it does not touch an agent definition or the ceiling that bounds it.
 
-→ [Agents and tiers](docs/concepts/agents-and-tiers.md) · [Dispatch](docs/reference/dispatch.md)
+Every dispatch goes through the Agent SDK with its own model, thinking, ceiling, sandbox,
+permission profile and doctrine — and one telemetry event. A hook refuses the Agent tool for
+the plugin's own agents, so there is no second path an agent can run on: no dispatch without a
+ceiling, a sandbox and a cost record.
+
+→ [Agents, activities and strengths](docs/concepts/agents-and-activities.md) · [Dispatch](docs/reference/dispatch.md)
 
 ### Any provider, priced honestly
 
-Any tier can be routed off Anthropic. Three things that endpoint compatibility does *not*
+Any strength can be routed off Anthropic. Three things that endpoint compatibility does *not*
 carry are handled explicitly rather than assumed: a six-probe gate proves the provider can
 actually sustain a tool loop; a declared price block replaces the CLI's own table, which
 priced a third-party model at **10× the real cost** while looking entirely plausible; and
@@ -80,7 +83,7 @@ reported apart and never summed.
 
 ### Ceilings that mean what they say
 
-`max_budget_usd` is enforced against what the dispatch actually costs. On a tier the harness
+`max_budget_usd` is enforced against what the dispatch actually costs. On a strength the harness
 prices, it meters the stream itself — the CLI is given no ceiling, because a threshold in a
 currency nobody can state is not a bound. A provider that reports no usage is stopped rather
 than run uncapped.
@@ -169,7 +172,7 @@ Full list, with why each is needed: [docs/requirements.md](docs/requirements.md)
 | | |
 |---|---|
 | [Getting started](docs/getting-started.md) | install → configure → first wave |
-| [Glossary](docs/glossary.md) | stack, lens, wave, lane, tier, pocket — every term, and where it is defined |
+| [Glossary](docs/glossary.md) | stack, lens, wave, lane, activity, strength, pocket — every term, and where it is defined |
 | [Concepts](docs/concepts/) | the loop, agents and tiers, tasks, verification, permissions, cost, providers |
 | [Reference](docs/reference/) | commands, `harness.yaml`, agents, skills, stacks, checks, scripts, ports, dispatch |
 | [Customising](docs/guides/customising.md) | fit it to your repo without forking |

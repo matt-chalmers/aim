@@ -13,14 +13,18 @@ One agent invocation: config resolution, containment, execution, telemetry.
 ```python
 @dataclass(frozen=True)
 class Resolved:
-    agent: str; tier: str; reason: str          # why this tier won
-    provider: str; model: str; effort: str
-    tier_source: str                             # "plugin" | "project" — whose definition this tier is
-    price: dict[str, Any]                        # per-Mtok rates; required off Anthropic, empty on it
-    billing: str                                 # "metered" | "subscription" — which pocket pays
-    max_budget_usd: float                        # the ceiling; who checks it depends on `price`
-    task_budget_tokens: int | None               # the budget the model is TOLD — env > harness.yaml > tier
-    doctrine: str                                # every declared skill, in full — the system prompt's append
+    agent: str
+    activity: str | None                         # the named unit of work; None = ad hoc
+    complexity: str | None                       # simple | standard | complex, or None
+    strength: str                                # the named model configuration
+    strength_reason: str                         # "explicit" | "activity"
+    strength_source: str                         # "plugin" | "project" — PROVENANCE, not a rank
+    provider: str; model: str; effort: str       # effort is spelled `thinking:` in config
+    price: dict[str, Any]                        # per-Mtok rates; required off Anthropic
+    billing: str                                 # "metered" | "subscription" — which pocket
+    max_budget_usd: float | None                 # None = no ceiling declared, by choice
+    task_budget_tokens: int | None               # the budget the model is TOLD
+    doctrine: str                                # every declared skill, in full
     env: dict[str, str]                          # provider credentials
     missing_env: tuple[str, ...]                 # unset -> refuse to dispatch
     permission_mode: str = "default"             # or "acceptEdits"
@@ -68,38 +72,41 @@ caused it and the orchestrator sees what the worker did, not a traceback in plac
 `dispatch.sh` exits **3** on a budget kill (`EXIT_BUDGET`), distinct from a worker that ran
 and returned not-ok (1), so a pipe like `dispatch.sh … | tail` has something to notice.
 
-**Two terminals the harness produces itself**, on a tier it prices rather than the CLI:
+**Two terminals the harness produces itself**, on a strength it prices rather than the CLI:
 `budget`, when the metered spend passes the ceiling, and `unenforceable_ceiling`, when three
 turns arrive carrying no usage at all and nothing is therefore checking the ceiling. The
 first takes the CLI's own shape so every caller that routes a budget kill keeps working; the
 second is deliberately distinct, because nothing was exceeded and the fix is a configuration
-change rather than a bigger tier. [Providers](../concepts/providers.md) has the mechanism.
+change rather than a bigger strength. [Providers](../concepts/providers.md) has the mechanism.
 
-## Tier resolution
+## Strength resolution
 
-<img src="../assets/tier-resolution.svg" alt="Selection picks a tier name by first match; definition merges the plugin's tiers.yaml with the project's patch">
+<img src="../assets/strength-resolution.svg" alt="An activity resolves a strength at a complexity; the chain's head runs and escalation walks it">
 
 Two questions, kept apart in code and in config:
 
 | | question | answered by |
 |---|---|---|
-| **selection** | which tier does this agent run on? | frontmatter `model_tier:`, `default_tier`, the project's `agent_tiers:`, policy, `--tier` — the table below |
-| **definition** | what *is* that tier? | `tiers.yaml`, patched by the project's `tiers:` / `providers:` / `default_tier:` / `ladder:` (`merge_model_config`); every dispatch record carries `tier_source: plugin\|project` |
+| **what the work is** | which activity is this? | `--activity`, required on every standard dispatch; nothing infers it from the agent name |
+| **what runs it** | which strength, at this complexity? | `activities[<id>]` in `strengths.yaml`, patched per key by the project's own `activities:` / `strengths:` / `providers:` (`merge_model_config`) |
 
-First match wins for selection:
+**Two ranks**, and the project is not one of them:
 
-| # | source | set by |
+| # | source | `strength_reason` |
 |---|---|---|
-| 1 | explicit override | `--tier`, or `escalate.py` |
-| 2 | policy | `--high-risk` forces up regardless of 3–5 — a project override can never lower a high-risk dispatch |
-| 3 | project override | `agent_tiers:` in `harness.yaml`, agent → tier; the A/B switch for moving a lens between tiers |
-| 4 | agent default | `model_tier:` in frontmatter |
-| 5 | global default | `default_tier:` in `tiers.yaml` |
+| 1 | `--strength` | `explicit` — an operator, or an escalation stepping along the chain |
+| 2 | `activities[<activity>][<complexity>].strengths[0]` | `activity` |
 
-`Resolved.reason` records which applied (`project override (harness.yaml agent_tiers)` for 3),
-so the telemetry says why. `check-model-config.sh` fails the build if an agent names a
-tier that does not exist, and judges the plugin's defaults rather than a project's
-overrides; a malformed `agent_tiers:` block stops the dispatch rather than falling through.
+High risk is not a rank: `--high-risk` reads the surface as `complex` before rank 2 looks, so
+the activity's own `complex:` bucket decides what that means. Whether the resolved strength
+came from the plugin or the project is **provenance** (`strength_source`), recorded on every
+dispatch — a project patches the same block the plugin ships, so there is nothing to out-rank.
+
+A dispatch naming neither `--activity` nor `--strength` is **refused**: there is no
+`default_strength:`, because work running on a model nobody chose for it is what this design
+exists to prevent. `check-model-config.sh` fails the build if an agent is named by no
+activity, or if two of its activities resolve to different models (the native
+`claude --agent` path can carry only one).
 
 ## `ok` is not "the model returned something"
 
@@ -171,7 +178,7 @@ if needs_worktree(agent) and cwd == REPO: raise DispatchError
 `record()` appends one event per dispatch through the Telemetry port:
 
 ```python
-{"agent", "task", "attempt", "tier", "reason", "tier_source", "model", "effort", "max_budget_usd",
+{"agent", "task", "attempt", "activity", "complexity", "strength", "strength_reason", "strength_source", "model", "effort", "max_budget_usd",
  "task_budget_tokens", "doctrine_chars", "cost_usd", "input_tokens", "output_tokens",
  "cache_read_tokens", "cache_creation_tokens", "cache_hit_pct", "cache_write_pct",
  "models", "turns", "duration_ms", "ok", "terminal", "experiment", "levers",
@@ -186,7 +193,7 @@ Every field is explained in [cost](../concepts/cost.md).
 `cache_hit_pct` and `cache_write_pct` are shares of all prompt tokens the dispatch sent
 (fresh + written + read). They are the numbers a cost analysis otherwise has to
 reconstruct from transcripts by hand: workers in one wave that each start cold show as a
-low hit rate; a resumed agent shows as ~0. `terminal` is why the run ended, so a tier
+low hit rate; a resumed agent shows as ~0. `terminal` is why the run ended, so an activity
 that keeps being killed by its ceiling is visible in `make models-cost` as `kills`.
 
 `env_names` carries variable **names**, never values — `Resolved.redacted()` is the only
@@ -202,7 +209,10 @@ Read it back with `make models-cost`.
 ```bash
 harness/models/dispatch.sh <agent> --prompt-file F [options]
 
-  --tier TIER        override (rank 1)
+  --activity ID      the standard activity this dispatch performs (required)
+  --complexity C     simple | standard | complex, from the epic's surface
+  --strength S       override (rank 1), and the ad-hoc path's mandatory input
+  --max-budget-usd / --task-budget-tokens   ad hoc: what an activity would have given
   --high-risk        force policy escalation
   --task ID          attaches telemetry + permission-request context
   --attempt N        re-dispatch counter
@@ -246,5 +256,5 @@ The plugin installs two (`hooks/hooks.json`), both silent unless they have somet
 | `PreToolUse` (`Agent`, `Task`) | `swarm/guard-agent-tool.sh` | refuses `Agent(subagent_type: <plugin>:<agent>)` with the `dispatch.sh` form to use instead; built-in and other plugins' agents pass |
 | `PreToolUse` (`Bash`) | `swarm/allow-prefixed-wrapper.py` | in a dispatched session only: allows a harness wrapper called with an env-assignment prefix (`VAR=x …/tk.sh …`, `env -u X …/run.sh …`) — one simple call, never a pipe, substitution or `git push`; the commonest denial shape, and innocuous under the sandbox. Plain python3, not the uv wrapper, because it runs on every Bash call |
 
-`--dry-run` prints the tier, model, budget, permission mode, grants, deny list and
+`--dry-run` prints the activity, strength, model, budget, permission mode, grants, deny list and
 readable directories. Use it before believing anything on this page.
