@@ -11,6 +11,7 @@ The one file that makes the harness fit your repository. Written by
 | `harness` | `version`: the plugin version this config was reviewed against — the pre-flights stop when the plugin is newer; see [Upgrading](../upgrading.md) | no, but unstamped is treated as behind |
 | `stacks` | which toolchains, and where each lives | yes |
 | `frameworks` | how to write good code here — independent of the toolchain | no |
+| `declined` | modules present here that you deliberately do not use, `stacks:` / `frameworks:` keyed `name@root`, each with a reason — answers the config check's "present but not declared" warning for that root only, and is printed on every check. Normative: no agent may write it | no |
 | `tracker` | which backend, and where its records live | no (defaults to `beads`) |
 | `beads` | the id prefix the task-hygiene checks build their patterns from | yes, on the beads backend |
 | `swarm` | wave sizing and worker resources | no |
@@ -143,6 +144,25 @@ worker's worktree mid-wave. Matching a language marker and no toolchain marker i
 uv; `pytest` is a choice you made. The module ships a default, `harness.yaml` overrides per
 stack — and **overrides merge rather than replace**, so fixing one rotted command does not
 silently drop the five beside it.
+
+## The setup ledger
+
+`/harness-setup` records which blocks a person has reviewed in `.harness/setup.json`, tracked
+beside the config. **It holds no config values** — only, per block, a state (`confirmed`,
+`declined`, `repaired`, or `defaulted`), the plugin version it was reviewed at, the date, a hash
+of the block's parsed value, and an optional reason — so it can never disagree with
+`harness.yaml` about what the config says, only about whether anyone looked.
+
+- The hash is over the parsed value, so a comment or reformatting changes nothing; a changed
+  value on a confirmed block is reported by the config check as *your edit, unconfirmed*.
+- A block with no entry is owed — which is how an interrupted setup resumes, and why a config
+  from before the ledger is walked once in full.
+- The pre-flight's command repair records `repaired` on the commands block: a machine's change,
+  visible, and never a demotion.
+- Confirming `frameworks` also stores each root's direct dependency **names**; the config check
+  warns when one appears that was not there, since a new framework arrives that way.
+
+Commit it with the config. Absent, nothing warns: the config check never depends on it.
 
 ## Verifying it
 

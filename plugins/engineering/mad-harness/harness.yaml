@@ -15,10 +15,16 @@ slug: madharness
 # when the plugin is newer. See docs/upgrading.md. Here it is also a test: a version
 # bump that forgets to restamp this file fails the suite.
 harness:
-  version: 0.12.0
+  version: 0.13.0
 
 stacks:
   - python-uv-selftest
+
+# `harness/uv.lock` also marks the shipped `python-uv` module, so discovery finds it there;
+# the selftest module above is what covers that root, with the harness's own commands.
+declined:
+  stacks:
+    python-uv@harness: "covered by python-uv-selftest, the harness's own toolchain"
 
 # Frameworks are the second axis: a stack says how to RUN, a framework says how to
 # WRITE. The harness itself is framework-free — it is plain Python by design.

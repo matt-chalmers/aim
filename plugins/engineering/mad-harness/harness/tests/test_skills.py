@@ -162,7 +162,8 @@ def test_each_skill_is_actually_preloaded_by_someone():
     under docs/ where a human will find it, not in a channel built for agents."""
     used = {s for p in AGENTS_DIR.glob("*.md") for s in declared_skills(p.stem)}
     # Invoked rather than preloaded: campaign-loop by the campaign commands,
-    # harness-setup by a human standing up the harness in a new repository.
+    # harness-setup by a human as the `/harness-setup` slash command — a skill that is its
+    # own entry point, declaring its own `allowed-tools` (no command file stands in front).
     invoked = {"campaign-loop", "harness-setup"}
     # Technology doctrine is loaded on demand — preloading it would charge every
     # dispatch in every project for one project's toolchain.
@@ -240,3 +241,97 @@ def test_test_doctrine_carries_no_project_identifier():
         assert ident.lower() not in prose.lower(), (
             f"test-doctrine prose names {ident!r}; it should be generic or generated"
         )
+
+
+# --- harness-setup: the skill's prose follows the block registry -------------------------
+
+
+def _setup_headings(text: str) -> list[str]:
+    import re
+
+    return re.findall(r"^### `([a-z]+)`\s*$", text, re.M)
+
+
+def test_the_setup_skill_walks_the_registry_in_order():
+    """The block order is stated once, in `setup_blocks`; the skill's sections follow it. A
+    skill restating its own order would be a second source of truth the moment the walk, the
+    counter or the ledger needed it."""
+    from models.resolve import _prompts_dir
+    from models.setup_blocks import BLOCKS
+
+    text = (_prompts_dir("skills") / "harness-setup" / "SKILL.md").read_text()
+    assert _setup_headings(text) == [b.id for b in BLOCKS]
+
+
+def test_the_heading_guard_fails_on_a_reordered_skill():
+    from models.setup_blocks import BLOCKS
+
+    reordered = "\n".join(f"### `{b.id}`" for b in reversed(BLOCKS))
+    assert _setup_headings(reordered) != [b.id for b in BLOCKS]
+
+
+def test_the_setup_skill_may_ask_and_may_run_its_scripts():
+    """It is a slash command in its own right (spec D-20): without AskUserQuestion in its own
+    allowed-tools the walk prompts per question, and without the script grant per call."""
+    from models.resolve import _prompts_dir
+
+    text = (_prompts_dir("skills") / "harness-setup" / "SKILL.md").read_text()
+    head = text[: text.index("\n---\n", 3)]
+    line = next(ln for ln in head.splitlines() if ln.startswith("allowed-tools:"))
+    assert "AskUserQuestion" in line and "Bash(${CLAUDE_PLUGIN_ROOT}/harness/*)" in line
+
+
+def test_every_setup_script_the_skill_names_exists():
+    import re
+
+    from models.resolve import PLUGIN_ROOT, _prompts_dir
+
+    skill = _prompts_dir("skills") / "harness-setup"
+    text = (skill / "SKILL.md").read_text() + (skill / "AUTHOR-STACK.md").read_text()
+    named = set(re.findall(r"harness/setup/([a-z]+\.sh)", text))
+    assert named >= {"state.sh", "derive.sh", "write.sh"}
+    assert all((PLUGIN_ROOT / "harness" / "setup" / n).exists() for n in named)
+
+
+def test_every_state_field_the_skill_acts_on_is_one_state_sh_returns():
+    """The skill branches on `state.sh`'s JSON by name; a renamed field would leave the walk
+    reading a key that no longer exists, silently."""
+    import dataclasses
+    import re
+
+    from models.resolve import _prompts_dir
+    from models.setup_state import State
+
+    text = (_prompts_dir("skills") / "harness-setup" / "SKILL.md").read_text()
+    section = text[text.index("## Openings") : text.index("## The blocks")]
+    named = set(re.findall(r"^\d+\. \*\*`([a-z_]+)`\*\*", section, re.M))
+    assert named >= {
+        "refuse",
+        "render_first_run",
+        "queue",
+        "notes",
+        "stamp_due",
+        "nothing_owed",
+    }
+    assert named <= {f.name for f in dataclasses.fields(State)}
+
+
+def _plugin_make_targets(text: str) -> list[str]:
+    import re
+
+    return re.findall(r"\bmake (project|skills|models|commands|refs|docs|check)\b", text)
+
+
+def test_setup_never_sends_a_consumer_to_the_plugins_make_targets():
+    """`make project` and its siblings are targets in the PLUGIN's Makefile; a consumer's
+    repository has none. The setup prose said to run them, and the driven lab run showed an
+    agent writing a Makefile into the owner's repository to obey it. Name the scripts."""
+    from models.resolve import _prompts_dir
+
+    skill = _prompts_dir("skills") / "harness-setup"
+    for name in ("SKILL.md", "AUTHOR-STACK.md"):
+        assert _plugin_make_targets((skill / name).read_text()) == [], name
+
+
+def test_the_make_target_guard_fails_on_the_old_wording():
+    assert _plugin_make_targets("make project        # config valid") == ["project"]

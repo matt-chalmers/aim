@@ -258,7 +258,7 @@ def test_a_repair_is_surfaced_on_the_line_as_a_config_change():
     r = Runner(**{"check-stack-commands.sh": STACK_REPAIRED})
     results = mod.preflight(runner=r, cwd="/repo")
     fix = by_name(results, "check-stack-commands.sh --repair")
-    assert fix.status == OK and "1 command(s) repaired in harness.yaml" in fix.detail and "CHANGED" in fix.detail
+    assert fix.status == OK and "1 command(s) repaired in harness.yaml" in fix.detail and "harness.yaml and .harness/setup.json CHANGED" in fix.detail
     assert mod.exit_code(results) == 0
 
 

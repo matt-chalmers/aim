@@ -36,13 +36,31 @@ not your project, it resolved the wrong one
 ```
 
 `harness.yaml` is the only file the harness needs from you, and it is the seam that makes
-everything else portable. The skill reads what it can — lockfiles, layout, existing test
-commands — and asks about what it cannot infer.
+everything else portable. Setup walks it block by block in dependency order — thirteen blocks,
+a counter showing where you are. For each it derives what the repository already says,
+**writes it, then shows you what it wrote with the evidence** (`python-uv (uv.lock)`), and asks
+only what it cannot infer. Blocks with nothing to ask are confirmed a few at a time. Abandon it
+at any point: the file is valid from the first write, and running it again resumes at the block
+you never answered.
 
-**If your toolchain has no shipped stack module**, this is where you find out — the setup
-skill will say so rather than guess. Writing one is a YAML file in your own repository under
-`.harness/stacks/`, starting from the shipped template; it answers how a fresh worktree is
-made usable and how your suite runs. [What ships, and the schema](reference/stacks.md).
+Run `/harness-setup` again whenever something changes — it works out what is owed itself:
+
+| it finds | it does |
+|---|---|
+| no `harness.yaml` | **first run** — renders one from the template and the repository, then walks every block |
+| the plugin moved on a minor version (`UPGRADE`) | **upgrade** — reads the [upgrade notes](upgrading.md) since your review, applies the mechanical ones, asks the rest, re-stamps |
+| only a patch version moved | **re-stamp** — and asks nothing |
+| a toolchain present that the config does not declare, a confirmed block you edited by hand, or a new dependency since frameworks were confirmed | **revisit** — just those blocks |
+| `/harness-setup repair <block>` | **repair** — that block alone |
+| the config is stamped for a NEWER plugin | **refuses** — update the plugin, not the config |
+
+`/harness-setup revisit` asks it to re-examine the repository even when nothing is flagged.
+
+**If a toolchain or framework in play has no shipped module**, setup notices and offers to
+author one — a YAML file in your own repository under `.harness/stacks/` or
+`.harness/frameworks/`, tracked, mostly derived, and proved before it is declared — or to
+record that you deliberately do not use it, under `declined:` with a reason.
+[What ships, and the schema](reference/stacks.md).
 
 Expect it to push back in two places, because neither can be guessed safely:
 

@@ -444,3 +444,88 @@ def test_the_repo_is_found_by_its_config_not_by_the_git_root(tmp_path):
         f"({marketplace}) carries no config, so every check would read the wrong tree."
     )
     assert got != marketplace.resolve(), "the git root must not win over the config"
+
+
+# --- declined: and the shared stack enumerator ---------------------------------
+
+
+def load_from(d: dict):
+    """A Project from a config dict, written to a scratch file the way `load` reads one."""
+    import tempfile
+    from pathlib import Path
+
+    path = Path(tempfile.mkdtemp()) / "harness.yaml"
+    path.write_text(yaml.safe_dump(d))
+    return load(path)
+
+
+def test_a_template_stem_is_never_offered_as_available():
+    """`_template.yaml` is a schema to copy, not a module to adopt — it was listed in the
+    unknown-stack error's "Available:" until discovery made this the shared enumerator."""
+    from models.project import _available_stacks
+
+    assert "_template" not in _available_stacks()
+    assert "python-uv" in _available_stacks()
+    with pytest.raises(ProjectError, match="Available:") as exc:
+        load_from(
+            {"name": "x", "slug": "x", "areas": [], "stacks": ["no-such-toolchain"]}
+        )
+    assert "_template" not in str(exc.value)
+
+
+def test_declined_parses_and_normalises_a_bare_name_to_the_root():
+    p = load_from(
+        {
+            "name": "x",
+            "slug": "x",
+            "areas": [],
+            "declined": {
+                "stacks": {
+                    "node-npm@tools": "vendored build script",
+                    "python-uv": "covered elsewhere",
+                },
+                "frameworks": {"django@.": "the doctrine does not fit"},
+            },
+        }
+    )
+    assert p.declined() == {
+        "stacks": {
+            "node-npm@tools": "vendored build script",
+            "python-uv@.": "covered elsewhere",
+        },
+        "frameworks": {"django@.": "the doctrine does not fit"},
+    }
+
+
+def test_declined_absent_is_empty_not_an_error():
+    assert load_from({"name": "x", "slug": "x", "areas": []}).declined() == {
+        "stacks": {},
+        "frameworks": {},
+    }
+
+
+@pytest.mark.parametrize(
+    "block, match",
+    [
+        (["node-npm"], "must be a map"),
+        ({"tools": {}}, "unknown key"),
+        ({"stacks": ["node-npm"]}, "must be a map of"),
+        ({"stacks": {"node-npm@tools": ""}}, "has no reason"),
+        ({"stacks": {"node-npm@tools": None}}, "has no reason"),
+        ({"stacks": {"@tools": "why"}}, "names no module"),
+    ],
+)
+def test_a_malformed_declined_block_is_refused_naming_the_entry(block, match):
+    p = load_from({"name": "x", "slug": "x", "areas": [], "declined": block})
+    with pytest.raises(ProjectError, match=match):
+        p.declined()
+
+
+def test_the_templates_tracker_block_is_one_the_loader_accepts():
+    """It said `backend: tasks` — a backend renamed to `beads` at 0.9.1 — so a config copied
+    from the template, or rendered from it by /harness-setup's first run, failed the config
+    check on its first line of tracker config."""
+    from models.resolve import PLUGIN_ROOT
+
+    p = load(PLUGIN_ROOT / "templates" / "harness.yaml.example")
+    assert p.tracker()["backend"] in p.TRACKER_BACKENDS

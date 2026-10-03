@@ -48,6 +48,14 @@ TRACKED_EXPORT = ".beads/issues.jsonl"
 TIMEOUT = 60
 
 
+def installed() -> bool:
+    """Whether the beads binary is on PATH — asked here so nothing outside this adapter has
+    to name it (`test_only_the_beads_adapter_invokes_bd`)."""
+    import shutil
+
+    return shutil.which("bd") is not None
+
+
 def _run(args: list[str], *, cwd: str | None = None, timeout: int = TIMEOUT):
     try:
         return subprocess.run(

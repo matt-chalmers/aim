@@ -96,6 +96,22 @@ directory, which is where a teammate's cost lives, since the harness records non
 redraw. Answering a dialog is a decision a person would have made, so this belongs in the
 lab and nowhere near a real repository. It measured the 0.10.31 agent-teams arms (`docs/upgrading.md`).
 
+### Driving `/harness-setup`
+
+Remove the lab repository's `harness.yaml` and `.harness/setup.json` (and commit) to get a first
+run, and put only `/mad-harness:harness-setup` in the prompts file. Every question — the
+security invariants one included, which offers outcomes rather than proposals — is answered
+with its first option, the recommendation, and a grouped question's review page is submitted.
+A second `---` prompt would be typed into whatever dialog is open when the screen goes quiet,
+so add none. The run proves the walk terminates with a config that passes
+`check-project-config.sh` and a ledger recording the answered blocks — the assertions to make.
+
+A lab-only handle skips the conversation entirely: `harness/setup/write.sh --derive-only`
+writes every derived block, leaves the owed ones absent, and records them `defaulted`. The
+result honestly WARNs. It exists for the lab and the walk test, not for owners — an
+unattended setup would write plausible `security` and `testing.gates`, which is worse than
+a gap.
+
 ## A/B-ing a cost lever
 
 Every cost lever in `harness/models/levers.py` is a switch, off until measured. This is

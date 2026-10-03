@@ -160,6 +160,92 @@ def _unused_strengths(cfg: dict) -> list[str]:
     return [f"strength {name!r} is reachable from no activity — dead, or a typo in a chain"
             for name in sorted(set(cfg.get("strengths") or {}) - reachable)]
 
+def _report_discovery(p, warnings: list[str], failures: list[str]) -> None:
+    """What is in play that the config does not say, and what the owner changed unreviewed.
+
+    ALL OF IT WARNS, NONE OF IT GATES — and `--strict` promotes only UPGRADE, so none of it
+    is promoted either. The one failure is a malformed `declined:` block, which is a config
+    error like any other, not a discovery finding. Discovery's false-positive rate is unmeasured (a vendored lockfile, a
+    docs site's package.json), and a gate on an unmeasured signal gets switched off and then
+    catches nothing. Every warning names what to run, and every one is answerable: a
+    `declined:` entry, or a /harness-setup revisit that re-confirms the block.
+    """
+    from .discover import discover
+
+    try:
+        declined = p.declined()
+        found = discover(p)
+    except ProjectError as exc:
+        failures.append(str(exc))
+        return
+
+    print("\nmodules:")
+    for f in found:
+        print(
+            f"  {f.kind:<9} {f.name:<14} {f.root:<10} {f.state:<10} {_mark(f)}  ({', '.join(f.evidence)})"
+        )
+        if (
+            f.kind == "stack"
+            and f.state == "present"
+            and not f.declared
+            and not f.declined
+        ):
+            where = "the root" if f.root == "." else f"{f.root}/"
+            warnings.append(
+                f"{f.name} is present at {where} ({', '.join(f.evidence)}) but not declared "
+                f"— /harness-setup revisit"
+            )
+
+    # PRINTED EVERY RUN: a suppression written once and then invisible is how a repository
+    # silently stops covering a toolchain.
+    entries = [
+        (kind, key, why)
+        for kind in ("stacks", "frameworks")
+        for key, why in declined[kind].items()
+    ]
+    if entries:
+        print("declined:")
+        for kind, key, why in entries:
+            print(f"  {kind[:-1]:<9} {key:<24} {why}")
+
+    _report_ledger(p, warnings)
+
+
+def _mark(f) -> str:
+    if f.declared:
+        return "declared"
+    return "DECLINED" if f.declined else "undeclared"
+
+
+def _report_ledger(p, warnings: list[str]) -> None:
+    """Hand edits since a block was confirmed, and dependencies new since block 3's snapshot.
+
+    The setup ledger is optional — a config predating it, or a repository that never ran
+    setup, has none — so its absence says nothing rather than warning on every check."""
+    from .discover import dependencies, roots
+    from .setup_ledger import LedgerError, dependency_drift, hash_stale, read
+
+    try:
+        ledger = read()
+    except LedgerError as exc:
+        warnings.append(
+            f"{exc} — the setup ledger cannot be read; /harness-setup will refuse until it is fixed"
+        )
+        return
+    for block in hash_stale(p.raw, ledger):
+        warnings.append(
+            f"{block} changed since it was confirmed (your edit, unconfirmed) — /harness-setup revisit"
+        )
+    candidate_roots, _ = roots()
+    current = {r: d for r in candidate_roots if (d := dependencies(r))}
+    for root, names in dependency_drift(ledger, current).items():
+        where = "the root" if root == "." else f"{root}/"
+        warnings.append(
+            f"new dependencies at {where} since frameworks were confirmed: {', '.join(names)} "
+            f"— /harness-setup revisit if one is a framework"
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     strict = "--strict" in args
@@ -342,6 +428,8 @@ def main(argv: list[str] | None = None) -> int:
                 f"{list(s.detect_any)} exist under root {s.root!r} — either the project "
                 f"does not use it, or its `root` is wrong for this layout"
             )
+
+    _report_discovery(p, warnings, failures)
 
     print(f"\nareas: {len(p.areas)}")
     for a in p.areas:

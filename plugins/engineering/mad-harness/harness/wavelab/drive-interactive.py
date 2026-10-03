@@ -64,9 +64,25 @@ REPEATED = {
     b"Doyouwanttoproceed?": b"\r",       # a Bash permission ask: option 1, Yes
     # AskUserQuestion: the first option, which /design writes as the recommendation.
     b"Entertoselect": b"\r",
+    # An AskUserQuestion carrying SEVERAL questions ends on a review page — option 1 is
+    # "Submit answers". /harness-setup groups its confirmations, so its first grouped
+    # question sat here unanswered until the driver read the quiet screen as a finished run.
+    b"Readytosubmityouranswers?": b"\r",
+    # The option cursor resting on option 1. A multi-question dialog redraws only what
+    # changed, so after one tab is answered the next tab's "Enter to select" footer is
+    # often never re-sent — the cursor is the one sign left that a question is waiting.
+    "❯1.".encode(): b"\r",
 }
+#: The screen as last drawn, NEVER cleared — `recent` is reset after every answer, so a dialog
+#: whose final redraw arrived just before an answer the TUI swallowed would otherwise be
+#: invisible on a screen that never redraws again (the driven /harness-setup run stalled on
+#: exactly that for ten minutes).
+screen = b""
+last_output = time.time()
+
+
 def drain(timeout=0.2):
-    global recent
+    global recent, screen, last_output
     r, _, _ = select.select([fd], [], [], timeout)
     if fd in r:
         try:
@@ -78,7 +94,25 @@ def drain(timeout=0.2):
         log.write(data)
         log.flush()
         recent = (recent + data)[-20000:]
+        screen = (screen + data)[-20000:]
+        last_output = time.time()
     return True
+
+
+def answer_stuck_dialog():
+    """A dialog still showing on a screen that has not changed for a while, and not answered
+    since: answer it again. A dialog waits silently; a working session redraws."""
+    now = time.time()
+    if now - last_output < 8 or now - max(last_repeat.values(), default=0) < 8:
+        return False
+    plain = _plain(screen[-4000:])
+    if b"Entertoselect" in plain or "❯1.".encode() in plain or b"Readytosubmityouranswers?" in plain:
+        os.write(fd, b"\r")
+        last_repeat[b"stuck"] = now
+        print(f"[drive] answered a dialog left waiting at {now-start:.0f}s", flush=True)
+        time.sleep(1.5)
+        return True
+    return False
 
 
 def _plain(b: bytes) -> bytes:
@@ -91,7 +125,7 @@ def answer_repeated():
     plain = _plain(recent[-4000:])
     now = time.time()
     for frag, keys in REPEATED.items():
-        gap = 3 if frag == b"Entertoselect" else 8
+        gap = 3 if frag in (b"Entertoselect", "❯1.".encode()) else 8
         if frag in plain and now - last_repeat.get(frag, 0) > gap:
             time.sleep(0.6)
             os.write(fd, keys)
@@ -123,6 +157,8 @@ try:
         if answer_dialogs():
             continue
         if answer_repeated():
+            continue
+        if answer_stuck_dialog():
             continue
         # the input box: the prompt is sent once the TUI shows its prompt marker and no dialog is pending
         if not sent and time.time() - start > 10 and "❯".encode() in recent and b"Entertoconfirm" not in _plain(recent[-4000:]):
