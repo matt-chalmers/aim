@@ -511,6 +511,35 @@ class Project:
             out[str(name)] = port
         return out
 
+    def declined(self) -> dict[str, dict[str, str]]:
+        """The `declined:` block — modules present in this repository that the project
+        deliberately does not use, each `name@root` with the reason.
+
+        In `harness.yaml` rather than in the setup ledger: it is committed and reviewable in
+        a diff, `check_project` must not depend on a file that may be absent, and losing the
+        ledger would otherwise bring every silenced discovery warning back. Keyed by ROOT,
+        so declining a vendored `node-npm` under `tools/` cannot hide a real one at `web/`.
+        A REASON is required because a bare name reads as an oversight six months later.
+        Normative (`check_commands._NORMATIVE`): an agent able to write it could silence the
+        warning about itself.
+        """
+        raw = self.raw.get("declined")
+        if raw is None:
+            return {"stacks": {}, "frameworks": {}}
+        if not isinstance(raw, dict):
+            raise ProjectError(
+                "declined: must be a map with `stacks:` and/or `frameworks:`"
+            )
+        unknown = set(raw) - {"stacks", "frameworks"}
+        if unknown:
+            raise ProjectError(
+                f"declined: unknown key(s) {', '.join(sorted(unknown))}; expected stacks, frameworks"
+            )
+        return {
+            kind: _declined_entries(kind, raw.get(kind) or {})
+            for kind in ("stacks", "frameworks")
+        }
+
     def tracker(self) -> dict[str, Any]:
         """The `tracker:` block, validated. Absent means tasks, exactly as before.
 
@@ -689,6 +718,24 @@ class Project:
         return env
 
 
+def _declined_entries(kind: str, block: Any) -> dict[str, str]:
+    """One `declined.<kind>` map, normalised to `name@root: reason` (a bare name is `@.`)."""
+    if not isinstance(block, dict):
+        raise ProjectError(f"declined.{kind} must be a map of `name@root: reason`")
+    entries: dict[str, str] = {}
+    for key, reason in block.items():
+        if not isinstance(reason, str) or not reason.strip():
+            raise ProjectError(
+                f"declined.{kind}.{key} has no reason — say why, or a reader six "
+                f"months on cannot tell a decision from an oversight"
+            )
+        name, _, root = str(key).partition("@")
+        if not name:
+            raise ProjectError(f"declined.{kind}.{key!r} names no module")
+        entries[f"{name}@{root or '.'}"] = reason.strip()
+    return entries
+
+
 def _stack_path(name: str) -> Path:
     """Project-local stack modules shadow the harness's own."""
     local = PROJECT_STACKS_DIR / f"{name}.yaml"
@@ -696,10 +743,16 @@ def _stack_path(name: str) -> Path:
 
 
 def _available_stacks() -> list[str]:
+    """Every stack module a project could name, project-local and shipped.
+
+    A leading underscore marks a template, not a module: `_template.yaml` was offered here
+    as "available" in the unknown-stack error until discovery (`discover.available`) made
+    this the shared enumerator and an offered template became a module a consumer could
+    adopt."""
     names = {p.stem for p in STACKS_DIR.glob("*.yaml")}
     if PROJECT_STACKS_DIR.exists():
         names |= {p.stem for p in PROJECT_STACKS_DIR.glob("*.yaml")}
-    return sorted(names)
+    return sorted(n for n in names if not n.startswith("_"))
 
 
 def _load_stack(entry: str | dict) -> Stack:

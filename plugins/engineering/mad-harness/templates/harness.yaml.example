@@ -17,7 +17,7 @@ slug: acme                    # lowercase, no hyphens — names per-worker resou
 # stop until /harness-setup has applied the upgrade notes (docs/upgrading.md) and
 # re-stamped. Leave it out and every pre-flight treats the config as unreviewed.
 harness:
-  version: 0.12.0
+  version: 0.13.0
 
 # Toolchains: how to RUN things. See harness/stacks/ for shipped modules, and add
 # your own under .harness/stacks/ to shadow or extend them.
@@ -51,6 +51,16 @@ frameworks:
   - django
   - nextjs
 
+# Modules present in this repository that this project deliberately does not use. The
+# config check warns about a toolchain it finds but you did not declare; an entry here
+# answers that warning, keyed `name@root` so declining one location cannot hide another.
+# A reason, because a bare name reads as an oversight six months later.
+# declined:
+#   stacks:
+#     node-npm@tools: "a vendored build script; no worker ever runs there"
+#   frameworks:
+#     django@.: "we use it; the doctrine does not fit our layout — revisit later"
+
 # ---------------------------------------------------------------------------
 # The task tracker. OMIT THIS BLOCK ENTIRELY to keep today's behaviour — `beads`, which
 # is what every project used before the backend became swappable.
@@ -61,7 +71,7 @@ frameworks:
 # where the records live, so all three have one implementation whatever you choose here.
 # ---------------------------------------------------------------------------
 tracker:
-  backend: tasks              # tasks | mdfiles
+  backend: beads              # beads | mdfiles
 
   # --- mdfiles only ---------------------------------------------------------
   # Markdown records instead of a database. The one thing it buys: the tracked artefact

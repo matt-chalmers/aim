@@ -4,8 +4,16 @@
 # probe-worktree.sh's first run refused to init a worktree on it.)
 name: python-uv-selftest
 description: The harness's own test suite, resolved from its own pyproject.
+# THE HARNESS'S OWN, never a consumer's: discovery (models/discover.py) offers every module
+# it finds in play, and this one would otherwise be offered to any repository with a uv
+# lockfile. Declarative rather than a name rule, which is the shape this corpus rejects.
+internal: true
 root: harness
-detect_any: [pytest.ini]
+# The TOOLCHAIN's marker, not the test runner's. This said `pytest.ini`, which contradicts
+# the doctrine the setup skill argues ("name the toolchain's own marker, not the
+# language's") and only ever held because it was checked at `root: harness` alone.
+detect_any: [uv.lock]
+detect_language: [pyproject.toml]
 dependency_dir: .venv-none
 bootstrap:
   strategy: none

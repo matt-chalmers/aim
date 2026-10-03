@@ -1864,3 +1864,45 @@ bundled into `tier` to where they belong.
   combinations resolve to exactly the model, thinking, ceiling and told-budget they resolved
   to at 0.11.0. Zero behavioural delta, which is what lets a change this size ship without
   owing a new measurement.
+
+### 0.13.0
+
+**Guided setup, and the ability to revisit it.** `/harness-setup` now walks `harness.yaml` one
+block at a time in dependency order, showing what it derived from the repository and asking
+only what it cannot infer — and, run again, it works out for itself what is owed: an upgrade, a
+toolchain that appeared, a block you edited by hand. The flow and its openings are described in
+[getting started](getting-started.md#2-describe-the-repository); the new config block and the
+setup ledger in the [`harness.yaml` reference](reference/harness-yaml.md). A minor bump by the
+version rule, because `declined:` is a new block.
+
+- **What was wrong.** Detection was verification of a declaration, never discovery:
+  `Stack.present()` ran only over stacks the config already listed, so a repository that gained
+  a lockfile after setup was never told a module existed. The setup skill was 321 lines of prose
+  with one instruction to involve the owner and no way to ask a structured question; whether
+  anyone was walked through anything depended on which agent read it.
+- **Discovery** (`models/discover.py`) loops the existing classification over every module and
+  every depth-1 directory. The config check now prints a `modules:` section and **warns — never
+  fails —** for a toolchain present but not declared, naming what to run; it also warns for a
+  confirmed block changed by hand and for a direct dependency new since frameworks were
+  confirmed. None of it is promoted by `--strict`.
+- **Toolchains and frameworks no module covers** are setup's to find and support: it reads each
+  root's files and dependencies, and offers to author a module under `.harness/stacks/` or
+  `.harness/frameworks/` — or to record a deliberate decline.
+- **`.harness/setup.json`**, tracked, records which blocks a person reviewed — no config values.
+  The pre-flight's command repair records itself there as `repaired`, so the harness never warns
+  about drift it caused.
+- **Two fixes found on the way.** The template's tracker line read `backend: tasks`, a backend
+  renamed at 0.9.1, so a config copied from it failed its first check. And the stack-command
+  repair never read a CI step written `- run: <cmd>` — the commonest workflow form — so it found
+  fewer candidates than the repository declared.
+
+- **ask the owner** — run `/harness-setup` once. Your config predates the ledger, so every block
+  is presented once to record what you have reviewed; blocks with nothing to ask are confirmed a
+  few at a time. Nothing you already settled is rewritten unless you change it.
+- **mechanical** — nothing in the config is required. `declined:` is optional, and needed only
+  to answer a "present but not declared" warning for a toolchain you deliberately do not use.
+- **mechanical** — commit `.harness/setup.json` with the config; it travels with the repository.
+- **mechanical** — re-stamp `harness.version`.
+
+Measured on real repositories by hand — elapsed time, stops, and derived values the owner had to
+correct — after this release; the numbers will follow in a patch release's notes.

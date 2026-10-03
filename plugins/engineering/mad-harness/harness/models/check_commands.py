@@ -88,6 +88,9 @@ _NORMATIVE = (
     "activities",
     "strengths",
     "providers",
+    # WHICH PRESENT MODULES THE PROJECT CHOSE NOT TO USE. Each entry silences a discovery
+    # warning, so an agent able to write one could silence the warning about itself.
+    "declined",
 )
 
 #: Command keys worth probing. `test_scoped` is the one workers actually use, so
@@ -154,7 +157,10 @@ def _ci_commands() -> list[str]:
             text = f.read_text()
         except OSError:
             continue
-        for m in re.finditer(r"^\s*run:\s*(.+)$", text, re.M):
+        # `- run: …` is how most workflows write a step; the bare `run:` form only appears
+        # under a step that has a `name:` first. Missing the dash form read nothing at all
+        # from the commonest workflow layout.
+        for m in re.finditer(r"^\s*(?:-\s+)?run:\s*(.+)$", text, re.M):
             line = m.group(1).strip().strip("|>").strip()
             if line and "\n" not in line:
                 out.append(line)
@@ -280,6 +286,7 @@ def write_repair(stack: str, key: str, command: str, path: Path | None = None) -
         if body is None:
             return False  # already correct: idempotent, writes nothing
         p.write_text(head + body + tail)
+        _record_repair(p)
         return True
 
     # The stack is named as a bare string; promote it to a mapping so it can
@@ -293,7 +300,39 @@ def write_repair(stack: str, key: str, command: str, path: Path | None = None) -
     pad = m.group(1)
     block = f"{pad}- name: {stack}\n{pad}  commands:\n{pad}    {key}: {command}{stamp}"
     p.write_text(bare.sub(block, text, count=1))
+    _record_repair(p)
     return True
+
+
+def _record_repair(config: Path) -> None:
+    """Record the repair in the setup ledger, beside the config it changed, as `repaired` on
+    the `commands` block.
+
+    WITHOUT THIS THE HARNESS NAGS ABOUT ITSELF. This runs on every campaign and swarm
+    pre-flight (`preflight.STACK_COMMANDS`, a write step), and it changes a value. Had the
+    ledger hashed commands with the stack decision, the owner's confirmed `stacks` block
+    would demote on the next check and warn about drift the harness caused — forever. So
+    commands are their own block (`setup_blocks`, spec D-23) and a machine's change is
+    recorded as one: `repaired` is not a demotion and warns nobody.
+
+    A ledger failure is reported, never raised: the config fix is the point, and the
+    ledger only records it."""
+    import sys
+
+    import yaml
+
+    from .setup_ledger import LedgerError, record
+
+    try:
+        raw = yaml.safe_load(config.read_text()) or {}
+        record(
+            "commands", "repaired", raw, path=config.parent / ".harness" / "setup.json"
+        )
+    except (LedgerError, OSError, ValueError, yaml.YAMLError) as exc:
+        print(
+            f"  (the repair was written; recording it in the setup ledger failed: {exc})",
+            file=sys.stderr,
+        )
 
 
 # --- the ladder ---------------------------------------------------------------

@@ -490,11 +490,51 @@ def test_every_command_that_runs_a_harness_script_is_permitted_to():
     matched. `$HARNESS_ROOT` cannot serve here — it is exported by the dispatcher and is
     UNSET in an interactive session, where these commands actually run.
     """
-    import re
-
     from models.resolve import _prompts_dir
 
-    skills_dir = _prompts_dir("skills")
+    prompts = sorted(_prompts_dir("commands").glob("*.md"))
+    # A user-invocable skill that declares its own `allowed-tools` IS a slash command (the
+    # harness-setup entry is one: spec D-20), so it is held to the same rule.
+    prompts += [
+        p
+        for p in sorted(_prompts_dir("skills").glob("*/SKILL.md"))
+        if "allowed-tools:" in _frontmatter(p)
+    ]
+    offenders = _permission_offenders(prompts, _prompts_dir("skills"))
+    assert not offenders, "\n  ".join(offenders)
+
+
+def test_the_permission_guard_fails_on_a_skill_that_runs_scripts_unpermitted(tmp_path):
+    """The companion: a skill declaring `allowed-tools` without the harness grant, which
+    runs a harness script, is an offender."""
+    skill = tmp_path / "skills" / "fixture" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\nname: fixture\nallowed-tools: Read, AskUserQuestion\n---\n"
+        "Run `${CLAUDE_PLUGIN_ROOT}/harness/setup/state.sh`.\n"
+    )
+    assert _permission_offenders([skill], tmp_path / "skills") == [
+        "SKILL.md: runs harness scripts directly, but does not permit it"
+    ]
+    skill.write_text(
+        skill.read_text().replace(
+            "Read,", "Bash(${CLAUDE_PLUGIN_ROOT}/harness/*), Read,"
+        )
+    )
+    assert _permission_offenders([skill], tmp_path / "skills") == []
+
+
+def _frontmatter(path) -> str:
+    text = path.read_text()
+    return (
+        text[: text.index("\n---\n", 3)]
+        if text.startswith("---") and "\n---\n" in text[3:]
+        else ""
+    )
+
+
+def _permission_offenders(prompts, skills_dir) -> list[str]:
+    import re
 
     def invokes(text: str, depth: int = 0) -> str | None:
         """Whether this prompt runs a harness script — directly, or through a skill.
@@ -521,15 +561,15 @@ def test_every_command_that_runs_a_harness_script_is_permitted_to():
         return None
 
     offenders = []
-    for p in sorted(_prompts_dir("commands").glob("*.md")):
+    for p in prompts:
         text = p.read_text()
-        head = text[: text.index("\n---\n", 3)]
-        how = invokes(text)
+        head = _frontmatter(p)
+        how = invokes(text[len(head) :] if head else text)
         if how and "Bash(${CLAUDE_PLUGIN_ROOT}/harness/*)" not in head:
             offenders.append(
                 f"{p.name}: runs harness scripts {how}, but does not permit it"
             )
-    assert not offenders, "\n  ".join(offenders)
+    return offenders
 
 
 def test_the_prompts_contain_no_broken_prose():

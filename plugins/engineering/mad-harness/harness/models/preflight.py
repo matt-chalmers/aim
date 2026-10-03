@@ -177,7 +177,7 @@ def judge(step: Step, raw: Raw) -> Result:
     if step is STACK_COMMANDS and raw.returncode == 0:
         m = REPAIRED.search(raw.stdout)
         if m:
-            return Result(step.name, OK, f"{m.group(0)} — harness.yaml CHANGED; commit it with the wave", raw)
+            return Result(step.name, OK, f"{m.group(0)} — harness.yaml and .harness/setup.json CHANGED; commit both with the wave", raw)
         return Result(step.name, OK, tail(raw.stdout, 1) or "every declared command works", raw)
 
     if raw.returncode != 0:

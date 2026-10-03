@@ -330,6 +330,52 @@ def test_a_repair_is_idempotent(tmp_path):
     assert p.read_text() == before, "a second run must not churn the file"
 
 
+def test_a_repair_records_itself_on_the_commands_block_and_leaves_stacks_confirmed(
+    tmp_path, monkeypatch
+):
+    """THE LIVE PRE-FLIGHT COLLISION. The repair runs on every campaign and swarm pre-flight
+    and changes a value; if it touched the hash of the owner's confirmed `stacks` block, the
+    next config check would warn about drift the harness itself caused, forever."""
+    import json
+
+    import models.project as project
+    from models.setup_ledger import hash_stale, read, record
+
+    monkeypatch.setattr(project, "REPO", tmp_path)
+    p = tmp_path / "harness.yaml"
+    p.write_text(COMMENTED)
+    record("stacks", "confirmed", yaml.safe_load(COMMENTED))
+    stacks_before = read()["blocks"]["stacks"]
+
+    assert write_repair("python-uv", "test_scoped", "uv run pytest {path}", p)
+
+    ledger = json.loads((tmp_path / ".harness" / "setup.json").read_text())
+    assert ledger["blocks"]["commands"]["state"] == "repaired"
+    assert ledger["blocks"]["stacks"] == stacks_before, (
+        "the stack decision was not touched"
+    )
+    assert hash_stale(yaml.safe_load(p.read_text()), ledger) == []
+
+
+def test_a_no_op_repair_writes_no_ledger(tmp_path):
+    p = tmp_path / "harness.yaml"
+    p.write_text(COMMENTED)
+    assert write_repair("python-uv", "test_scoped", "uv run pytest {path}", p)
+    ledger = (tmp_path / ".harness" / "setup.json").read_text()
+    assert not write_repair("python-uv", "test_scoped", "uv run pytest {path}", p)
+    assert (tmp_path / ".harness" / "setup.json").read_text() == ledger
+
+
+def test_a_ledger_failure_never_undoes_the_repair(tmp_path, capsys):
+    p = tmp_path / "harness.yaml"
+    p.write_text(COMMENTED)
+    (tmp_path / ".harness").mkdir()
+    (tmp_path / ".harness" / "setup.json").write_text("{corrupt")
+    assert write_repair("python-uv", "test_scoped", "uv run pytest {path}", p)
+    assert "uv run pytest {path}" in p.read_text()
+    assert "recording it in the setup ledger failed" in capsys.readouterr().err
+
+
 def test_a_bare_string_stack_is_promoted_to_carry_the_override(tmp_path):
     """`stacks: [python-uv]` is the common form; it must still be repairable."""
     p = tmp_path / "harness.yaml"
@@ -360,7 +406,7 @@ def test_repair_refuses_a_normative_key(tmp_path):
     """
     p = tmp_path / "harness.yaml"
     p.write_text(COMMENTED)
-    for key in ("security", "security.invariants", "signals", "testing", "slug"):
+    for key in ("security", "security.invariants", "signals", "testing", "slug", "declined"):
         with pytest.raises(ValueError, match="agent-maintained"):
             write_repair("python-uv", key, "anything", p)
     assert "security" in _NORMATIVE and "signals" in _NORMATIVE
@@ -444,3 +490,17 @@ def test_a_worktree_without_a_swarm_env_still_runs(tmp_path, monkeypatch):
 
     assert mod.run_key(mkstack(commands={"test": "true"}), "test",
                        runner=runner, check_tool=False).ok
+
+
+def test_ci_commands_read_both_step_forms(tmp_path, monkeypatch):
+    """`- run: cmd` is the commonest way a workflow writes a step, and the reader missed it."""
+    import models.check_commands as cc
+
+    wf = tmp_path / ".github" / "workflows"
+    wf.mkdir(parents=True)
+    (wf / "ci.yml").write_text(
+        "jobs:\n  t:\n    steps:\n      - run: go mod download\n"
+        "      - name: test\n        run: go test ./...\n"
+    )
+    monkeypatch.setattr(cc, "REPO", tmp_path)
+    assert cc._ci_commands() == ["go mod download", "go test ./..."]

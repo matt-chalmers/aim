@@ -20,6 +20,20 @@ rules match the text before the shell expands anything.
 `dispatch.sh --dry-run` prints the resolved model, tier, budget, permission mode and grants
 without spending anything. It is the fastest way to see what a dispatch *would* do.
 
+## Setup
+
+What [`/harness-setup`](../getting-started.md#2-describe-the-repository) calls. Each prints JSON
+for the skill; only `write.sh` changes anything.
+
+| script | does |
+|---|---|
+| `setup/state.sh [revisit \| repair <block>]` | the opening and the owed blocks with why, computed from the config, the ledger, the stamp and discovery — never stored |
+| `setup/derive.sh [--block <id>]` | per block: derived values with their evidence, candidates shown but never written, and what only the owner can answer; runs the stack-command probe for the commands block |
+| `setup/derive.sh stack-breakout --root <r> [--time-bootstrap "<cmd>"]` | pick-lists for authoring a stack module, and a restore timed in a scratch worktree |
+| `setup/write.sh <block> [--state …] < values.json` / `--render-first-run` | the only writer of `harness.yaml` during setup: edits only the lines whose values change, refuses inside a worker or worktree (exit 4), and refuses rather than guesses (exit 3, with the fragment to paste) |
+| `setup/discover.sh [--json]` | every module in play at every candidate root, plus each root's listing and direct dependencies |
+| `setup/notes.sh [--after <version>]` | the upgrade notes newer than a stamp, items split by their **mechanical** / **ask the owner** tags |
+
 ## Verification
 
 | script | does |
