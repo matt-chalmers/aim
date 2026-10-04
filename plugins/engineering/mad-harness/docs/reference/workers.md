@@ -21,7 +21,7 @@ that writes to disk.
 | state | scope | writer |
 |---|---|---|
 | source tree, git index, branch | **per worker** | that worker |
-| `.venv` / `node_modules` | hardlink/symlink to primary | nobody — read-only in effect |
+| dependency dir (`.venv`, `node_modules`) | per the stack's [`bootstrap.strategy`](stacks.md#bootstrapstrategy): **per worker** under `install` (`.venv`: restored from the shared cache), **symlinked to primary** under `symlink` (`node_modules`) | that worker under `install`; nobody under `symlink`, which is read-only in effect |
 | `DB_NAME` (test database) | **per worker** | that worker |
 | tracker hot store | **shared**, absolute path | any worker |
 | claims, merge-slot lease | **shared** | any worker, via `O_EXCL` |
@@ -83,7 +83,8 @@ unmerged commits are copied under `.harness/halted-<date>/` before anything is r
 # created by dispatch when the agent declares isolation: worktree
 harness/swarm/swarm-worktree-init.sh <n> <lane>
   # git worktree add .claude/worktrees/harness-w<n>-<task>
-  # hardlink .venv / symlink node_modules from the primary checkout
+  # restore each stack's dependency dir per its bootstrap.strategy:
+  #   install (e.g. .venv, from the shared cache) or symlink (e.g. node_modules)
   # write .swarm-env
 
 # reclaimed after the wave
